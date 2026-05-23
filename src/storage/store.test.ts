@@ -1,0 +1,50 @@
+import {mkdtempSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it} from 'vitest';
+import {JsonLibraryStore} from './store.js';
+import type {Station} from '../types.js';
+
+const roots: string[] = [];
+
+describe('JsonLibraryStore', () => {
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it('persists recents, favorites, and settings', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const station: Station = {
+      id: 'station-1',
+      provider: 'radio-browser',
+      name: 'Test FM',
+      tags: ['test']
+    };
+
+    const store = new JsonLibraryStore(file);
+    store.addRecent(station);
+    store.toggleFavorite(station);
+    store.addImported([{...station, id: 'custom-1', provider: 'playlist', streamUrl: 'https://example.com/live'}]);
+    store.updateSettings({theme: 'amber'});
+
+    const reloaded = new JsonLibraryStore(file).snapshot();
+    expect(reloaded.recent[0]?.station.name).toBe('Test FM');
+    expect(reloaded.favorites[0]?.id).toBe('station-1');
+    expect(reloaded.imported[0]?.id).toBe('custom-1');
+    expect(reloaded.settings.theme).toBe('amber');
+  });
+
+  it('backs up corrupt store files before resetting', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(file, '{not json', 'utf8');
+    const store = new JsonLibraryStore(file);
+    expect(store.snapshot().settings.theme).toBe('green');
+    expect(readdirSync(root).some(name => name.startsWith('library.json.bad-'))).toBe(true);
+  });
+});

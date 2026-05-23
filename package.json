@@ -1,0 +1,34 @@
+{
+  "name": "radio-atlas",
+  "version": "0.1.0",
+  "description": "A terminal world radio receiver built with Ink.",
+  "type": "module",
+  "bin": {
+    "radio-atlas": "./dist/cli.js",
+    "radio": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "smoke:data": "tsx src/smoke/data-smoke.ts",
+    "smoke:playback": "tsx src/smoke/playback-smoke.ts"
+  },
+  "dependencies": {
+    "ink": "^7.0.3",
+    "react": "^19.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.6",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
