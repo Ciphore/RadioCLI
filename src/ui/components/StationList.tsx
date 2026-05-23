@@ -11,14 +11,15 @@ type StationListProps = {
   selected: number;
   theme: ThemeName;
   favorites: Set<string>;
+  pageSize: number;
 };
 
-export function StationList({stations, selected, theme, favorites}: StationListProps): React.ReactElement {
+export function StationList({stations, selected, theme, favorites, pageSize}: StationListProps): React.ReactElement {
   if (stations.length === 0) {
     return <Text color="gray">No stations found.</Text>;
   }
 
-  const window = visibleWindow(stations, selected, 15);
+  const window = visibleWindow(stations, selected, pageSize);
 
   return (
     <Box flexDirection="column">

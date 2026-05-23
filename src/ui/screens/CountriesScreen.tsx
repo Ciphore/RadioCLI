@@ -12,6 +12,7 @@ type CountriesProps = {
   filter: string;
   editingFilter: boolean;
   theme: ThemeName;
+  pageSize: number;
 };
 
 export function CountriesScreen({
@@ -20,14 +21,15 @@ export function CountriesScreen({
   loading,
   filter,
   editingFilter,
-  theme
+  theme,
+  pageSize
 }: CountriesProps): React.ReactElement {
-  const window = visibleWindow(countries, selected, 18);
+  const window = visibleWindow(countries, selected, pageSize);
 
   return (
     <Box flexDirection="column">
       <Text bold>Countries</Text>
-      <Text color="gray">
+      <Text color={editingFilter ? themeAccent(theme) : 'gray'}>
         {editingFilter ? 'Type a country filter, Enter to apply, Esc to cancel' : '/ filter · Enter opens stations · b back'}
       </Text>
       <Text>

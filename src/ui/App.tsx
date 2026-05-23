@@ -12,6 +12,7 @@ import {SearchScreen} from './screens/SearchScreen.js';
 import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
 import {SettingsScreen, settingsItems} from './screens/SettingsScreen.js';
 import {MapScreen} from './screens/MapScreen.js';
+import {computeTerminalLayout} from './layout.js';
 
 type AppProps = {
   store?: JsonLibraryStore;
@@ -85,9 +86,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const displayStations = useMemo(() => applyStationFilters(stationContext.stations, filters), [filters, stationContext.stations]);
   displayStationsRef.current = displayStations;
   const sleepLabel = sleepUntil ? `Sleep ${formatTimeLeft(sleepUntil - Date.now())}` : 'Sleep off';
-  const terminalColumns = stdout.columns ?? 100;
-  const terminalRows = stdout.rows ?? 30;
-  const compactTerminal = terminalColumns < 64 || terminalRows < 18;
+  const layout = computeTerminalLayout(stdout.columns ?? 100, stdout.rows ?? 30);
 
   useEffect(() => player.onChange(setPlayback), [player]);
 
@@ -813,11 +812,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }
 
   const content = (() => {
-    if (compactTerminal) {
+    if (layout.compact) {
       return (
         <Box flexDirection="column">
           <Text bold>Radio Atlas</Text>
-          <Text color={themeAccent(theme)}>Terminal too small: {terminalColumns}x{terminalRows}</Text>
+          <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
           <Text color="gray">Resize to at least 64x18 for the full receiver UI.</Text>
           <Text color="gray">Playback: {playback.state} · {playback.backend}</Text>
           <Text color="gray">q quit · Ctrl+C always exits</Text>
@@ -838,6 +837,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           filter={countryFilter}
           editingFilter={editingCountryFilter}
           theme={theme}
+          pageSize={layout.countryRows}
         />
       );
     }
@@ -849,6 +849,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           selected={selected}
           loading={loadingCountries}
           theme={theme}
+          pageSize={layout.mapCountryRows}
+          mode={layout.mapMode}
         />
       );
     }
@@ -865,6 +867,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           favorites={favoriteKeys}
           experimentalOn={library.settings.enableRadioGarden}
           filterLabel={filterLabel}
+          pageSize={layout.stationRows}
         />
       );
     }
@@ -880,6 +883,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           theme={theme}
           favorites={favoriteKeys}
           filterLabel={filterLabel}
+          pageSize={layout.stationRows}
         />
       );
     }
@@ -897,7 +901,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           sleepLabel={sleepLabel}
           showDiagnostics={showDiagnostics}
           stationTime={stationApproximateTime(playingStation)}
-          width={Math.min(74, Math.max(62, terminalColumns - 4))}
+          width={layout.receiverWidth}
         />
       );
     }
@@ -921,22 +925,22 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   })();
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      {content}
-      {message ? (
-        <Box marginTop={1}>
-          <Text color={themeAccent(theme)}>{message}</Text>
-        </Box>
-      ) : null}
-      {commandMode ? (
-        <Box marginTop={1}>
-          <Text color={themeAccent(theme)}>:{commandText}</Text>
-        </Box>
-      ) : (
-        <Box marginTop={1}>
+    <Box flexDirection="column" paddingX={1} minHeight={layout.rows}>
+      <Box flexGrow={1} flexDirection="column">
+        {content}
+        {message ? (
+          <Box marginTop={1}>
+            <Text color={themeAccent(theme)}>{message}</Text>
+          </Box>
+        ) : null}
+      </Box>
+      <Box flexDirection="column">
+        {commandMode ? (
+          <Text color={themeAccent(theme)}>COMMAND :{commandText}</Text>
+        ) : (
           <Text color="gray">: command · [/] page · +/- volume · m mute</Text>
-        </Box>
-      )}
+        )}
+      </Box>
     </Box>
   );
 }

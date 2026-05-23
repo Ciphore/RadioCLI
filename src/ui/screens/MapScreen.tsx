@@ -22,12 +22,15 @@ type MapScreenProps = {
   selected: number;
   loading: boolean;
   theme: ThemeName;
+  pageSize: number;
+  mode: 'compact' | 'full';
 };
 
-export function MapScreen({countries, selected, loading, theme}: MapScreenProps): React.ReactElement {
-  const topCountries = [...countries].sort((a, b) => b.stationCount - a.stationCount).slice(0, 12);
+export function MapScreen({countries, selected, loading, theme, pageSize, mode}: MapScreenProps): React.ReactElement {
+  const topCountries = [...countries].sort((a, b) => b.stationCount - a.stationCount).slice(0, mode === 'full' ? 12 : 6);
   const selectedCountry = countries[selected];
-  const window = visibleWindow(countries, selected, 10);
+  const window = visibleWindow(countries, selected, pageSize);
+  const rows = mode === 'full' ? mapRows : mapRows.filter((_, index) => index % 2 === 0);
 
   return (
     <Box flexDirection="column">
@@ -35,9 +38,9 @@ export function MapScreen({countries, selected, loading, theme}: MapScreenProps)
       <Text color="gray">Station density atlas · Enter opens selected country · / filters country list · b back</Text>
       {loading ? <Text color="gray">Loading country density...</Text> : null}
       <Box marginY={1} flexDirection="column">
-        {mapRows.map((row, index) => (
+        {rows.map((row, index) => (
           <Text key={index} color={index % 2 === 0 ? themeAccent(theme) : 'gray'}>
-            {row}
+            {mode === 'full' ? row : row.slice(0, 48)}
           </Text>
         ))}
       </Box>

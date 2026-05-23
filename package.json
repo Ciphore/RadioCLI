@@ -1,20 +1,57 @@
 {
   "name": "radio-atlas",
   "version": "0.1.0",
-  "description": "A terminal world radio receiver built with Ink.",
+  "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
+  "license": "MIT",
+  "author": "Ciphore",
+  "homepage": "https://github.com/ciphore/radio-atlas#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ciphore/radio-atlas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ciphore/radio-atlas/issues"
+  },
+  "keywords": [
+    "terminal",
+    "tui",
+    "cli",
+    "radio",
+    "internet-radio",
+    "mpv",
+    "ink",
+    "react",
+    "radio-browser",
+    "playlist"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "scripts",
+    "docs"
+  ],
   "bin": {
     "radio-atlas": "./dist/cli.js",
     "radio": "./dist/cli.js"
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/ensure-bin-executable.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/cli.js",
     "test": "vitest run",
+    "verify": "npm run check && npm run test && npm run build && npm run smoke:data",
+    "pack:check": "npm run build && npm pack --dry-run",
     "smoke:data": "tsx src/smoke/data-smoke.ts",
-    "smoke:playback": "tsx src/smoke/playback-smoke.ts"
+    "smoke:playback": "tsx src/smoke/playback-smoke.ts",
+    "demo:script": "node scripts/demo-script.mjs",
+    "fresh:check": "node scripts/fresh-check.mjs"
   },
   "dependencies": {
     "ink": "^7.0.3",
