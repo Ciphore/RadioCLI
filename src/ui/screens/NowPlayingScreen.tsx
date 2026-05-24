@@ -85,8 +85,14 @@ export function NowPlayingScreen({
         <Text color="gray">{truncate(stationPlace, innerWidth)}</Text>
         <Box marginTop={1} flexDirection="column">
           {visualRows.map((row, index) => (
-            <Text key={index} color={row.color}>
-              {row.text}
+            <Text key={index} color={row.segments ? undefined : row.color}>
+              {row.segments
+                ? row.segments.map((segment, segmentIndex) => (
+                  <Text key={segmentIndex} color={segment.color}>
+                    {segment.text}
+                  </Text>
+                ))
+                : row.text}
             </Text>
           ))}
         </Box>

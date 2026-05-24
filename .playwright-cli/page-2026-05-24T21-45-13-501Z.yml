@@ -1,0 +1,195 @@
+- generic:
+  - dialog "Search" [ref=e150]:
+    - generic [ref=e151]:
+      - img [ref=e152]
+      - textbox "Search" [active] [ref=e155]
+      - button "Close Search" [ref=e156]: ESC
+  - generic:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link [ref=e157] [cursor=pointer]:
+            - /url: /
+            - text: RadioCLI
+          - button [ref=e158]:
+            - img [ref=e8]
+        - button [ref=e159]:
+          - img [ref=e11]
+          - text: Search
+          - generic [ref=e14]:
+            - generic [ref=e15]: ⌘
+            - generic [ref=e16]: K
+      - generic [ref=e19]:
+        - link [ref=e160] [cursor=pointer]:
+          - /url: /docs
+          - text: Docs
+        - link [ref=e161] [cursor=pointer]:
+          - /url: /docs/changelog
+          - text: Changelog
+        - link [ref=e162] [cursor=pointer]:
+          - /url: https://github.com/Ciphore/RadioCLI
+          - img [ref=e23]
+          - text: GitHub
+        - link [ref=e163] [cursor=pointer]:
+          - /url: /docs
+          - text: Overview
+        - button [ref=e164]:
+          - text: Getting Started
+          - img [ref=e30]
+        - link [ref=e165] [cursor=pointer]:
+          - /url: /docs/demo
+          - text: Demo
+        - link [ref=e166] [cursor=pointer]:
+          - /url: /docs/architecture
+          - text: Architecture
+        - link [ref=e167] [cursor=pointer]:
+          - /url: /docs/design
+          - text: Design
+        - link [ref=e168] [cursor=pointer]:
+          - /url: /docs/reliability
+          - text: Reliability
+        - link [ref=e169] [cursor=pointer]:
+          - /url: /docs/privacy-security
+          - text: Privacy And Security
+        - link [ref=e170] [cursor=pointer]:
+          - /url: /docs/contributing
+          - text: Contributing
+        - link [ref=e171] [cursor=pointer]:
+          - /url: /docs/changelog
+          - text: Changelog
+        - link [ref=e172] [cursor=pointer]:
+          - /url: /docs/roadmap
+          - text: Roadmap
+      - generic [ref=e41]:
+        - link [ref=e173] [cursor=pointer]:
+          - /url: https://github.com/Ciphore/RadioCLI
+          - img [ref=e43]
+        - button [ref=e174]:
+          - img [ref=e46]
+          - img [ref=e52]
+    - generic:
+      - button:
+        - img
+      - button:
+        - img
+    - article:
+      - heading [level=1]: Overview
+      - paragraph: What RadioCLI is, what it does, and where to go next.
+      - generic:
+        - button:
+          - img
+          - text: Copy Markdown
+        - button:
+          - text: Open
+          - img
+      - generic:
+        - paragraph: RadioCLI is a terminal-first world radio receiver for exploring live public stations, tuning real streams, and keeping listening history close to the command line.
+        - paragraph: It is built with Ink, React, Radio Browser, and local playback backends. The goal is not a thin wrapper around a station list; the goal is a polished TUI product with fast discovery, resilient stream handling, local-first library state, and a codebase that can grow without turning into terminal spaghetti.
+        - heading [level=2]:
+          - link:
+            - /url: "#start-here"
+            - text: Start Here
+          - button:
+            - img
+        - list:
+          - listitem:
+            - link:
+              - /url: /docs/getting-started/install
+              - text: Install RadioCLI
+            - text: for requirements, macOS setup, local checkout usage, and migration notes from the old Radio Atlas paths.
+          - listitem:
+            - link:
+              - /url: /docs/getting-started/cli
+              - text: Use the CLI
+            - text: for command-mode search, imports, exports, health checks, and direct stream adds.
+          - listitem:
+            - link:
+              - /url: /docs/getting-started/tui-controls
+              - text: Learn the TUI controls
+            - text: for navigation, playback, command palette, media keys, and settings.
+          - listitem:
+            - link:
+              - /url: /docs/demo
+              - text: Watch the demo flow
+            - text: for the recommended terminal recording loop.
+        - heading [level=2]:
+          - link:
+            - /url: "#product-surface"
+            - text: Product Surface
+          - button:
+            - img
+        - paragraph: "RadioCLI includes:"
+        - list:
+          - listitem: country lists, global search, a station-density world map, and opt-in nearby discovery
+          - listitem:
+            - code: mpv
+            - text: playback first,
+            - code: ffplay
+            - text: fallback when available
+          - listitem: a receiver-style Now Playing screen with stream diagnostics, cleaned ICY metadata, volume, pause, mute, sleep timer, favorite state, and station skipping
+          - listitem: previous/next queues based on the exact station list you tuned from
+          - listitem: recents, favorites, imports, provider cache, playback settings, learned media keys, and listening stats stored locally
+          - listitem:
+            - code: .m3u
+            - text: ","
+            - code: .pls
+            - text: ", and"
+            - code: .xspf
+            - text: playlist import plus
+            - code: .m3u
+            - text: export
+        - heading [level=2]:
+          - link:
+            - /url: "#engineering-surface"
+            - text: Engineering Surface
+          - button:
+            - img
+        - paragraph: "The project is intentionally small, but it is built like production software:"
+        - list:
+          - listitem: provider adapters instead of UI-coupled fetch calls
+          - listitem: schemas at API and persistence boundaries
+          - listitem: stale-cache fallback for directory outages
+          - listitem: corrupt store/cache backups instead of silent overwrite
+          - listitem: backend readiness checks before playback is reported active
+          - listitem: deterministic tests for parsing, storage, layout, visualizers, and UI helpers
+          - listitem: live smoke checks for provider data and playback before releases
+        - paragraph:
+          - text: Read deeper in
+          - link:
+            - /url: /docs/architecture
+            - text: Architecture
+          - text: ","
+          - link:
+            - /url: /docs/reliability
+            - text: Reliability
+          - text: ", and"
+          - link:
+            - /url: /docs/privacy-security
+            - text: Privacy and Security
+          - text: .
+      - generic:
+        - link:
+          - /url: /docs/getting-started/install
+          - generic:
+            - img
+            - paragraph: Install
+          - paragraph: Requirements and setup paths for running RadioCLI.
+    - generic:
+      - heading [level=3]:
+        - img
+        - text: On this page
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: "#start-here"
+              - text: Start Here
+            - link:
+              - /url: "#product-surface"
+              - text: Product Surface
+            - link:
+              - /url: "#engineering-surface"
+              - text: Engineering Surface
+  - button "Open Next.js Dev Tools" [ref=e143] [cursor=pointer]:
+    - img [ref=e144]
+  - alert

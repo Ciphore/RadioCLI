@@ -1,0 +1,101 @@
+---
+title: Changelog
+description: Public release history for RadioCLI.
+---
+
+## 0.1.0
+
+### Brand And Packaging
+
+- Initial public-ready RadioCLI release.
+- Rebranded the project, npm package, executable, docs, issue templates, scripts,
+  user agents, temporary socket names, and default export filename from Radio Atlas
+  / `radio-atlas` to RadioCLI / `radiocli`.
+- Added RadioCLI storage/cache paths and `RADIOCLI_HOME`, while preserving old
+  Radio Atlas default paths and `RADIO_ATLAS_HOME` as migration fallbacks.
+- Added release verification scripts for unused-code checks, whitespace checks,
+  export checks, package linting, package dry-run, fresh-install smoke testing,
+  playback smoke testing, and full release verification.
+
+### Documentation Website
+
+- Combined the public website and documentation into a Fumadocs-powered Next app
+  in `apps/docs`, with the homepage at `/` and the documentation tree at `/docs`.
+- Migrated the product manual into MDX pages for overview, installation, CLI usage,
+  TUI controls, demo, architecture, design notes, reliability, privacy/security,
+  contributing, release history, and roadmap.
+- Added docs search at `/api/search`, generated Open Graph images, Markdown
+  copy/view options, GitHub source links, and LLM-readable text routes.
+- Added root `docs:dev`, `docs:check`, and `docs:build` scripts, plus docs CI
+  and Dependabot coverage for the docs app.
+
+### App Surface
+
+- Ink TUI with home, explore, country, search, nearby, world map, now-playing,
+  stats, recent, favorites/imports, and settings screens.
+- Horizontal top tabs with arrow-key and `Tab` / `Shift+Tab` navigation.
+- Fixed top-tab shell rows so long screens cannot push navigation out of view.
+- Near-black app shell background with darker tab, footer, stats, and receiver
+  surfaces.
+- Resize-aware terminal layout via Ink window-size events, including recomputed
+  list row counts, map density, receiver width, compact-mode fallback, and an
+  adaptive footer.
+- Replaced placeholder world-map blobs with a country-coordinate density map
+  that uses the full terminal width and labels high-station countries.
+
+### Playback And Station Flow
+
+- Radio Browser provider with mirror fallback, durable cache, tune resolution,
+  and live smoke coverage.
+- Experimental Radio Garden provider behind an explicit setting.
+- `mpv` playback with `ffplay` fallback, readiness checks, metadata polling,
+  volume, pause, mute, sleep timer, diagnostics, tune timeout, and skip-broken-stream
+  behavior.
+- Station tuning happens in place, so lists keep cursor and context while playback
+  updates in the background.
+- Added source-list playback queues so previous/next continues through the station
+  list the user tuned from, even after navigating elsewhere.
+- Added a persistent live playback footer row that follows the active station
+  across every tab.
+- Now Playing metadata cleans key/value radio payloads such as
+  `title="..." artist="..."` into readable track text.
+
+### Controls And Settings
+
+- Added page-aware footer shortcuts plus global display-color, spectrum-style,
+  backend, Radio Garden, location, skip-broken-stream, and health-refresh shortcuts.
+- Expanded transport compatibility with common F7/F8/F9 sequences, Kitty media-key
+  reporting, modified-arrow fallback, comma/dot fallback, and learned custom
+  media-key bindings.
+- Added Settings and command-palette flows for learning custom previous, play/pause,
+  and next media keys, plus resetting learned bindings.
+- Updated sleep timer cycling through off, 15 minutes, 30 minutes, 60 minutes,
+  then off again.
+
+### Visualizers And Lists
+
+- Expanded display colors and receiver visualizer styles for Now Playing, with 23
+  selectable styles and an SDR-style spectrum analyzer default.
+- Added audioMotion-style bars, blob waves, split-area scopes, dotted amplitude
+  fields, contour rings, and braided oscilloscopes to the receiver style set.
+- Added an animated ASCII cube receiver style inspired by terminal 3D demos.
+- Yellow favorite stars now appear inline next to station names.
+- Station lists use the available shell height more accurately while keeping the
+  footer visible.
+
+### Stats And Persistence
+
+- Local JSON store for recents, favorites, imports, listening activity, playback
+  settings, learned media keys, and provider cache.
+- Playlist import/export for `.m3u`, `.pls`, and `.xspf`.
+- Listening stats screen with contribution graph, favorite station, session count,
+  current and longest streaks, active days, favorite time, and all-time hours listened.
+- Stats bucket listening sessions by local calendar day instead of UTC day.
+
+### Open Source Readiness
+
+- Open-source project files, CI, issue templates, security policy, contribution
+  guide, docs, npm pack check, and fresh-install package smoke test.
+- Responsive terminal layout utility and tests.
+
+See [Roadmap](./roadmap.mdx) for planned follow-up work.

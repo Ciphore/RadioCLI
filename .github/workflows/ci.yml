@@ -53,3 +53,32 @@ jobs:
       - name: Fresh install smoke
         if: github.event_name != 'pull_request'
         run: npm run fresh:check
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: apps/docs/package-lock.json
+
+      - name: Install
+        working-directory: apps/docs
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: apps/docs
+        run: npm run check
+
+      - name: Build
+        working-directory: apps/docs
+        run: npm run build

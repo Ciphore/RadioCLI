@@ -9,6 +9,13 @@
 - Added RadioCLI storage/cache paths and `RADIOCLI_HOME`, while preserving old Radio Atlas default paths and `RADIO_ATLAS_HOME` as migration fallbacks.
 - Added release verification scripts for unused-code checks, whitespace checks, export checks, package linting, package dry-run, fresh-install smoke testing, playback smoke testing, and full release verification.
 
+### Documentation Website
+
+- Combined the public website and documentation into a Fumadocs-powered Next app in `apps/docs`, with the homepage at `/` and the documentation tree at `/docs`.
+- Migrated the product manual into MDX pages for overview, installation, CLI usage, TUI controls, demo, architecture, design notes, reliability, privacy/security, contributing, release history, and roadmap.
+- Added docs search at `/api/search`, generated Open Graph images, Markdown copy/view options, GitHub source links, and LLM-readable text routes.
+- Added root `docs:dev`, `docs:check`, and `docs:build` scripts, plus docs CI and Dependabot coverage for the docs app.
+
 ### App Surface
 
 - Ink TUI with home, explore, country, search, nearby, world map, now-playing, stats, recent, favorites/imports, and settings screens.
@@ -39,7 +46,8 @@
 
 ### Visualizers And Lists
 
-- Expanded display colors and receiver visualizer styles for Now Playing, with an SDR-style spectrum analyzer default and slimmer alternate bars.
+- Expanded display colors and receiver visualizer styles for Now Playing, with 23 selectable styles, an SDR-style spectrum analyzer default, and slimmer alternate bars.
+- Added audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, and braided oscilloscopes to the receiver style set.
 - Added an animated ASCII cube receiver style inspired by terminal 3D demos.
 - Yellow favorite stars now appear inline next to station names, with station description/metadata aligned to the right for faster scanning.
 - Station lists now use the available shell height more accurately while keeping the footer visible.

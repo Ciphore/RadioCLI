@@ -8,7 +8,7 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 - Explore public radio from around the world through country lists, global station search, a full-width country-density world map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
-- Use a receiver-style Now Playing screen with 17 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
+- Use a receiver-style Now Playing screen with 23 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
 - Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
 - Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
@@ -46,7 +46,7 @@ Overview  Explore  Countries  Search  Nearby  Now Playing  Stats  Recent  Favori
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
 ```
 
-The Now Playing screen is a framed receiver panel with 17 selectable spectrum/receiver styles. The sample below shows the default SDR analyzer; press `v` to cycle through SDR, spectrum bars, oscilloscope, signal meters, retro tuner, waterfall, cassette, equalizer, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube styles:
+The Now Playing screen is a framed receiver panel with 23 selectable spectrum/receiver styles. The sample below shows the default SDR analyzer; press `v` to cycle through SDR, spectrum bars, oscilloscope, signal meters, retro tuner, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube styles:
 
 ```text
 Now playing
@@ -80,6 +80,20 @@ npm run demo:script
 ```
 
 Recording instructions live in [docs/DEMO.md](docs/DEMO.md).
+
+## Documentation Website
+
+The public website and the manual now live together in `apps/docs`, a Fumadocs-powered Next app. It renders the homepage at `/`, the documentation tree at `/docs`, docs search at `/api/search`, generated page images, and LLM-readable text routes.
+
+Docs content is written as MDX in `apps/docs/content/docs`, with the navigation tree defined by the local `meta.json` files.
+
+Useful commands from the repo root:
+
+```bash
+npm run docs:dev
+npm run docs:check
+npm run docs:build
+```
 
 ## Install
 
@@ -212,7 +226,7 @@ Useful command palette entries:
 :stop
 ```
 
-Settings persist display colors and spectrum/receiver styles without editing config files. The six display colors are green, amber, blue, ruby, ice, and mono. The 17 receiver styles are SDR, spectrum, oscilloscope, signal, retro, waterfall, cassette, equalizer, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
+Settings persist display colors and spectrum/receiver styles without editing config files. The six display colors are green, amber, blue, ruby, ice, and mono. The 23 receiver styles are SDR, spectrum, oscilloscope, signal, retro, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
 
 ## Architecture
 
@@ -267,6 +281,8 @@ npm run check
 npm run lint
 npm run test
 npm run build
+npm run docs:check
+npm run docs:build
 npm run smoke:data
 npm run verify
 npm run smoke:playback

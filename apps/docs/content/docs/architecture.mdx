@@ -1,0 +1,92 @@
+---
+title: Architecture
+description: Runtime shape, provider adapters, playback control, TUI state, and persistence.
+---
+
+RadioCLI is a terminal-first product built around four seams: TUI state,
+provider adapters, playback control, and local persistence.
+
+## Runtime Shape
+
+```text
+src/cli.tsx
+  -> src/ui/App.tsx
+      -> provider manager
+      -> player controller
+      -> JSON library store
+      -> Ink screens/components
+```
+
+The CLI has two modes:
+
+- Interactive TUI: `radiocli`
+- Command mode: `radiocli search "tokyo jazz"`, `radiocli check`,
+  `radiocli import stations.m3u`
+
+## Provider Layer
+
+`ProviderManager` coordinates public station sources.
+
+- `RadioBrowserProvider` is the primary source for countries, station search,
+  geo metadata, station popularity, and tune resolution.
+- `RadioGardenProvider` is experimental because terminal clients can be blocked
+  by edge protection.
+- Playlist imports are modeled as first-class `playlist` stations.
+
+Radio Browser calls use mirror fallback and a durable cache. If a live request
+fails and stale cached data exists, the provider returns stale data rather than
+blanking the interface.
+
+## Playback Layer
+
+`PlayerController` owns playback process lifecycle.
+
+- Preferred backend: `mpv`
+- Fallback backend: `ffplay`
+- `mpv` is controlled over JSON IPC for pause, mute, volume, readiness checks,
+  and metadata polling.
+
+The controller waits for backend readiness before reporting playback as active.
+Tune attempts time out according to `settings.tuneTimeoutSeconds`.
+
+## TUI Layer
+
+The TUI is an Ink app with explicit screens:
+
+- Home
+- World map
+- Countries
+- Search
+- Nearby
+- Now Playing
+- Stats
+- Recent
+- Favorites/imports
+- Settings
+
+`computeTerminalLayout()` converts terminal dimensions into list sizes, receiver
+width, compact mode, and map mode. Screens consume those layout values instead
+of hard-coding visible rows.
+
+Pure screen model helpers, tab definitions, filters, and text-editing helpers
+live in `src/ui/app-state.ts`. The Now Playing screen owns receiver layout while
+the signal visualizer builders live under `src/ui/visualizers`.
+
+## Persistence
+
+The store is local JSON. It keeps:
+
+- recent stations
+- favorites
+- imported stations
+- listening activity
+- settings
+
+Corrupt store/cache files are renamed with a `.bad-*` suffix before defaults are
+used, so user data is not silently overwritten.
+
+Writes use a temp-file-and-rename flow so interrupted writes are less likely to
+leave partial JSON behind.
+
+Related reading: [Reliability](./reliability.mdx), [Design](./design.mdx), and
+[Privacy and Security](./privacy-security.mdx).

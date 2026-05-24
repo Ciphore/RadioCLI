@@ -44,4 +44,13 @@ describe('receiver visualizers', () => {
     expect(firstFrame).toMatch(/[#@*+=;:%]/);
     expect(nextFrame).not.toBe(firstFrame);
   });
+
+  it('renders audioMotion-inspired styles with segmented color data', () => {
+    const motionStyles = ['motion-bars', 'motion-blob', 'motion-area', 'motion-dots', 'motion-contour', 'motion-braid'] as const;
+
+    for (const style of motionStyles) {
+      const rows = buildVisualizer(style, 8, 64, visualizerHeight(style, 12), station, playback, 'ruby');
+      expect(rows.some(row => row.segments && row.segments.length > 1)).toBe(true);
+    }
+  });
 });

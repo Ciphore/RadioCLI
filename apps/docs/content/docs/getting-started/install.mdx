@@ -1,0 +1,58 @@
+---
+title: Install
+description: Requirements and setup paths for running RadioCLI.
+---
+
+## Requirements
+
+RadioCLI needs:
+
+- Node.js 22 or newer
+- `mpv` for the best playback experience
+- `ffplay` from FFmpeg as an optional fallback
+
+## macOS
+
+```bash
+brew install mpv ffmpeg
+npm install -g radiocli
+radiocli
+```
+
+## Local Checkout
+
+```bash
+git clone https://github.com/Ciphore/RadioCLI.git
+cd RadioCLI
+npm ci
+npm run build
+npm link
+radiocli
+```
+
+If you do not want to link the package globally:
+
+```bash
+npm run dev
+```
+
+## Built Binary
+
+After a local build, the same command-mode actions can be run directly:
+
+```bash
+node dist/cli.js check
+node dist/cli.js search "lagos talk"
+```
+
+## Data Paths And Migration
+
+The npm package and executable are both `radiocli`. Current installs use RadioCLI
+storage and cache paths such as `radiocli.json` and `radiocli-cache.json`.
+
+Existing Radio Atlas data is still discovered when a new RadioCLI store does not
+exist, and legacy `RADIO_ATLAS_HOME` / `RADIO_ATLAS_DISABLE_ANIMATION` environment
+variables remain supported as migration fallbacks. New automation should use
+`RADIOCLI_HOME` and `RADIOCLI_DISABLE_ANIMATION`.
+
+Next: [Use the CLI](./cli.mdx) or [learn the TUI controls](./tui-controls.mdx).

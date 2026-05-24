@@ -5,6 +5,17 @@ import {themeAccent, themeContributionColors} from '../theme.js';
 type VisualLine = {
   text: string;
   color: string;
+  segments?: VisualSegment[];
+};
+
+type VisualSegment = {
+  text: string;
+  color: string;
+};
+
+type VisualCell = {
+  text: string;
+  color: string;
 };
 
 export function buildVisualizer(
@@ -42,6 +53,30 @@ export function buildVisualizer(
 
   if (style === 'equalizer') {
     return buildEqualizer(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-bars') {
+    return buildMotionBars(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-blob') {
+    return buildMotionBlob(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-area') {
+    return buildMotionArea(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-dots') {
+    return buildMotionDots(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-contour') {
+    return buildMotionContour(pulse, width, height, theme);
+  }
+
+  if (style === 'motion-braid') {
+    return buildMotionBraid(pulse, width, height, theme);
   }
 
   if (style === 'radar') {
@@ -348,6 +383,272 @@ function buildEqualizer(
   }
 
   return rows;
+}
+
+function buildMotionBars(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(7, height);
+  const mid = Math.floor(h / 2);
+  const half = Math.max(1, Math.min(mid, h - mid - 1));
+  const accent = themeAccent(theme);
+  const levels = Array.from({length: width}, (_, x) => {
+    if (x % 3 === 2) {
+      return 0;
+    }
+
+    const position = x / Math.max(1, width - 1);
+    const flicker = 0.9 + 0.1 * Math.sin(pulse * 0.45 + x * 0.77);
+    return clampNumber(motionEnvelope(position, pulse, 0.2) * flicker, 0, 1);
+  });
+
+  return Array.from({length: h}, (_, y) => {
+    const distance = Math.abs(y - mid);
+    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
+      const position = x / Math.max(1, width - 1);
+      const level = levels[x] ?? 0;
+      const limit = Math.max(1, Math.round(level * half));
+
+      if (distance === 0) {
+        return {text: x % 8 === 0 ? '┄' : '─', color: accent};
+      }
+
+      if (x % 3 === 2) {
+        return {text: ' ', color: motionColorAt(position, theme)};
+      }
+
+      if (distance <= limit) {
+        return {
+          text: distance === limit ? '▓' : '█',
+          color: motionColorAt(position, theme)
+        };
+      }
+
+      if (distance === limit + 1 && x % 5 === 0) {
+        return {text: '░', color: dimMotionColorAt(position, theme)};
+      }
+
+      return {text: ' ', color: motionColorAt(position, theme)};
+    });
+
+    return lineFromCells(cells, accent);
+  }).slice(0, height);
+}
+
+function buildMotionBlob(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(7, height);
+  const mid = (h - 1) / 2;
+  const half = Math.max(1, h / 2 - 1);
+  const accent = themeAccent(theme);
+
+  return Array.from({length: h}, (_, y) => {
+    const normalizedY = Math.abs((y - mid) / half);
+    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
+      const position = x / Math.max(1, width - 1);
+      const fade = 1 - Math.pow(position, 1.35) * 0.56;
+      const outer = clampNumber(motionEnvelope(position, pulse, 1.1) * fade, 0, 1);
+      const inner = clampNumber(outer * (0.42 + 0.16 * Math.sin(position * 17 - pulse * 0.16)), 0, 1);
+
+      if (normalizedY <= inner) {
+        return {text: '█', color: position > 0.56 ? '#5ab7ff' : '#a36bff'};
+      }
+
+      if (normalizedY <= outer) {
+        return {text: '▓', color: position > 0.68 ? '#4bc9d9' : '#ff3f8e'};
+      }
+
+      if (normalizedY <= outer + 0.08 && x % 2 === 0) {
+        return {text: '░', color: dimMotionColorAt(position, theme)};
+      }
+
+      if (Math.round(y) === Math.round(mid) && x % 7 === 0) {
+        return {text: '·', color: accent};
+      }
+
+      return {text: ' ', color: accent};
+    });
+
+    return lineFromCells(cells, accent);
+  }).slice(0, height);
+}
+
+function buildMotionArea(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(8, height);
+  const mid = Math.floor(h / 2);
+  const accent = themeAccent(theme);
+  const topLevels = Array.from({length: width}, (_, x) => {
+    const position = x / Math.max(1, width - 1);
+    return clampNumber(0.2 + motionEnvelope(position, pulse, 2.0) * 0.74, 0.1, 1);
+  });
+  const bottomLevels = Array.from({length: width}, (_, x) => {
+    const position = x / Math.max(1, width - 1);
+    return clampNumber(0.14 + motionEnvelope(1 - position, pulse + 37, 0.8) * 0.7, 0.08, 0.92);
+  });
+
+  return Array.from({length: h}, (_, y) => {
+    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
+      const position = x / Math.max(1, width - 1);
+      const top = mid - Math.round((topLevels[x] ?? 0) * Math.max(1, mid - 1));
+      const bottom = mid + Math.round((bottomLevels[x] ?? 0) * Math.max(1, h - mid - 2));
+
+      if (y === mid) {
+        return {text: x % 6 === 0 ? '━' : '─', color: accent};
+      }
+
+      if (y < mid && y >= top) {
+        return {
+          text: y === top ? '▄' : '█',
+          color: position < 0.58 ? '#5fe6e0' : '#314c68'
+        };
+      }
+
+      if (y > mid && y <= bottom) {
+        return {
+          text: y === bottom ? '▀' : '█',
+          color: position < 0.55 ? '#ff3f8e' : '#a6346f'
+        };
+      }
+
+      if ((y === top - 1 || y === bottom + 1) && x % 4 === 0) {
+        return {text: '·', color: dimMotionColorAt(position, theme)};
+      }
+
+      return {text: ' ', color: accent};
+    });
+
+    return lineFromCells(cells, accent);
+  }).slice(0, height);
+}
+
+function buildMotionDots(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(8, height);
+  const mid = (h - 1) / 2;
+  const half = Math.max(1, h / 2 - 1);
+  const accent = themeAccent(theme);
+
+  return Array.from({length: h}, (_, y) => {
+    const normalizedY = Math.abs((y - mid) / half);
+    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
+      if (x % 2 === 1) {
+        return {text: ' ', color: accent};
+      }
+
+      const position = x / Math.max(1, width - 1);
+      const level = motionEnvelope(position, pulse, 2.8);
+      const texture = Math.sin(x * 1.73 + y * 2.91 + pulse * 0.42);
+
+      if (normalizedY <= level && texture > -0.62) {
+        return {text: '•', color: motionColorAt(position, theme)};
+      }
+
+      if (normalizedY <= level + 0.08 && texture > 0.46) {
+        return {text: '·', color: dimMotionColorAt(position, theme)};
+      }
+
+      return {text: ' ', color: accent};
+    });
+
+    return lineFromCells(cells, accent);
+  }).slice(0, height);
+}
+
+function buildMotionContour(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(9, height);
+  const cx = (width - 1) / 2;
+  const cy = (h - 1) / 2;
+  const xScale = Math.max(1, width * 0.36);
+  const yScale = Math.max(1, h * 0.58);
+  const rings = 8;
+  const accent = themeAccent(theme);
+
+  return Array.from({length: h}, (_, y) => {
+    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
+      const nx = (x - cx) / xScale;
+      const ny = (y - cy) / yScale;
+      const radius = Math.sqrt(nx * nx + ny * ny);
+      const theta = Math.atan2(ny, nx);
+      const boundary =
+        0.62 +
+        0.08 * Math.sin(theta * 5 + pulse * 0.1) +
+        0.07 * Math.cos(theta * 8 - pulse * 0.07) +
+        0.04 * Math.sin(theta * 13 + pulse * 0.05);
+
+      for (let ring = rings; ring >= 1; ring -= 1) {
+        const target = boundary * (ring / rings);
+        const distance = Math.abs(radius - target);
+        if (distance < 0.017 + ring * 0.0015) {
+          const position = (theta + Math.PI) / (Math.PI * 2);
+          return {
+            text: ring % 3 === 0 ? '∙' : ring % 2 === 0 ? '•' : '·',
+            color: motionColorAt((position + ring * 0.08) % 1, theme)
+          };
+        }
+      }
+
+      return {text: ' ', color: accent};
+    });
+
+    return lineFromCells(cells, accent);
+  }).slice(0, height);
+}
+
+function buildMotionBraid(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const h = Math.max(8, height);
+  const grid = emptyMotionGrid(width, h, themeAccent(theme));
+  const mid = (h - 1) / 2;
+  const half = Math.max(1, h / 2 - 1);
+  const strands = 9;
+
+  for (let strand = 0; strand < strands; strand += 1) {
+    const phase = strand * 0.54;
+    const strandColor = strand % 2 === 0 ? '#5fe6e0' : '#ff3f8e';
+    for (let x = 0; x < width; x += 1) {
+      const position = x / Math.max(1, width - 1);
+      const level = motionEnvelope(position, pulse, 1.7);
+      const envelope = clampNumber(0.15 + level * (1 - Math.abs(position - 0.5) * 0.42), 0.12, 0.98);
+      const wave =
+        Math.sin(position * Math.PI * 4.5 + pulse * 0.17 + phase) * envelope +
+        Math.sin(position * Math.PI * 10.0 - pulse * 0.08 + phase) * envelope * 0.18;
+      const nextWave =
+        Math.sin((position + 0.02) * Math.PI * 4.5 + pulse * 0.17 + phase) * envelope +
+        Math.sin((position + 0.02) * Math.PI * 10.0 - pulse * 0.08 + phase) * envelope * 0.18;
+      const y = clampIndex(Math.round(mid + wave * half * 0.82), h);
+      const slope = nextWave - wave;
+      const glyph = slope > 0.05 ? '╲' : slope < -0.05 ? '╱' : '─';
+      const color = theme === 'mono' ? motionColorAt(position, theme) : strandColor;
+      setMotionCell(grid, x, y, glyph, color);
+    }
+  }
+
+  return grid.map(row => lineFromCells(row, themeAccent(theme))).slice(0, height);
 }
 
 function buildRadar(
@@ -1038,6 +1339,84 @@ function buildMeter(pulse: number, width: number, offset: number): string {
   }).join('');
 }
 
+function lineFromCells(cells: VisualCell[], fallbackColor: string): VisualLine {
+  const text = cells.map(cell => cell.text).join('');
+  const segments: VisualSegment[] = [];
+
+  for (const cell of cells) {
+    const previous = segments[segments.length - 1];
+    if (previous && previous.color === cell.color) {
+      previous.text += cell.text;
+    } else {
+      segments.push({text: cell.text, color: cell.color});
+    }
+  }
+
+  return {text, color: fallbackColor, segments};
+}
+
+function emptyMotionGrid(width: number, height: number, color: string): VisualCell[][] {
+  return Array.from({length: height}, () => Array.from({length: width}, () => ({text: ' ', color})));
+}
+
+function setMotionCell(grid: VisualCell[][], x: number, y: number, text: string, color: string): void {
+  const row = grid[y];
+  const cell = row?.[x];
+  if (!row || !cell) {
+    return;
+  }
+
+  row[x] = cell.text === ' ' ? {text, color} : {text: '█', color: '#ffe45c'};
+}
+
+function motionEnvelope(position: number, pulse: number, variant: number): number {
+  const t = pulse * 0.075 + variant;
+  const centers = [
+    0.12 + 0.035 * Math.sin(t * 0.9),
+    0.34 + 0.045 * Math.cos(t * 0.55 + variant),
+    0.58 + 0.05 * Math.sin(t * 0.72 + 1.4),
+    0.80 + 0.032 * Math.cos(t * 1.1)
+  ];
+  const widths = [0.065, 0.095, 0.08, 0.055];
+  const weights = [0.95, 0.7, 1.0, 0.42];
+  let value = 0.06;
+
+  for (let index = 0; index < centers.length; index += 1) {
+    const center = centers[index] ?? 0.5;
+    const width = widths[index] ?? 0.08;
+    const weight = weights[index] ?? 0.5;
+    value += weight * Math.exp(-Math.pow((position - center) / width, 2));
+  }
+
+  const ripple =
+    0.1 * Math.sin(position * 30 + t * 2.4) +
+    0.06 * Math.cos(position * 61 - t * 1.6) +
+    0.04 * Math.sin(position * 97 + variant * 3.1);
+  return clampNumber(value + ripple, 0.03, 1);
+}
+
+function motionColorAt(position: number, theme: ThemeName): string {
+  if (theme === 'mono') {
+    const mono = ['#767676', '#9a9a9a', '#b0b0b0', '#d0d0d0'];
+    const index = Math.min(mono.length - 1, Math.max(0, Math.floor(position * mono.length)));
+    return mono[index] ?? '#d0d0d0';
+  }
+
+  const palette = ['#6ee7f2', '#8df084', '#e7f75c', '#ffd24f', '#ff9345', '#ff3f8e', '#b56cff', '#66a3ff'];
+  const index = Math.min(palette.length - 1, Math.max(0, Math.floor(position * palette.length)));
+  return palette[index] ?? '#6ee7f2';
+}
+
+function dimMotionColorAt(position: number, theme: ThemeName): string {
+  if (theme === 'mono') {
+    return '#767676';
+  }
+
+  const palette = ['#245760', '#315f49', '#626629', '#6b5523', '#6e3728', '#5b2444', '#3f2c5c', '#2f4368'];
+  const index = Math.min(palette.length - 1, Math.max(0, Math.floor(position * palette.length)));
+  return palette[index] ?? '#245760';
+}
+
 export function visualizerHeight(style: ReceiverStyle, availableRows: number): number {
   if (style === 'retro' || style === 'cassette' || style === 'vinyl') {
     return 8;
@@ -1053,6 +1432,12 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number): n
     signal: 6,
     waterfall: 12,
     equalizer: 12,
+    'motion-bars': 12,
+    'motion-blob': 12,
+    'motion-area': 11,
+    'motion-dots': 12,
+    'motion-contour': 14,
+    'motion-braid': 12,
     blocks: 12,
     leds: 10,
     stars: 12,
@@ -1062,7 +1447,7 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number): n
     cube: 14
   };
   const maxRows = maxRowsByStyle[style] ?? 8;
-  const minRows = style === 'sdr' ? 6 : style === 'cube' ? 8 : 3;
+  const minRows = style === 'sdr' ? 6 : style === 'cube' || style === 'motion-contour' ? 8 : style.startsWith('motion-') ? 6 : 3;
   return Math.max(minRows, Math.min(maxRows, availableRows));
 }
 

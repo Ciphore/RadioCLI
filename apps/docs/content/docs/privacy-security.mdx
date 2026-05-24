@@ -1,0 +1,39 @@
+---
+title: Privacy And Security
+description: Local-first data behavior, opt-in location lookup, and vulnerability reporting.
+---
+
+RadioCLI does not require secrets or accounts.
+
+## Privacy Notes
+
+- Nearby station discovery is off by default.
+- Location lookup uses approximate IP-based location only when enabled.
+- Recents, favorites, settings, imports, listening activity, and provider cache
+  data are stored locally on your machine.
+- RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
+  to `mpv` or `ffplay`.
+
+## Location Lookup
+
+Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
+RadioCLI requires explicit opt-in through Settings or `:location on`.
+
+## Reporting Security Issues
+
+Open a private security advisory on GitHub if available:
+
+```text
+https://github.com/Ciphore/RadioCLI/security/advisories
+```
+
+Please avoid filing public issues for vulnerabilities that could expose local
+files, private network information, or unexpected command execution.
+
+## Supported Versions
+
+Until a tagged release cadence is established, security fixes target the active
+development branch and the latest public npm release.
+
+Related reading: [Reliability](./reliability.mdx) and
+[Contributing](./contributing.mdx).

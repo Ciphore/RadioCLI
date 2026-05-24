@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic "Main" [ref=e3]:
+      - navigation [ref=e6]:
+        - link "RadioCLI" [ref=e7] [cursor=pointer]:
+          - /url: /
+        - list [ref=e8]:
+          - listitem [ref=e9]:
+            - link "Docs" [ref=e10] [cursor=pointer]:
+              - /url: /docs
+          - listitem [ref=e11]:
+            - link "Changelog" [ref=e12] [cursor=pointer]:
+              - /url: /docs/changelog
+          - listitem [ref=e13]:
+            - link "GitHub" [ref=e14] [cursor=pointer]:
+              - /url: https://github.com/Ciphore/RadioCLI
+        - generic [ref=e15]:
+          - button "Search ⌘ K" [ref=e16]:
+            - img [ref=e17]
+            - text: Search
+            - generic [ref=e20]:
+              - generic [ref=e21]: ⌘
+              - generic [ref=e22]: K
+          - button "Toggle Theme" [ref=e23]:
+            - img [ref=e24]
+            - img [ref=e30]
+          - list [ref=e32]:
+            - listitem [ref=e33]:
+              - link "GitHub" [ref=e34] [cursor=pointer]:
+                - /url: https://github.com/Ciphore/RadioCLI
+                - img [ref=e35]
+    - main [ref=e37]:
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - paragraph [ref=e40]: terminal receiver for public radio
+          - heading "RadioCLI" [level=1] [ref=e41]
+          - paragraph [ref=e42]: Explore live public stations around the world, tune real streams through local playback backends, and keep your radio library close to the command line.
+          - generic [ref=e43]:
+            - link "Install RadioCLI" [ref=e44] [cursor=pointer]:
+              - /url: /docs/getting-started/install
+            - link "Read the docs" [ref=e45] [cursor=pointer]:
+              - /url: /docs
+            - link "GitHub" [ref=e46] [cursor=pointer]:
+              - /url: https://github.com/Ciphore/RadioCLI
+        - generic "RadioCLI receiver preview" [ref=e47]:
+          - img "RadioCLI terminal receiver preview showing a Now Playing spectrum display" [ref=e48]
+      - region "RadioCLI signal summary" [ref=e49]:
+        - generic [ref=e50]:
+          - strong [ref=e51]: Providers
+          - text: Radio Browser primary, Radio Garden optional, playlist imports treated as first-class stations.
+        - generic [ref=e52]:
+          - strong [ref=e53]: Playback
+          - text: mpv first, ffplay fallback, IPC controls for pause, mute, volume, readiness, and metadata.
+        - generic [ref=e54]:
+          - strong [ref=e55]: Controls
+          - text: Adaptive footer, command palette, learned media keys, previous/next source-list queues.
+        - generic [ref=e56]:
+          - strong [ref=e57]: Privacy
+          - text: No account, no proxy, no secrets. Nearby discovery is opt-in and approximate.
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - heading "One site for the product and the manual." [level=2] [ref=e60]
+          - paragraph [ref=e61]: "The public surface is now organized around what a listener or contributor needs: quick setup, command usage, TUI controls, architecture, reliability, privacy, release notes, and the roadmap."
+        - generic [ref=e62]:
+          - article [ref=e63]:
+            - heading "World radio without the browser tax" [level=3] [ref=e64]
+            - paragraph [ref=e65]: Explore countries, search stations, tune nearby streams, and keep the whole loop inside a fast Ink terminal UI.
+          - article [ref=e66]:
+            - heading "Built for unreliable streams" [level=3] [ref=e67]
+            - paragraph [ref=e68]: Mirror fallback, stale-cache fallback, tune timeouts, backend readiness checks, and skip-broken-stream behavior are first-class paths.
+          - article [ref=e69]:
+            - heading "A receiver, not a wrapper" [level=3] [ref=e70]
+            - paragraph [ref=e71]: Now Playing includes spectrum styles, stream diagnostics, ICY metadata cleanup, transport controls, favorites, volume, and sleep timer state.
+          - article [ref=e72]:
+            - heading "Local-first library state" [level=3] [ref=e73]
+            - paragraph [ref=e74]: Recents, favorites, imports, provider cache, settings, learned media keys, and listening sessions stay on your machine.
+          - article [ref=e75]:
+            - heading "CLI and TUI parity" [level=3] [ref=e76]
+            - paragraph [ref=e77]: Use the full-screen receiver or command mode for search, country lists, playlist import/export, checks, and direct stream adds.
+          - article [ref=e78]:
+            - heading "Documentation beside the product" [level=3] [ref=e79]
+            - paragraph [ref=e80]: Install, controls, architecture, reliability, privacy, release notes, and roadmap now live in one Fumadocs site.
+      - generic [ref=e82]:
+        - code [ref=e83]: brew install mpv ffmpeg && npm install -g radiocli
+        - link "Start tuning" [ref=e84] [cursor=pointer]:
+          - /url: /docs/getting-started/install
+  - button "Open Next.js Dev Tools" [ref=e90] [cursor=pointer]:
+    - img [ref=e91]
+  - alert [ref=e94]

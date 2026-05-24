@@ -1,5 +1,8 @@
 node_modules/
 dist/
+apps/docs/.next/
+apps/docs/.source/
+apps/docs/out/
 .env
 .DS_Store
 coverage/

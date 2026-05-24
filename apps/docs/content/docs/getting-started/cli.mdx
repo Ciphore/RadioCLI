@@ -1,0 +1,46 @@
+---
+title: CLI Usage
+description: Command-mode entry points for searching, checking, importing, and exporting.
+---
+
+RadioCLI opens the full TUI by default:
+
+```bash
+radiocli
+```
+
+It also supports command mode for scriptable tasks:
+
+```bash
+radiocli check
+radiocli countries
+radiocli search "japan hits"
+radiocli import stations.m3u
+radiocli export favorites.m3u
+radiocli add-url <stream-url> [station name]
+```
+
+`radiocli export` writes `radiocli-favorites.m3u` when no output path is provided.
+
+## Health Check
+
+Use `radiocli check` when debugging playback or provider issues. It reports local
+store paths, playback backends, and provider health. Include that output when filing
+playback issues.
+
+## Playlist Import And Export
+
+RadioCLI imports `.m3u`, `.pls`, and `.xspf` playlists, including nested local
+playlists. Imported stations are treated as first-class playlist stations and can
+be exported together with favorites as `.m3u`.
+
+## Direct Stream Adds
+
+Use `radiocli add-url` when a public stream is known but not present in the provider
+directories:
+
+```bash
+radiocli add-url https://example.com/live.mp3 "Example FM"
+```
+
+For interactive keyboard behavior, continue to [TUI Controls](./tui-controls.mdx).
