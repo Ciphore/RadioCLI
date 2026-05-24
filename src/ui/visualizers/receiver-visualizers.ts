@@ -76,6 +76,10 @@ export function buildVisualizer(
     return buildHologram(pulse, width, height, theme);
   }
 
+  if (style === 'cube') {
+    return buildAsciiCube(pulse, width, height, theme);
+  }
+
   return buildSpectrum(pulse, width, height).map(text => ({text, color: '#ffb000'}));
 }
 
@@ -776,6 +780,122 @@ function buildHologram(
   return rows;
 }
 
+function buildAsciiCube(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
+  const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
+  const cx = Math.floor(width * 0.52);
+  const cy = Math.floor(height * 0.5);
+  const xScale = Math.max(8, Math.min(width * 0.28, height * 2.05));
+  const yScale = Math.max(4, Math.min(height * 0.48, width * 0.08));
+  const detail = Math.max(18, Math.min(46, Math.round(Math.min(width * 0.58, height * 3.3))));
+  const angleY = pulse * 0.065;
+  const angleX = pulse * 0.039 + 0.42;
+  const angleZ = pulse * 0.021 - 0.18;
+  const distance = 4.4;
+  const light = normalize3d({x: -0.35, y: -0.62, z: 0.7});
+  const shadeChars = ['.', ':', ';', '=', '+', '*', '#', '%', '@'];
+  const faces = [
+    {axis: 'x', sign: 1, normal: {x: 1, y: 0, z: 0}},
+    {axis: 'x', sign: -1, normal: {x: -1, y: 0, z: 0}},
+    {axis: 'y', sign: 1, normal: {x: 0, y: 1, z: 0}},
+    {axis: 'y', sign: -1, normal: {x: 0, y: -1, z: 0}},
+    {axis: 'z', sign: 1, normal: {x: 0, y: 0, z: 1}},
+    {axis: 'z', sign: -1, normal: {x: 0, y: 0, z: -1}}
+  ] as const;
+
+  for (const face of faces) {
+    const rotatedNormal = rotate3d(face.normal, angleX, angleY, angleZ);
+    if (rotatedNormal.z < -0.88) {
+      continue;
+    }
+
+    const lightLevel = clampNumber(
+      rotatedNormal.x * light.x + rotatedNormal.y * light.y + rotatedNormal.z * light.z,
+      -1,
+      1
+    );
+
+    for (let row = 0; row <= detail; row += 1) {
+      const u = row / detail * 2 - 1;
+      for (let column = 0; column <= detail; column += 1) {
+        const v = column / detail * 2 - 1;
+        const point = cubeFacePoint(face.axis, face.sign, u, v);
+        const rotated = rotate3d(point, angleX, angleY, angleZ);
+        const projected = project3d(rotated, cx, cy, xScale, yScale, distance);
+        const sx = projected.x;
+        const sy = projected.y;
+
+        if (sx < 0 || sx >= width || sy < 0 || sy >= height || rotated.z <= zBuffer[sy]![sx]!) {
+          continue;
+        }
+
+        const edge = Math.max(Math.abs(u), Math.abs(v));
+        const surfaceRipple = Math.sin((u * 5.7 + v * 4.1 + pulse * 0.11) + face.sign) * 0.11;
+        const brightness = clampNumber((lightLevel + 1) * 0.34 + rotated.z * 0.08 + edge * 0.12 + surfaceRipple, 0, 1);
+        const shadeIndex = Math.min(shadeChars.length - 1, Math.max(0, Math.round(brightness * (shadeChars.length - 1))));
+        grid[sy]![sx] = shadeChars[shadeIndex]!;
+        zBuffer[sy]![sx] = rotated.z;
+      }
+    }
+  }
+
+  const vertices = [
+    {x: -1, y: -1, z: -1},
+    {x: 1, y: -1, z: -1},
+    {x: 1, y: 1, z: -1},
+    {x: -1, y: 1, z: -1},
+    {x: -1, y: -1, z: 1},
+    {x: 1, y: -1, z: 1},
+    {x: 1, y: 1, z: 1},
+    {x: -1, y: 1, z: 1}
+  ].map(point => project3d(rotate3d(point, angleX, angleY, angleZ), cx, cy, xScale, yScale, distance));
+  const edges: [number, number][] = [
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0],
+    [4, 5],
+    [5, 6],
+    [6, 7],
+    [7, 4],
+    [0, 4],
+    [1, 5],
+    [2, 6],
+    [3, 7]
+  ];
+
+  for (const [from, to] of edges) {
+    drawAsciiCubeEdge(grid, zBuffer, vertices[from]!, vertices[to]!);
+  }
+
+  addCubeSignalSpecks(grid, pulse);
+
+  const accent = themeAccent(theme);
+  return grid.map((cells, rowIndex) => {
+    const text = cells.join('').slice(0, width);
+    const hasCube = /[.:;=+*#%@]/.test(text);
+    const hasSignal = /[oO]/.test(text);
+    let color = '#ff5f87';
+
+    if (!hasCube && hasSignal) {
+      color = accent;
+    } else if (!hasCube) {
+      color = '#767676';
+    } else if (rowIndex < height * 0.25) {
+      color = '#ff9ab3';
+    } else if (rowIndex > height * 0.76) {
+      color = '#c06cff';
+    }
+
+    return {text, color};
+  });
+}
+
 function buildSdrSpectrum(
   pulse: number,
   width: number,
@@ -922,12 +1042,134 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number): n
   if (style === 'retro' || style === 'cassette' || style === 'vinyl') {
     return 8;
   }
+
   if (style === 'radar') {
     return Math.max(10, Math.min(14, availableRows));
   }
-  const maxRows = style === 'sdr' ? 16 : style === 'oscilloscope' ? 9 : style === 'signal' ? 6 : style === 'waterfall' ? 12 : style === 'equalizer' ? 12 : style === 'blocks' ? 12 : style === 'leds' ? 10 : style === 'stars' ? 12 : style === 'neon' ? 12 : style === 'matrix' ? 14 : style === 'hologram' ? 12 : 8;
-  const minRows = style === 'sdr' ? 6 : 3;
+
+  const maxRowsByStyle: Partial<Record<ReceiverStyle, number>> = {
+    sdr: 16,
+    oscilloscope: 9,
+    signal: 6,
+    waterfall: 12,
+    equalizer: 12,
+    blocks: 12,
+    leds: 10,
+    stars: 12,
+    neon: 12,
+    matrix: 14,
+    hologram: 12,
+    cube: 14
+  };
+  const maxRows = maxRowsByStyle[style] ?? 8;
+  const minRows = style === 'sdr' ? 6 : style === 'cube' ? 8 : 3;
   return Math.max(minRows, Math.min(maxRows, availableRows));
+}
+
+type Point3d = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+type ProjectedPoint = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+function cubeFacePoint(axis: 'x' | 'y' | 'z', sign: 1 | -1, u: number, v: number): Point3d {
+  if (axis === 'x') {
+    return {x: sign, y: u, z: v};
+  }
+
+  if (axis === 'y') {
+    return {x: u, y: sign, z: v};
+  }
+
+  return {x: u, y: v, z: sign};
+}
+
+function rotate3d(point: Point3d, angleX: number, angleY: number, angleZ: number): Point3d {
+  const cosX = Math.cos(angleX);
+  const sinX = Math.sin(angleX);
+  const y1 = point.y * cosX - point.z * sinX;
+  const z1 = point.y * sinX + point.z * cosX;
+
+  const cosY = Math.cos(angleY);
+  const sinY = Math.sin(angleY);
+  const x2 = point.x * cosY + z1 * sinY;
+  const z2 = -point.x * sinY + z1 * cosY;
+
+  const cosZ = Math.cos(angleZ);
+  const sinZ = Math.sin(angleZ);
+  return {
+    x: x2 * cosZ - y1 * sinZ,
+    y: x2 * sinZ + y1 * cosZ,
+    z: z2
+  };
+}
+
+function normalize3d(point: Point3d): Point3d {
+  const length = Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z) || 1;
+  return {
+    x: point.x / length,
+    y: point.y / length,
+    z: point.z / length
+  };
+}
+
+function project3d(point: Point3d, cx: number, cy: number, xScale: number, yScale: number, distance: number): ProjectedPoint {
+  const perspective = distance / (distance - point.z);
+  return {
+    x: Math.round(cx + point.x * xScale * perspective),
+    y: Math.round(cy + point.y * yScale * perspective),
+    z: point.z
+  };
+}
+
+function drawAsciiCubeEdge(grid: string[][], zBuffer: number[][], from: ProjectedPoint, to: ProjectedPoint): void {
+  const width = grid[0]?.length ?? 0;
+  const height = grid.length;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+
+  for (let step = 0; step <= steps; step += 1) {
+    const t = step / steps;
+    const x = Math.round(from.x + dx * t);
+    const y = Math.round(from.y + dy * t);
+    const z = from.z + (to.z - from.z) * t;
+
+    if (x < 0 || x >= width || y < 0 || y >= height || z < zBuffer[y]![x]! - 0.18) {
+      continue;
+    }
+
+    const depthChar = z > 0.75 ? '@' : z > 0.25 ? '#' : z > -0.25 ? '*' : '=';
+    grid[y]![x] = depthChar;
+    zBuffer[y]![x] = Math.max(zBuffer[y]![x]!, z);
+  }
+}
+
+function addCubeSignalSpecks(grid: string[][], pulse: number): void {
+  const height = grid.length;
+  const width = grid[0]?.length ?? 0;
+  const specks = Math.max(8, Math.min(22, Math.floor(width / 6)));
+  const chars = ['.', "'", '+', 'o', 'O'];
+
+  for (let index = 0; index < specks; index += 1) {
+    const seed = index * 37.7;
+    const orbit = pulse * (0.018 + index * 0.0009) + seed;
+    const side = index % 3 === 0 ? -1 : 1;
+    const x = Math.round(width * (side < 0 ? 0.18 : 0.82) + Math.sin(orbit) * width * 0.09 + Math.cos(seed) * width * 0.04);
+    const y = Math.round(height * 0.5 + Math.cos(orbit * 1.7) * height * 0.38);
+
+    if (x < 0 || x >= width || y < 0 || y >= height || grid[y]![x] !== ' ') {
+      continue;
+    }
+
+    grid[y]![x] = chars[(index + pulse) % chars.length] ?? '.';
+  }
 }
 
 function scopeY(x: number, pulse: number, midpoint: number, amplitude: number): number {

@@ -197,20 +197,25 @@ function monthLine(weeks: DailyListening[][], cellWidth: number): string {
       return ''.padEnd(cellWidth, ' ');
     }
 
-    const date = new Date(`${first.date}T00:00:00.000Z`);
+    const date = parseLocalDay(first.date);
     const previous = index > 0 && weeks[index - 1]?.[0]
-      ? new Date(`${weeks[index - 1]![0]!.date}T00:00:00.000Z`)
+      ? parseLocalDay(weeks[index - 1]![0]!.date)
       : null;
-    const changedMonth = !previous || date.getUTCMonth() !== previous.getUTCMonth();
+    const changedMonth = !previous || date.getMonth() !== previous.getMonth();
     if (!changedMonth) {
       return ''.padEnd(cellWidth, ' ');
     }
 
-    const label = monthLabels[date.getUTCMonth()]!;
+    const label = monthLabels[date.getMonth()]!;
     return cellWidth >= 3 ? label : label.slice(0, cellWidth).padEnd(cellWidth, ' ');
   });
 
   return cells.join('');
+}
+
+function parseLocalDay(value: string): Date {
+  const [year = '0', month = '1', day = '1'] = value.split('-');
+  return new Date(Number(year), Number(month) - 1, Number(day));
 }
 
 function formatDays(days: number): string {

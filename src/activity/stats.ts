@@ -18,13 +18,12 @@ export type ListeningStats = {
   days: DailyListening[];
 };
 
-const dayMs = 24 * 60 * 60 * 1000;
 const trackedDays = 371;
 
 export function computeListeningStats(sessions: ListeningSession[], now = new Date()): ListeningStats {
-  const today = startOfUtcDay(now);
-  const firstDay = new Date(today.getTime() - (trackedDays - 1) * dayMs);
-  const lastDayEnd = new Date(today.getTime() + dayMs);
+  const today = startOfLocalDay(now);
+  const firstDay = addLocalDays(today, -(trackedDays - 1));
+  const lastDayEnd = addLocalDays(today, 1);
   const secondsByDay = new Map<string, number>();
   const secondsByStation = new Map<string, {station: Station; seconds: number}>();
   let totalSeconds = 0;
@@ -46,8 +45,8 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
   }
 
   const days = Array.from({length: trackedDays}, (_, index) => {
-    const date = new Date(firstDay.getTime() + index * dayMs);
-    const key = isoDay(date);
+    const date = addLocalDays(firstDay, index);
+    const key = localDay(date);
     return {date: key, seconds: secondsByDay.get(key) ?? 0};
   });
 
@@ -77,8 +76,11 @@ function sessionSeconds(session: ListeningSession, now = new Date()): number {
   return Math.max(Math.round(session.listenedSeconds), Math.round((ended - started) / 1000));
 }
 
-function isoDay(date: Date): string {
-  return startOfUtcDay(date).toISOString().slice(0, 10);
+function localDay(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function splitSessionByDay(
@@ -107,11 +109,11 @@ function splitSessionByDay(
   const allocations: DailyListening[] = [];
   let cursor = boundedStart;
   while (cursor < boundedEnd) {
-    const dayStart = startOfUtcDay(new Date(cursor)).getTime();
-    const nextDay = dayStart + dayMs;
+    const dayStart = startOfLocalDay(new Date(cursor)).getTime();
+    const nextDay = addLocalDays(new Date(dayStart), 1).getTime();
     const segmentEnd = Math.min(nextDay, boundedEnd);
     allocations.push({
-      date: isoDay(new Date(cursor)),
+      date: localDay(new Date(cursor)),
       seconds: Math.round((segmentEnd - cursor) / 1000)
     });
     cursor = segmentEnd;
@@ -120,8 +122,14 @@ function splitSessionByDay(
   return allocations;
 }
 
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return startOfLocalDay(next);
 }
 
 function currentStreak(days: DailyListening[]): number {

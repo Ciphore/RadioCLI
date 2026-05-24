@@ -62,7 +62,8 @@ const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>([
   'radar',
   'neon',
   'matrix',
-  'hologram'
+  'hologram',
+  'cube'
 ]);
 const LIVE_RECEIVER_PULSE_MS = 100;
 const AMBIENT_RECEIVER_PULSE_MS = 180;

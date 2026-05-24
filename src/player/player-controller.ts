@@ -381,17 +381,84 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function extractMpvTitle(metadata: Record<string, string> | null): string | undefined {
+export function extractMpvTitle(metadata: Record<string, string> | null): string | undefined {
   if (!metadata) {
     return undefined;
   }
 
-  const title =
-    metadata['icy-title'] ??
-    metadata.StreamTitle ??
-    metadata.title ??
-    metadata.Title ??
-    metadata['icy-name'] ??
-    metadata.Name;
-  return title?.replace(/\s+/g, ' ').trim() || undefined;
+  const candidates = [
+    metadata['icy-title'],
+    metadata.StreamTitle,
+    metadata.title,
+    metadata.Title,
+    metadata['icy-name'],
+    metadata.Name
+  ];
+
+  for (const candidate of candidates) {
+    const title = cleanMetadataTitle(candidate);
+    if (title) {
+      return title;
+    }
+  }
+
+  return undefined;
+}
+
+function cleanMetadataTitle(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const fields = parseMetadataFields(normalized);
+  if (fields.size > 0) {
+    const title = firstField(fields, ['title', 'streamtitle', 'song', 'track', 'name']);
+    const artist = firstField(fields, ['artist', 'artists', 'performer', 'albumartist']);
+    const album = firstField(fields, ['album']);
+
+    if (artist && title) {
+      return `${artist} - ${title}`;
+    }
+
+    return title ?? artist ?? album;
+  }
+
+  return stripIcyStreamTitleWrapper(normalized);
+}
+
+function parseMetadataFields(value: string): Map<string, string> {
+  const fields = new Map<string, string>();
+  const pattern = /(?:^|[;,]\s*)([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;,]*))/g;
+  for (const match of value.matchAll(pattern)) {
+    const key = normalizeMetadataKey(match[1] ?? '');
+    const rawValue = match[2] ?? match[3] ?? match[4] ?? '';
+    const cleanedValue = rawValue.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\s+/g, ' ').trim();
+    if (key && cleanedValue && !fields.has(key)) {
+      fields.set(key, cleanedValue);
+    }
+  }
+
+  return fields;
+}
+
+function firstField(fields: Map<string, string>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = fields.get(key);
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeMetadataKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function stripIcyStreamTitleWrapper(value: string): string | undefined {
+  const wrapped = value.match(/^StreamTitle=['"]?([^'";]+)['"]?;?$/i);
+  const title = wrapped?.[1] ?? value;
+  return title.replace(/\s+/g, ' ').trim() || undefined;
 }

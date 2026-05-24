@@ -16,7 +16,8 @@ export const receiverStyleNames = [
   'stars',
   'neon',
   'matrix',
-  'hologram'
+  'hologram',
+  'cube'
 ] as const;
 
 type ProviderId = (typeof providerIds)[number];
