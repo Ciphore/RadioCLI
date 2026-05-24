@@ -36,3 +36,32 @@ Radio Atlas requires explicit opt-in through Settings or `:location on`.
 The UI borrows from old receiver and car head-unit displays: direct labels,
 compact hierarchy, visible status, and no fake copy. The app should be usable in
 a terminal session, not a landing page rendered in ANSI.
+
+The app shell paints its own near-black background instead of relying on the
+terminal profile color. That keeps the receiver, tabs, stats panels, and footer
+visually cohesive across different terminal themes.
+
+The Now Playing screen supports multiple visualizer styles so the display can
+feel like a receiver without locking the whole product into one animation. The
+default SDR style borrows from retro spectrum-analyzer tools: dB labels,
+frequency ticks, sampling-rate readouts, and a steady 15-fps-ish cadence. The
+alternate spectrum, oscilloscope, and signal-meter styles remain available, but
+they should stay secondary to the SDR display.
+
+## Tokscale-Inspired Navigation And Stats
+
+The horizontal tab rail is intentionally dense: it keeps the app feeling like a
+terminal tool with real surfaces instead of a stack of disconnected menus. On
+wide terminals the full rail is visible; on narrower terminals it keeps the
+active tab and nearby tabs in view so navigation does not wrap.
+
+Listening stats use the same direct, boxed language as the rest of the app. The
+contribution graph shows the last 371 days of local listening activity, while
+the numeric stats report real locally persisted sessions: favorite station,
+session count, current streak, active days, total hours listened, favorite time,
+and longest streak.
+
+The stats graph palette follows the selected display color, including the
+legend. A blue theme should produce blue contribution levels, amber should
+produce amber levels, and so on, so Stats feels like part of the same configured
+receiver surface.

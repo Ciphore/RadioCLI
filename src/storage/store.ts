@@ -2,7 +2,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {z} from 'zod';
-import type {AppSettings, LibraryState, Station} from '../types.js';
+import type {AppSettings, LibraryState, ListeningSession, Station} from '../types.js';
 import {backupBadFile} from '../providers/cache.js';
 
 const stationSchema: z.ZodType<Station> = z
@@ -33,7 +33,12 @@ const stationSchema: z.ZodType<Station> = z
   .strict();
 
 const settingsSchema: z.ZodType<AppSettings> = z.object({
-  theme: z.enum(['green', 'amber', 'blue']).default('green'),
+  theme: z.enum(['green', 'amber', 'blue', 'ruby', 'ice', 'mono']).default('green'),
+  receiverStyle: z.preprocess(
+    value => value === 'scope' ? 'sdr' : value,
+    z.enum(['sdr', 'spectrum', 'oscilloscope', 'signal', 'retro', 'waterfall', 'cassette', 'equalizer', 'radar', 'blocks', 'leds', 'vinyl', 'stars']).default('sdr')
+  ),
+  receiverStyleVersion: z.number().optional(),
   volume: z.number().min(0).max(100).default(70),
   enableRadioGarden: z.boolean().default(false),
   enableNearbyLocation: z.boolean().default(false),
@@ -53,8 +58,25 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     .default([]),
   favorites: z.array(stationSchema).default([]),
   imported: z.array(stationSchema).default([]),
+  activity: z
+    .object({
+      sessions: z
+        .array(
+          z.object({
+            id: z.string(),
+            station: stationSchema,
+            startedAt: z.string(),
+            endedAt: z.string().optional(),
+            listenedSeconds: z.number().min(0)
+          })
+        )
+        .default([])
+    })
+    .default({sessions: []}),
   settings: settingsSchema.default({
     theme: 'green',
+    receiverStyle: 'sdr',
+    receiverStyleVersion: 2,
     volume: 70,
     enableRadioGarden: false,
     enableNearbyLocation: false,
@@ -80,7 +102,11 @@ export class JsonLibraryStore {
   updateSettings(settings: Partial<AppSettings>): LibraryState {
     this.state = {
       ...this.state,
-      settings: {...this.state.settings, ...settings}
+      settings: {
+        ...this.state.settings,
+        ...settings,
+        receiverStyleVersion: settings.receiverStyle ? 2 : this.state.settings.receiverStyleVersion
+      }
     };
     this.write();
     return this.snapshot();
@@ -94,6 +120,49 @@ export class JsonLibraryStore {
     ].slice(0, 50);
 
     this.state = {...this.state, recent};
+    this.write();
+    return this.snapshot();
+  }
+
+  startListeningSession(station: Station, startedAt = new Date()): LibraryState {
+    this.finishActiveListeningSession(startedAt);
+    const session: ListeningSession = {
+      id: `${startedAt.toISOString()}-${stationKey(station)}`,
+      station,
+      startedAt: startedAt.toISOString(),
+      listenedSeconds: 0
+    };
+
+    this.state = {
+      ...this.state,
+      activity: {
+        sessions: [session, ...this.state.activity.sessions].slice(0, 2000)
+      }
+    };
+    this.write();
+    return this.snapshot();
+  }
+
+  finishActiveListeningSession(endedAt = new Date()): LibraryState {
+    const sessions = this.state.activity.sessions.map((session, index) => {
+      if (index !== 0 || session.endedAt) {
+        return session;
+      }
+
+      const started = Date.parse(session.startedAt);
+      const ended = endedAt.getTime();
+      const listenedSeconds = Number.isFinite(started) && ended > started
+        ? Math.max(session.listenedSeconds, Math.round((ended - started) / 1000))
+        : session.listenedSeconds;
+
+      return {
+        ...session,
+        endedAt: endedAt.toISOString(),
+        listenedSeconds
+      };
+    });
+
+    this.state = {...this.state, activity: {sessions}};
     this.write();
     return this.snapshot();
   }
@@ -139,7 +208,7 @@ export class JsonLibraryStore {
     }
 
     try {
-      return librarySchema.parse(JSON.parse(readFileSync(this.filePath, 'utf8')));
+      return migrateLibraryState(librarySchema.parse(JSON.parse(readFileSync(this.filePath, 'utf8'))));
     } catch {
       backupBadFile(this.filePath);
       return defaultState();
@@ -173,14 +242,32 @@ function defaultState(): LibraryState {
     recent: [],
     favorites: [],
     imported: [],
+    activity: {sessions: []},
     settings: {
       theme: 'green',
+      receiverStyle: 'sdr',
+      receiverStyleVersion: 2,
       volume: 70,
       enableRadioGarden: false,
       enableNearbyLocation: false,
       preferredBackend: 'auto',
       tuneTimeoutSeconds: 12,
       skipBrokenStreams: true
+    }
+  };
+}
+
+function migrateLibraryState(state: LibraryState): LibraryState {
+  if (state.settings.receiverStyleVersion === 2) {
+    return state;
+  }
+
+  return {
+    ...state,
+    settings: {
+      ...state.settings,
+      receiverStyle: 'sdr',
+      receiverStyleVersion: 2
     }
   };
 }

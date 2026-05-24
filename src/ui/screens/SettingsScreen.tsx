@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
+import {truncate} from '../format.js';
 import {themeAccent} from '../theme.js';
 
 type SettingsScreenProps = {
@@ -13,10 +14,12 @@ type SettingsScreenProps = {
   providerHealth: Record<string, string>;
   theme: ThemeName;
   diagnostics: PlaybackDiagnostics;
+  width: number;
 };
 
 export const settingsItems = [
   'Cycle display color',
+  'Cycle spectrum style',
   'Toggle Radio Garden experimental adapter',
   'Toggle nearby location lookup',
   'Cycle playback backend',
@@ -35,8 +38,11 @@ export function SettingsScreen({
   backends,
   providerHealth,
   theme,
-  diagnostics
+  diagnostics,
+  width
 }: SettingsScreenProps): React.ReactElement {
+  const lineWidth = Math.max(32, width - 4);
+
   return (
     <Box flexDirection="column">
       <Text bold>Settings</Text>
@@ -44,6 +50,9 @@ export function SettingsScreen({
       <Box marginTop={1} flexDirection="column">
         <Text>
           Display color: <Text color={themeAccent(theme)}>{settings.theme}</Text>
+        </Text>
+        <Text>
+          Spectrum style: <Text color={themeAccent(theme)}>{settings.receiverStyle}</Text>
         </Text>
         <Text>
           Playback backend: <Text color={themeAccent(theme)}>{settings.preferredBackend}</Text>
@@ -61,8 +70,8 @@ export function SettingsScreen({
         <Text color="gray">Tune timeout: {settings.tuneTimeoutSeconds}s</Text>
         <Text color="gray">Current player: {playback.backend} / {playback.state}</Text>
         <Text color="gray">Volume: {diagnostics.muted ? 'muted' : diagnostics.volume}</Text>
-        <Text color="gray">Active stream: {diagnostics.streamUrl ?? 'none'}</Text>
-        <Text color="gray">Library: {storePath}</Text>
+        <Text color="gray">Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>
+        <Text color="gray">Library: {truncate(storePath, lineWidth - 9)}</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text bold>Provider health</Text>

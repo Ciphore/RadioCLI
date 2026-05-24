@@ -12,6 +12,7 @@ export const homeItems = [
   {screen: 'search', label: 'Search stations', detail: 'Find stations by name, genre, language, place'},
   {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},
   {screen: 'now-playing', label: 'Now playing', detail: 'Receiver display and controls'},
+  {screen: 'stats', label: 'Stats', detail: 'Listening graph, sessions, streaks, hours'},
   {screen: 'recent', label: 'Recent', detail: 'Stations played on this machine'},
   {screen: 'favorites', label: 'Favorites', detail: 'Saved and imported stations'},
   {screen: 'settings', label: 'Settings', detail: 'Playback backend, colors, providers'}
@@ -41,7 +42,7 @@ export function HomeScreen({selected, theme, library, playback}: HomeProps): Rea
             <Box>
               <Pointer active={active} />
               <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                {index + 1}. {item.label}
+                {index === 9 ? '0' : index + 1}. {item.label}
               </Text>
               <Text color="gray"> · {item.detail}</Text>
             </Box>
@@ -50,7 +51,7 @@ export function HomeScreen({selected, theme, library, playback}: HomeProps): Rea
       </Box>
       <Box marginTop={1}>
         <Text color="gray">
-          {library.recent.length} recent · {library.favorites.length} favorites · {library.imported.length} imported · [↑↓ navigate, Enter select, q quit]
+          {library.recent.length} recent · {library.favorites.length} favorites · {library.imported.length} imported · [←→ tabs, ↑↓ navigate, Enter select, 1-9/0 jump, q quit]
         </Text>
       </Box>
     </Box>

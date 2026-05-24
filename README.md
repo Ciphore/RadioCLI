@@ -8,13 +8,14 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 - Explore public radio from around the world through country lists, global station search, a symbolic world map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
-- Use a receiver-style Now Playing screen with animated signal bars, backend status, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
+- Use a receiver-style Now Playing screen with selectable visualizers, backend status, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
 - Search by station name, place, language, tag, codec, or minimum bitrate.
-- Keep local recents, favorites, imported stations, playback settings, and provider cache.
+- Keep local recents, favorites, imported stations, listening activity, playback settings, and provider cache.
+- Review listening stats with a Tokscale-inspired tab rail, 52-week contribution graph, favorite station, sessions, streaks, active days, and total hours listened.
 - Import `.m3u`, `.pls`, and `.xspf` playlists, including nested local playlists.
 - Export favorites and imports as `.m3u`.
 - Survive ordinary internet-radio failure modes with provider mirror fallback, stale cache fallback, corrupt-file backups, tune timeouts, and skip-broken-stream behavior.
-- Resize with the terminal. The app computes list row counts, map density, receiver width, and compact-mode fallback from the current terminal dimensions.
+- Resize with the terminal. The app listens for terminal resize events and recomputes list row counts, map density, receiver width, and compact-mode fallback from the current dimensions.
 
 ## Demo
 
@@ -29,11 +30,12 @@ Radio Atlas
     Search
     Nearby
     Now Playing
+    Stats
     Recent
-    Favorites and imports
+    Favorites
     Settings
 
-: command · [/] page · +/- volume · m mute
+←/→ tabs · : command · f favorite · [/] page · +/- volume · m mute
 ```
 
 The Now Playing screen is styled like a compact receiver display:
@@ -114,7 +116,9 @@ node dist/cli.js search "lagos talk"
 ## TUI Controls
 
 - `1`-`9`: jump from the home menu.
-- `Enter`: open the selected item or tune the selected station.
+- `←` / `→`: move across the top screen tabs.
+- `Tab` / `Shift+Tab`: move across the top screen tabs.
+- `Enter`: open the selected item or tune the selected station without leaving the current list.
 - `:`: command palette.
 - `/`: edit search or country filter on screens that support it.
 - `[` / `]`: page through long station and country lists.
@@ -139,16 +143,20 @@ Useful command palette entries:
 :clear
 :volume 60
 :mute
+:favorite
 :sleep 15
 :timeout 15
 :skip off
 :location on
 :map
+:stats
 :recent
 :favorites
 :settings
 :stop
 ```
+
+Settings persist display colors and spectrum styles without editing config files. The stats graph and legend follow the selected display color. The default spectrum style is an SDR-inspired display, with spectrum bars, an oscilloscope, and signal meters available when you want a different display.
 
 ## Architecture
 

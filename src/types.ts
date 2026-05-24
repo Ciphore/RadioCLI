@@ -9,11 +9,14 @@ export type Screen =
   | 'nearby'
   | 'map'
   | 'now-playing'
+  | 'stats'
   | 'recent'
   | 'favorites'
   | 'settings';
 
-export type ThemeName = 'green' | 'amber' | 'blue';
+export type ThemeName = 'green' | 'amber' | 'blue' | 'ruby' | 'ice' | 'mono';
+
+export type ReceiverStyle = 'sdr' | 'spectrum' | 'oscilloscope' | 'signal' | 'retro' | 'waterfall' | 'cassette' | 'equalizer' | 'radar' | 'blocks' | 'leds' | 'vinyl' | 'stars' | 'neon' | 'matrix' | 'hologram';
 
 export type Country = {
   name: string;
@@ -73,6 +76,8 @@ export type SearchOptions = {
 
 export type AppSettings = {
   theme: ThemeName;
+  receiverStyle: ReceiverStyle;
+  receiverStyleVersion?: number;
   volume: number;
   enableRadioGarden: boolean;
   enableNearbyLocation: boolean;
@@ -86,10 +91,23 @@ export type RecentPlay = {
   playedAt: string;
 };
 
+export type ListeningSession = {
+  id: string;
+  station: Station;
+  startedAt: string;
+  endedAt?: string;
+  listenedSeconds: number;
+};
+
+export type ListeningActivity = {
+  sessions: ListeningSession[];
+};
+
 export type LibraryState = {
   recent: RecentPlay[];
   favorites: Station[];
   imported: Station[];
+  activity: ListeningActivity;
   settings: AppSettings;
 };
 

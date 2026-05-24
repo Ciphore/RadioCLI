@@ -27,15 +27,20 @@ describe('JsonLibraryStore', () => {
 
     const store = new JsonLibraryStore(file);
     store.addRecent(station);
+    store.startListeningSession(station, new Date('2026-05-24T12:00:00.000Z'));
+    store.finishActiveListeningSession(new Date('2026-05-24T12:05:00.000Z'));
     store.toggleFavorite(station);
     store.addImported([{...station, id: 'custom-1', provider: 'playlist', streamUrl: 'https://example.com/live'}]);
-    store.updateSettings({theme: 'amber'});
+    store.updateSettings({theme: 'amber', receiverStyle: 'oscilloscope'});
 
     const reloaded = new JsonLibraryStore(file).snapshot();
     expect(reloaded.recent[0]?.station.name).toBe('Test FM');
+    expect(reloaded.activity.sessions[0]?.listenedSeconds).toBe(300);
     expect(reloaded.favorites[0]?.id).toBe('station-1');
     expect(reloaded.imported[0]?.id).toBe('custom-1');
     expect(reloaded.settings.theme).toBe('amber');
+    expect(reloaded.settings.receiverStyle).toBe('oscilloscope');
+    expect(reloaded.settings.receiverStyleVersion).toBe(2);
   });
 
   it('backs up corrupt store files before resetting', () => {
@@ -45,6 +50,39 @@ describe('JsonLibraryStore', () => {
     writeFileSync(file, '{not json', 'utf8');
     const store = new JsonLibraryStore(file);
     expect(store.snapshot().settings.theme).toBe('green');
+    expect(store.snapshot().settings.receiverStyle).toBe('sdr');
+    expect(store.snapshot().activity.sessions).toEqual([]);
     expect(readdirSync(root).some(name => name.startsWith('library.json.bad-'))).toBe(true);
+  });
+
+  it('migrates the old scope receiver style to the sdr default', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        recent: [],
+        favorites: [],
+        imported: [],
+        activity: {sessions: []},
+        settings: {
+          theme: 'ruby',
+          receiverStyle: 'scope',
+          volume: 70,
+          enableRadioGarden: false,
+          enableNearbyLocation: false,
+          preferredBackend: 'auto',
+          tuneTimeoutSeconds: 12,
+          skipBrokenStreams: true
+        }
+      }),
+      'utf8'
+    );
+
+    const state = new JsonLibraryStore(file).snapshot();
+    expect(state.settings.theme).toBe('ruby');
+    expect(state.settings.receiverStyle).toBe('sdr');
+    expect(state.settings.receiverStyleVersion).toBe(2);
   });
 });

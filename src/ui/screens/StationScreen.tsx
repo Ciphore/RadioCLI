@@ -34,7 +34,7 @@ export function StationScreen({
       {loading ? <Text color="gray">Loading stations...</Text> : null}
       {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} /> : null}
       <Box marginTop={1}>
-        <Text color="gray">Enter play · f favorite · n/p move · b back · q quit</Text>
+        <Text color="gray">Enter tune · f favorite · n/p move · b back · q quit</Text>
       </Box>
     </Box>
   );
