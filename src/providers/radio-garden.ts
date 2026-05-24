@@ -34,7 +34,7 @@ export class RadioGardenProvider {
 
   async health(): Promise<string> {
     try {
-      const response = await fetch(`${this.baseUrl}/geo`, {
+      const response = await fetchWithTimeout(`${this.baseUrl}/geo`, 5000, {
         headers: {'User-Agent': 'radio-atlas/0.1'}
       });
       if (response.status === 403) {
@@ -51,7 +51,7 @@ export class RadioGardenProvider {
     const url = new URL(`${this.baseUrl}/search`);
     url.searchParams.set('q', query);
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, 9000, {
       headers: {'User-Agent': 'radio-atlas/0.1', Accept: 'application/json'}
     });
 
@@ -86,5 +86,15 @@ export class RadioGardenProvider {
       url: `${this.baseUrl}/ara/content/listen/${encodeURIComponent(station.id)}/channel.mp3`,
       name: station.name
     };
+  }
+}
+
+async function fetchWithTimeout(url: string | URL, timeoutMs: number, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {...init, signal: controller.signal});
+  } finally {
+    clearTimeout(timeout);
   }
 }

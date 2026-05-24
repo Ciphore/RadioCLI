@@ -1,4 +1,25 @@
-export type ProviderId = 'radio-browser' | 'radio-garden' | 'playlist';
+const providerIds = ['radio-browser', 'radio-garden', 'playlist'] as const;
+const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'mono'] as const;
+export const receiverStyleNames = [
+  'sdr',
+  'spectrum',
+  'oscilloscope',
+  'signal',
+  'retro',
+  'waterfall',
+  'cassette',
+  'equalizer',
+  'radar',
+  'blocks',
+  'leds',
+  'vinyl',
+  'stars',
+  'neon',
+  'matrix',
+  'hologram'
+] as const;
+
+type ProviderId = (typeof providerIds)[number];
 
 export type Screen =
   | 'home'
@@ -14,9 +35,9 @@ export type Screen =
   | 'favorites'
   | 'settings';
 
-export type ThemeName = 'green' | 'amber' | 'blue' | 'ruby' | 'ice' | 'mono';
+export type ThemeName = (typeof themeNames)[number];
 
-export type ReceiverStyle = 'sdr' | 'spectrum' | 'oscilloscope' | 'signal' | 'retro' | 'waterfall' | 'cassette' | 'equalizer' | 'radar' | 'blocks' | 'leds' | 'vinyl' | 'stars' | 'neon' | 'matrix' | 'hologram';
+export type ReceiverStyle = (typeof receiverStyleNames)[number];
 
 export type Country = {
   name: string;
@@ -74,6 +95,12 @@ export type SearchOptions = {
   minBitrate?: number;
 };
 
+export type MediaKeyBindings = {
+  previous: string[];
+  playPause: string[];
+  next: string[];
+};
+
 export type AppSettings = {
   theme: ThemeName;
   receiverStyle: ReceiverStyle;
@@ -84,9 +111,10 @@ export type AppSettings = {
   preferredBackend: 'auto' | 'mpv' | 'ffplay';
   tuneTimeoutSeconds: number;
   skipBrokenStreams: boolean;
+  mediaKeys: MediaKeyBindings;
 };
 
-export type RecentPlay = {
+type RecentPlay = {
   station: Station;
   playedAt: string;
 };
@@ -99,7 +127,7 @@ export type ListeningSession = {
   listenedSeconds: number;
 };
 
-export type ListeningActivity = {
+type ListeningActivity = {
   sessions: ListeningSession[];
 };
 

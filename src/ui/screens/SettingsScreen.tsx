@@ -27,7 +27,11 @@ export const settingsItems = [
   'Volume down',
   'Mute or unmute',
   'Toggle skip broken streams',
-  'Refresh provider health'
+  'Refresh provider health',
+  'Learn previous media key',
+  'Learn play/pause media key',
+  'Learn next media key',
+  'Reset learned media keys'
 ] as const;
 
 export function SettingsScreen({
@@ -46,7 +50,8 @@ export function SettingsScreen({
   return (
     <Box flexDirection="column">
       <Text bold>Settings</Text>
-      <Text color="gray">Enter changes selected setting · b back</Text>
+      <Text color="gray">Enter changes selected · t color · v visual · o backend · r health</Text>
+      <Text color="gray">F7/F8/F9 media · ,/. station · g/l/x toggles · b back</Text>
       <Box marginTop={1} flexDirection="column">
         <Text>
           Display color: <Text color={themeAccent(theme)}>{settings.theme}</Text>
@@ -68,6 +73,7 @@ export function SettingsScreen({
           Skip broken streams: <Text color={settings.skipBrokenStreams ? themeAccent(theme) : 'gray'}>{settings.skipBrokenStreams ? 'on' : 'off'}</Text>
         </Text>
         <Text color="gray">Tune timeout: {settings.tuneTimeoutSeconds}s</Text>
+        <Text color="gray">Learned media keys: prev {settings.mediaKeys.previous.length} · play {settings.mediaKeys.playPause.length} · next {settings.mediaKeys.next.length}</Text>
         <Text color="gray">Current player: {playback.backend} / {playback.state}</Text>
         <Text color="gray">Volume: {diagnostics.muted ? 'muted' : diagnostics.volume}</Text>
         <Text color="gray">Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>

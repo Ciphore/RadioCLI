@@ -13,6 +13,7 @@ type StationScreenProps = {
   favorites: Set<string>;
   filterLabel: string;
   pageSize: number;
+  width: number;
 };
 
 export function StationScreen({
@@ -24,7 +25,8 @@ export function StationScreen({
   theme,
   favorites,
   filterLabel,
-  pageSize
+  pageSize,
+  width
 }: StationScreenProps): React.ReactElement {
   return (
     <Box flexDirection="column">
@@ -32,7 +34,7 @@ export function StationScreen({
       <Text color="gray">{subtitle}</Text>
       <Text color="gray">Filters: {filterLabel}</Text>
       {loading ? <Text color="gray">Loading stations...</Text> : null}
-      {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} /> : null}
+      {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
       <Box marginTop={1}>
         <Text color="gray">Enter tune · f favorite · n/p move · b back · q quit</Text>
       </Box>

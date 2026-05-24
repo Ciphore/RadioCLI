@@ -13,8 +13,8 @@ describe('computeTerminalLayout', () => {
     const tall = computeTerminalLayout(100, 42);
     expect(tall.stationRows).toBeGreaterThan(short.stationRows);
     expect(tall.countryRows).toBeGreaterThan(short.countryRows);
-    expect(short.stationRows).toBe(6);
-    expect(computeTerminalLayout(124, 33).stationRows).toBe(10);
+    expect(short.stationRows).toBe(13);
+    expect(computeTerminalLayout(124, 33).stationRows).toBe(22);
     expect(computeTerminalLayout(159, 45).countryRows).toBe(36);
   });
 

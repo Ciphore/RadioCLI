@@ -201,8 +201,11 @@ export class RadioBrowserProvider {
   }
 
   async detectLocation(): Promise<LocationGuess | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch('https://ipapi.co/json/', {
+        signal: controller.signal,
         headers: {'User-Agent': 'radio-atlas/0.1'}
       });
       if (!response.ok) {
@@ -225,6 +228,8 @@ export class RadioBrowserProvider {
       };
     } catch {
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

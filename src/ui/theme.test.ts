@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {themeAccent, themeContributionColors, nextReceiverStyle, receiverStyles} from './theme.js';
+import {receiverStyleNames} from '../types.js';
+import {themeAccent, themeContributionColors, nextReceiverStyle} from './theme.js';
 import type {ThemeName, ReceiverStyle} from '../types.js';
 
 describe('themeContributionColors', () => {
@@ -19,13 +20,13 @@ describe('nextReceiverStyle', () => {
     let style: ReceiverStyle = 'sdr';
     const seen = new Set<ReceiverStyle>([style]);
 
-    for (let i = 0; i < receiverStyles.length; i++) {
+    for (let i = 0; i < receiverStyleNames.length; i++) {
       style = nextReceiverStyle(style);
       seen.add(style);
     }
 
-    expect(seen.size).toBe(receiverStyles.length);
-    for (const s of receiverStyles) {
+    expect(seen.size).toBe(receiverStyleNames.length);
+    for (const s of receiverStyleNames) {
       expect(seen.has(s)).toBe(true);
     }
   });

@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -30,17 +31,25 @@ jobs:
       - name: Typecheck
         run: npm run check
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm run test
 
       - name: Build
         run: npm run build
 
-      - name: Data smoke
-        run: npm run smoke:data
-
       - name: Package dry run
         run: npm run pack:check
 
+      - name: Package lint
+        run: npm run check:package
+
+      - name: Data smoke
+        if: github.event_name != 'pull_request'
+        run: npm run smoke:data
+
       - name: Fresh install smoke
+        if: github.event_name != 'pull_request'
         run: npm run fresh:check

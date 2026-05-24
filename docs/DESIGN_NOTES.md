@@ -44,9 +44,9 @@ visually cohesive across different terminal themes.
 The Now Playing screen supports multiple visualizer styles so the display can
 feel like a receiver without locking the whole product into one animation. The
 default SDR style borrows from retro spectrum-analyzer tools: dB labels,
-frequency ticks, sampling-rate readouts, and a steady 15-fps-ish cadence. The
-alternate spectrum, oscilloscope, and signal-meter styles remain available, but
-they should stay secondary to the SDR display.
+frequency ticks, sampling-rate readouts, and a steady CRT-ish cadence around 10
+frames per second. The alternate spectrum, oscilloscope, and signal-meter styles
+remain available, but they should stay secondary to the SDR display.
 
 ## Tokscale-Inspired Navigation And Stats
 

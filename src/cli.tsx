@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import React from 'react';
 import {render} from 'ink';
 import {App} from './ui/App.js';
 import {ProviderManager} from './providers/provider-manager.js';
@@ -16,7 +15,11 @@ if (args.length > 0) {
   });
 } else {
   render(<App />, {
-    exitOnCtrlC: true
+    exitOnCtrlC: true,
+    kittyKeyboard: {
+      mode: 'auto',
+      flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']
+    }
   });
 }
 

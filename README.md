@@ -35,7 +35,7 @@ Radio Atlas
     Favorites
     Settings
 
-←/→ tabs · : command · f favorite · [/] page · +/- volume · m mute
+←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v · q quit
 ```
 
 The Now Playing screen is styled like a compact receiver display:
@@ -49,7 +49,7 @@ Now playing
 │ ▁▂▃▄▅▆▇█▁▂▃▄▅▆▇█▁▂▃▄▅▆▇█▁▂▃▄▅▆▇█▁▂▃▄▅▆▇█▁▂                         │
 │ MP3 · 128 kbps · english                                                │
 │ Backend mpv · Vol 70       ☆ NOT FAVORITE                 Sleep off     │
-│ space pause · +/- volume · m mute · s sleep · n/p station · d diagnostics│
+│ space/F8 pause · +/- volume · m mute · s sleep · F7/F9 station · d diag │
 ╰────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -80,8 +80,8 @@ radio-atlas
 Local checkout:
 
 ```bash
-git clone https://github.com/ciphore/radio-atlas.git
-cd radio-atlas
+git clone https://github.com/Ciphore/RadioCLI.git
+cd RadioCLI
 npm ci
 npm run build
 npm link
@@ -124,13 +124,23 @@ node dist/cli.js search "lagos talk"
 - `[` / `]`: page through long station and country lists.
 - `+` / `-`: volume.
 - `m`: mute.
-- `space`: pause or resume.
+- `t`: cycle display color.
+- `v`: cycle spectrum style.
+- `o`: cycle playback backend.
+- `g`: toggle the experimental Radio Garden adapter.
+- `l`: toggle nearby location lookup.
+- `x`: toggle skip-broken-stream behavior.
+- `r`: refresh provider health.
+- `space` / `F8`: pause or resume.
 - `f`: favorite the current or selected station.
-- `n` / `p`: move selection; on Now Playing, tune next or previous station.
+- `n` / `p`: move selection; on Now Playing, tune next or previous station from the source list.
+- `F7` / `F9`, `,` / `.`, or `Shift+←` / `Shift+→`: tune previous or next station from the source list, wherever you are in the TUI.
 - `s`: sleep timer on Now Playing.
 - `d`: stream diagnostics on Now Playing.
 - `b`: back home.
 - `q` or `Ctrl+C`: quit cleanly.
+
+Hardware media keys depend on the OS and terminal. Radio Atlas enables enhanced keyboard reporting where supported, recognizes common F7/F8/F9, Kitty media-key, and modified-arrow sequences, and lets you learn custom keys from Settings or with `:learn previous`, `:learn play`, and `:learn next`.
 
 Useful command palette entries:
 
@@ -148,6 +158,10 @@ Useful command palette entries:
 :timeout 15
 :skip off
 :location on
+:learn previous
+:learn play
+:learn next
+:keys reset
 :map
 :stats
 :recent
@@ -202,12 +216,14 @@ Nearby station discovery is off by default. If you enable it, Radio Atlas uses a
 ```bash
 npm ci
 npm run check
+npm run lint
 npm run test
 npm run build
 npm run smoke:data
 npm run smoke:playback
 npm run pack:check
 npm run fresh:check
+npm run verify:release
 ```
 
 `npm run smoke:playback` briefly opens a public stream through your local playback backend.

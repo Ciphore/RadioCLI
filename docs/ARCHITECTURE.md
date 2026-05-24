@@ -56,6 +56,7 @@ The TUI is an Ink app with explicit screens:
 - Search
 - Nearby
 - Now Playing
+- Stats
 - Recent
 - Favorites/imports
 - Settings
@@ -64,6 +65,11 @@ The TUI is an Ink app with explicit screens:
 width, compact mode, and map mode. Screens consume those layout values instead
 of hard-coding visible rows.
 
+Pure screen model helpers, tab definitions, filters, and text-editing helpers
+live in `src/ui/app-state.ts`. The Now Playing screen owns receiver layout while
+the signal visualizer builders live under `src/ui/visualizers`, keeping the
+screen component focused on composition.
+
 ## Persistence
 
 The store is local JSON. It keeps:
@@ -71,7 +77,11 @@ The store is local JSON. It keeps:
 - recent stations
 - favorites
 - imported stations
+- listening activity
 - settings
 
 Corrupt store/cache files are renamed with a `.bad-*` suffix before defaults are
 used, so user data is not silently overwritten.
+
+Writes use a temp-file-and-rename flow so interrupted writes are less likely to
+leave partial JSON behind.

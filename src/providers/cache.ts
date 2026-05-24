@@ -1,4 +1,4 @@
-import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 
@@ -53,11 +53,11 @@ export class ProviderCache {
 
   private write(): void {
     mkdirSync(dirname(this.filePath), {recursive: true});
-    writeFileSync(this.filePath, `${JSON.stringify(this.cache, null, 2)}\n`, 'utf8');
+    writeJsonAtomically(this.filePath, this.cache);
   }
 }
 
-export function defaultProviderCachePath(): string {
+function defaultProviderCachePath(): string {
   if (process.env.RADIO_ATLAS_HOME) {
     return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas-cache.json');
   }
@@ -67,6 +67,17 @@ export function defaultProviderCachePath(): string {
   }
 
   return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'radio-atlas', 'radio-atlas-cache.json');
+}
+
+function writeJsonAtomically(filePath: string, value: unknown): void {
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    renameSync(tempPath, filePath);
+  } catch (error) {
+    rmSync(tempPath, {force: true});
+    throw error;
+  }
 }
 
 export function backupBadFile(filePath: string): void {

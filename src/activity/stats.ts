@@ -67,7 +67,7 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
   };
 }
 
-export function sessionSeconds(session: ListeningSession, now = new Date()): number {
+function sessionSeconds(session: ListeningSession, now = new Date()): number {
   const started = Date.parse(session.startedAt);
   const ended = session.endedAt ? Date.parse(session.endedAt) : now.getTime();
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) {
@@ -77,7 +77,7 @@ export function sessionSeconds(session: ListeningSession, now = new Date()): num
   return Math.max(Math.round(session.listenedSeconds), Math.round((ended - started) / 1000));
 }
 
-export function isoDay(date: Date): string {
+function isoDay(date: Date): string {
   return startOfUtcDay(date).toISOString().slice(0, 10);
 }
 

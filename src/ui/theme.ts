@@ -1,34 +1,9 @@
-import type {ReceiverStyle, ThemeName} from '../types.js';
+import {receiverStyleNames, type ReceiverStyle, type ThemeName} from '../types.js';
 
-export const themeNames: ThemeName[] = ['green', 'amber', 'blue', 'ruby', 'ice', 'mono'];
-export const receiverStyles: ReceiverStyle[] = ['sdr', 'spectrum', 'oscilloscope', 'signal', 'retro', 'waterfall', 'cassette', 'equalizer', 'radar', 'blocks', 'leds', 'vinyl', 'stars', 'neon', 'matrix', 'hologram'];
+const receiverStyles: readonly ReceiverStyle[] = receiverStyleNames;
 export const appBackground = '#070a0f';
 export const panelBackground = '#090d14';
 export const panelBorder = '#28313c';
-
-export function themeColor(theme: ThemeName): string {
-  if (theme === 'amber') {
-    return 'yellow';
-  }
-
-  if (theme === 'blue') {
-    return 'cyan';
-  }
-
-  if (theme === 'ruby') {
-    return 'magenta';
-  }
-
-  if (theme === 'ice') {
-    return 'white';
-  }
-
-  if (theme === 'mono') {
-    return 'gray';
-  }
-
-  return 'green';
-}
 
 export function themeAccent(theme: ThemeName): string {
   if (theme === 'amber') {
@@ -79,6 +54,7 @@ export function themeContributionColors(theme: ThemeName): string[] {
 }
 
 export function nextTheme(theme: ThemeName): ThemeName {
+  const themeNames: readonly ThemeName[] = ['green', 'amber', 'blue', 'ruby', 'ice', 'mono'];
   const index = themeNames.indexOf(theme);
   return themeNames[(index + 1) % themeNames.length] ?? 'green';
 }

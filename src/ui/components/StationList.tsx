@@ -12,14 +12,18 @@ type StationListProps = {
   theme: ThemeName;
   favorites: Set<string>;
   pageSize: number;
+  width: number;
 };
 
-export function StationList({stations, selected, theme, favorites, pageSize}: StationListProps): React.ReactElement {
+export function StationList({stations, selected, theme, favorites, pageSize, width}: StationListProps): React.ReactElement {
   if (stations.length === 0) {
     return <Text color="gray">No stations found.</Text>;
   }
 
   const window = visibleWindow(stations, selected, pageSize);
+  const rowWidth = Math.max(42, width - 4);
+  const nameWidth = Math.min(48, Math.max(18, Math.floor(rowWidth * 0.42)));
+  const metaWidth = Math.max(12, rowWidth - nameWidth - 6);
 
   return (
     <Box flexDirection="column">
@@ -34,19 +38,17 @@ export function StationList({stations, selected, theme, favorites, pageSize}: St
             <Box>
               <Pointer active={active} />
               <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                {truncate(station.name, 48)}
+                {truncate(station.name, nameWidth).padEnd(nameWidth)}
               </Text>
-              <Text color="gray"> {favorites.has(`${station.provider}:${station.id}`) ? '★' : ' '}</Text>
-            </Box>
-            <Box marginLeft={4}>
+              <Text color="gray"> {favorites.has(`${station.provider}:${station.id}`) ? '★' : ' '} </Text>
               <Text color="gray">
-                {truncate(stationLocation(station), 30)} · {truncate(stationTech(station), 32)}
+                {truncate(`${stationLocation(station)} · ${stationTech(station)}`, metaWidth)}
               </Text>
             </Box>
             {active ? (
               <Box marginLeft={4}>
                 <Text color="gray">
-                  #{window.start + index + 1} · {truncate(stationTags(station), 70)}
+                  #{window.start + index + 1} · {truncate(stationTags(station), rowWidth - 8)}
                 </Text>
               </Box>
             ) : null}

@@ -1,9 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
+import {Box, Text, useApp, useInput, useStdin, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController} from '../player/player-controller.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import type {Country, IcyNowPlaying, LibraryState, LocationGuess, PlaybackState, Screen, Station} from '../types.js';
+import type {AppSettings, Country, IcyNowPlaying, LibraryState, LocationGuess, PlaybackState, Screen, Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, themeAccent} from './theme.js';
 import {HomeScreen, homeItems} from './screens/HomeScreen.js';
 import {CountriesScreen} from './screens/CountriesScreen.js';
@@ -13,85 +13,61 @@ import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
 import {SettingsScreen, settingsItems} from './screens/SettingsScreen.js';
 import {MapScreen} from './screens/MapScreen.js';
 import {StatsScreen} from './screens/StatsScreen.js';
-import {TopTabs, type TopTab} from './components/TopTabs.js';
+import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout} from './layout.js';
+import {
+  activeTabForScreen,
+  addMediaKeyBinding,
+  applyStationFilters,
+  applyTextInput,
+  clamp,
+  clampVolume,
+  favoriteTarget,
+  formatFilterLabel,
+  formatTimeLeft,
+  initialStationContexts,
+  isEditableInput,
+  isPlainPrintableInput,
+  mediaActionLabel,
+  mediaTransportActionForInput,
+  normalizeMediaKeyBindings,
+  parseMediaActionName,
+  stationApproximateTime,
+  stationContextKeyForScreen,
+  topTabs,
+  type MediaTransportAction,
+  type NavigationOptions,
+  type PlaybackQueue,
+  type PlayStationOptions,
+  type SearchFilters,
+  type StationContext,
+  type StationContextKey
+} from './app-state.js';
 
 type AppProps = {
   store?: JsonLibraryStore;
   providers?: ProviderManager;
 };
 
-type StationContext = {
-  title: string;
-  subtitle: string;
-  stations: Station[];
-};
-
-type StationContextKey = 'explore' | 'stations' | 'search' | 'nearby' | 'recent' | 'favorites';
-
-type SearchFilters = {
-  codec: string | null;
-  language: string | null;
-  minBitrate: number | null;
-};
-
-type NavigationOptions = {
-  resetSelection?: boolean;
-  clearMessage?: boolean;
-};
-
-type PlayStationOptions = {
-  openNowPlaying?: boolean;
-};
-
-const initialStationContexts: Record<StationContextKey, StationContext> = {
-  explore: {
-    title: 'Explore world',
-    subtitle: 'Popular stations from Radio Browser',
-    stations: []
-  },
-  stations: {
-    title: 'Country stations',
-    subtitle: 'Pick a country to load stations',
-    stations: []
-  },
-  search: {
-    title: 'Search',
-    subtitle: 'Matches across enabled public station directories',
-    stations: []
-  },
-  nearby: {
-    title: 'Nearby',
-    subtitle: 'Opt-in approximate location for local stations',
-    stations: []
-  },
-  recent: {
-    title: 'Recent',
-    subtitle: 'Stations played on this machine',
-    stations: []
-  },
-  favorites: {
-    title: 'Favorites and imports',
-    subtitle: 'Saved and imported streams',
-    stations: []
-  }
-};
-
-const topTabs: TopTab[] = [
-  {screen: 'home', label: 'Overview'},
-  {screen: 'explore', label: 'Explore'},
-  {screen: 'countries', label: 'Countries'},
-  {screen: 'search', label: 'Search'},
-  {screen: 'nearby', label: 'Nearby'},
-  {screen: 'now-playing', label: 'Now Playing'},
-  {screen: 'stats', label: 'Stats'},
-  {screen: 'recent', label: 'Recent'},
-  {screen: 'favorites', label: 'Favorites'},
-  {screen: 'settings', label: 'Settings'}
-];
+const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>([
+  'sdr',
+  'blocks',
+  'leds',
+  'stars',
+  'equalizer',
+  'waterfall',
+  'oscilloscope',
+  'radar',
+  'neon',
+  'matrix',
+  'hologram'
+]);
+const LIVE_RECEIVER_PULSE_MS = 100;
+const AMBIENT_RECEIVER_PULSE_MS = 180;
 
 export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
   const {exit} = useApp();
+  const {stdin} = useStdin();
   const {columns, rows} = useWindowSize();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
@@ -123,7 +99,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [filters, setFilters] = useState<SearchFilters>({codec: null, language: null, minBitrate: null});
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [capturingTransportAction, setCapturingTransportAction] = useState<MediaTransportAction | null>(null);
   const displayStationsRef = useRef<Station[]>([]);
+  const playbackQueueRef = useRef<PlaybackQueue | null>(null);
+  const lastRawTransportAtRef = useRef(0);
   const playStationRef = useRef<(station: Station, options?: PlayStationOptions) => void>(() => undefined);
   const screenRef = useRef<Screen>(screen);
   const selectedRef = useRef(selected);
@@ -131,6 +110,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const stationContextsRef = useRef(stationContexts);
   const lastStationContextKeyRef = useRef<StationContextKey>('explore');
   const lastExploreScreenRef = useRef<Screen>('explore');
+  const lastSubmittedSearchRef = useRef('');
 
   const theme = library.settings.theme;
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
@@ -218,8 +198,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       return;
     }
 
-    const fastStyles = new Set(['sdr', 'blocks', 'leds', 'stars', 'snow', 'equalizer', 'waterfall', 'oscilloscope', 'radar', 'neon', 'matrix', 'hologram']);
-    const intervalMs = fastStyles.has(library.settings.receiverStyle) ? 50 : 130;
+    const intervalMs = LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle) ? LIVE_RECEIVER_PULSE_MS : AMBIENT_RECEIVER_PULSE_MS;
     const timer = setInterval(() => setPulse(value => (value + 1) % 240), intervalMs);
     return () => clearInterval(timer);
   }, [library.settings.receiverStyle, screen]);
@@ -277,6 +256,50 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const setStationContextFor = useCallback((key: StationContextKey, context: StationContext) => {
     setStationContexts(current => ({...current, [key]: context}));
   }, []);
+
+  const stationMatches = useCallback((left: Station, right: Station) => stationKey(left) === stationKey(right), []);
+
+  const queueContainsStation = useCallback(
+    (queue: PlaybackQueue | null, station: Station) => Boolean(queue?.stations.some(item => stationMatches(item, station))),
+    [stationMatches]
+  );
+
+  const updateSettings = useCallback(
+    (settings: Partial<AppSettings>) => {
+      const nextLibrary = store.updateSettings(settings);
+      settingsRef.current = nextLibrary.settings;
+      setLibrary(nextLibrary);
+      return nextLibrary;
+    },
+    [store]
+  );
+
+  const updateMediaKeys = useCallback(
+    (mediaKeys: AppSettings['mediaKeys']) => {
+      updateSettings({mediaKeys: normalizeMediaKeyBindings(mediaKeys)});
+    },
+    [updateSettings]
+  );
+
+  const beginLearningTransportKey = useCallback((action: MediaTransportAction) => {
+    setCapturingTransportAction(action);
+    setMessage(`Press a key for ${mediaActionLabel(action)}. Esc cancels.`);
+  }, []);
+
+  const resetLearnedTransportKeys = useCallback(() => {
+    updateMediaKeys({previous: [], playPause: [], next: []});
+    setMessage('Learned media keys reset. Built-in fallbacks still work.');
+  }, [updateMediaKeys]);
+
+  const saveLearnedTransportKey = useCallback(
+    (action: MediaTransportAction, input: string) => {
+      const mediaKeys = addMediaKeyBinding(settingsRef.current.mediaKeys, action, input);
+      updateMediaKeys(mediaKeys);
+      setCapturingTransportAction(null);
+      setMessage(`Learned ${mediaActionLabel(action)} key.`);
+    },
+    [updateMediaKeys]
+  );
 
   const go = useCallback((next: Screen, options: NavigationOptions = {}) => {
     selectedByScreenRef.current[screenRef.current] = selectedRef.current;
@@ -363,8 +386,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           stations
         });
         selectedByScreenRef.current.search = 0;
+        lastSubmittedSearchRef.current = query.trim();
         setSelected(0);
-        setEditingSearch(false);
+        setEditingSearch(true);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Search failed.');
       } finally {
@@ -412,8 +436,47 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
   }, [go, location, providers, setStationContextFor]);
 
+  const queueFromCurrentList = useCallback(
+    (station: Station): PlaybackQueue => {
+      const sourceScreen = screenRef.current;
+      const sourceContextKey = stationContextKeyForScreen(sourceScreen);
+      const currentList = displayStationsRef.current;
+      if (currentList.some(item => stationMatches(item, station))) {
+        return {
+          title: sourceContextKey ? stationContextsRef.current[sourceContextKey].title : 'Current station list',
+          sourceScreen,
+          sourceContextKey,
+          stations: currentList
+        };
+      }
+
+      if (queueContainsStation(playbackQueueRef.current, station)) {
+        return playbackQueueRef.current!;
+      }
+
+      return {
+        title: station.name,
+        sourceScreen,
+        sourceContextKey: null,
+        stations: [station]
+      };
+    },
+    [queueContainsStation, stationMatches]
+  );
+
+  const rememberQueueSelection = useCallback((queue: PlaybackQueue, index: number) => {
+    if (queue.sourceContextKey) {
+      selectedByScreenRef.current[queue.sourceScreen] = index;
+    }
+
+    if (screenRef.current === queue.sourceScreen) {
+      setSelected(index);
+    }
+  }, []);
+
   const playStation = useCallback(
     async (station: Station, options: PlayStationOptions = {}) => {
+      const queue = options.queue ?? queueFromCurrentList(station);
       setMessage(`Tuning ${station.name}...`);
       setNowPlaying(null);
 
@@ -421,6 +484,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         const resolved = await providers.resolve(station);
         await player.play(station, resolved.url);
         setPlayingStation(station);
+        playbackQueueRef.current = queue;
         store.startListeningSession(station);
         setLibrary(store.addRecent(station));
         if (options.openNowPlaying) {
@@ -430,20 +494,20 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setMessage(`Playing: ${station.name}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not tune station.';
-        const currentList = displayStationsRef.current;
+        const currentList = queue.stations;
         const currentIndex = currentList.findIndex(item => stationKey(item) === stationKey(station));
         const nextStation = currentIndex >= 0 ? currentList[currentIndex + 1] : undefined;
         if (settingsRef.current.skipBrokenStreams && nextStation) {
           setMessage(`${message} Skipping to ${nextStation.name}.`);
-          setSelected(currentIndex + 1);
-          setTimeout(() => playStationRef.current(nextStation, options), 250);
+          rememberQueueSelection(queue, currentIndex + 1);
+          setTimeout(() => playStationRef.current(nextStation, {...options, queue}), 250);
           return;
         }
 
         setMessage(message);
       }
     },
-    [go, player, providers, store]
+    [go, player, providers, queueFromCurrentList, rememberQueueSelection, store]
   );
   playStationRef.current = playStation;
 
@@ -464,10 +528,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const setVolume = useCallback(
     (volume: number) => {
       const clamped = clampVolume(volume);
-      setLibrary(store.updateSettings({volume: clamped}));
+      updateSettings({volume: clamped});
       void player.setVolume(clamped);
     },
-    [player, store]
+    [player, updateSettings]
   );
 
   const adjustVolume = useCallback(
@@ -480,6 +544,44 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const toggleMute = useCallback(() => {
     void player.toggleMute();
   }, [player]);
+
+  const cycleDisplayColor = useCallback(() => {
+    const theme = nextTheme(settingsRef.current.theme);
+    updateSettings({theme});
+    setMessage(`Display color: ${theme}`);
+  }, [updateSettings]);
+
+  const cycleSpectrumStyle = useCallback(() => {
+    const receiverStyle = nextReceiverStyle(settingsRef.current.receiverStyle);
+    updateSettings({receiverStyle});
+    setMessage(`Spectrum style: ${receiverStyle}`);
+  }, [updateSettings]);
+
+  const toggleRadioGarden = useCallback(() => {
+    const enableRadioGarden = !settingsRef.current.enableRadioGarden;
+    updateSettings({enableRadioGarden});
+    setMessage(`Radio Garden ${enableRadioGarden ? 'enabled' : 'disabled'}.`);
+    setTimeout(refreshProviderHealth, 0);
+  }, [refreshProviderHealth, updateSettings]);
+
+  const toggleNearbyLocation = useCallback(() => {
+    const enableNearbyLocation = !settingsRef.current.enableNearbyLocation;
+    updateSettings({enableNearbyLocation});
+    setMessage(`Nearby location lookup ${enableNearbyLocation ? 'enabled' : 'disabled'}.`);
+  }, [updateSettings]);
+
+  const cyclePlaybackBackend = useCallback(() => {
+    const current = settingsRef.current.preferredBackend;
+    const preferredBackend = current === 'auto' ? 'mpv' : current === 'mpv' ? 'ffplay' : 'auto';
+    updateSettings({preferredBackend});
+    setMessage(`Playback backend: ${preferredBackend}`);
+  }, [updateSettings]);
+
+  const toggleSkipBrokenStreams = useCallback(() => {
+    const skipBrokenStreams = !settingsRef.current.skipBrokenStreams;
+    updateSettings({skipBrokenStreams});
+    setMessage(`Skip broken streams ${skipBrokenStreams ? 'enabled' : 'disabled'}.`);
+  }, [updateSettings]);
 
   const cycleSleepTimer = useCallback(() => {
     const options = [null, 15, 30, 60] as const;
@@ -565,7 +667,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
 
       if (name === 'country' || name === 'c') {
-        const match = countries.find(country =>
+        if (!value.trim()) {
+          setMessage('Usage: :country <name or code>');
+          return;
+        }
+
+        const availableCountries = countries.length > 0 ? countries : await providers.countries();
+        if (countries.length === 0) {
+          setCountries(availableCountries);
+        }
+
+        const match = availableCountries.find(country =>
           `${country.code} ${country.name}`.toLowerCase().includes(value.toLowerCase())
         );
         if (!match) {
@@ -614,7 +726,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
       if (name === 'location') {
         const enabled = value === 'on' || value === 'true' || value === '1';
-        setLibrary(store.updateSettings({enableNearbyLocation: enabled}));
+        updateSettings({enableNearbyLocation: enabled});
         setMessage(`Nearby location lookup ${enabled ? 'enabled' : 'disabled'}.`);
         return;
       }
@@ -622,14 +734,36 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       if (name === 'timeout') {
         const seconds = Number(value);
         if (Number.isFinite(seconds)) {
-          setLibrary(store.updateSettings({tuneTimeoutSeconds: Math.min(45, Math.max(3, seconds))}));
+          updateSettings({tuneTimeoutSeconds: Math.min(45, Math.max(3, seconds))});
         }
         return;
       }
 
       if (name === 'skip') {
         const enabled = value !== 'off' && value !== 'false' && value !== '0';
-        setLibrary(store.updateSettings({skipBrokenStreams: enabled}));
+        updateSettings({skipBrokenStreams: enabled});
+        return;
+      }
+
+      if (name === 'learn' || name === 'bind' || name === 'key') {
+        const action = parseMediaActionName(value);
+        if (!action) {
+          setMessage('Usage: :learn previous, :learn play, or :learn next');
+          return;
+        }
+
+        beginLearningTransportKey(action);
+        return;
+      }
+
+      if (name === 'keys') {
+        if (value === 'reset' || value === 'clear') {
+          resetLearnedTransportKeys();
+          return;
+        }
+
+        const mediaKeys = normalizeMediaKeyBindings(settingsRef.current.mediaKeys);
+        setMessage(`Learned keys: prev ${mediaKeys.previous.length}, play ${mediaKeys.playPause.length}, next ${mediaKeys.next.length}. Use :keys reset to clear.`);
         return;
       }
 
@@ -687,8 +821,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       library.recent,
       loadCountry,
       loadImported,
+      providers,
       player,
       playingStation,
+      beginLearningTransportKey,
+      resetLearnedTransportKeys,
       runSearch,
       screen,
       selectedStation,
@@ -696,34 +833,93 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       showStationContext,
       store,
       toggleFavorite,
-      toggleMute
+      toggleMute,
+      updateSettings
     ]
   );
 
   const playAdjacent = useCallback(
     (direction: 1 | -1) => {
-      if (!playingStation || displayStations.length === 0) {
+      if (!playingStation) {
+        setMessage('Tune a station from a list before using previous/next.');
+        return;
+      }
+
+      const queue = queueContainsStation(playbackQueueRef.current, playingStation)
+        ? playbackQueueRef.current!
+        : queueFromCurrentList(playingStation);
+      if (queue.stations.length <= 1) {
+        setMessage('No adjacent stations in the current source list.');
         return;
       }
 
       const currentKey = stationKey(playingStation);
-      const currentIndex = displayStations.findIndex(station => stationKey(station) === currentKey);
+      const currentIndex = queue.stations.findIndex(station => stationKey(station) === currentKey);
       const nextIndex =
         currentIndex === -1
           ? 0
-          : (currentIndex + direction + displayStations.length) % displayStations.length;
-      setSelected(nextIndex);
-      const nextStation = displayStations[nextIndex];
+          : (currentIndex + direction + queue.stations.length) % queue.stations.length;
+      rememberQueueSelection(queue, nextIndex);
+      const nextStation = queue.stations[nextIndex];
       if (nextStation) {
-        void playStation(nextStation);
+        void playStation(nextStation, {queue});
       }
     },
-    [displayStations, playStation, playingStation]
+    [playStation, playingStation, queueContainsStation, queueFromCurrentList, rememberQueueSelection]
   );
+
+  useEffect(() => {
+    const onData = (data: Buffer | string) => {
+      const rawInput = String(data);
+      if (capturingTransportAction) {
+        if (rawInput === '\u001B') {
+          setCapturingTransportAction(null);
+          setMessage('Media key learning canceled.');
+          return;
+        }
+
+        if (rawInput === '\u0003' || rawInput.length === 0) {
+          return;
+        }
+
+        saveLearnedTransportKey(capturingTransportAction, rawInput);
+        return;
+      }
+
+      const action = mediaTransportActionForInput(rawInput, settingsRef.current.mediaKeys);
+      if (isPlainPrintableInput(rawInput) && (commandMode || (screen === 'search' && editingSearch) || ((screen === 'countries' || screen === 'map') && editingCountryFilter))) {
+        return;
+      }
+
+      if (action === 'previous') {
+        lastRawTransportAtRef.current = Date.now();
+        playAdjacent(-1);
+      } else if (action === 'next') {
+        lastRawTransportAtRef.current = Date.now();
+        playAdjacent(1);
+      } else if (action === 'playPause') {
+        lastRawTransportAtRef.current = Date.now();
+        void player.togglePause();
+      }
+    };
+
+    stdin.on('data', onData);
+    return () => {
+      stdin.off('data', onData);
+    };
+  }, [capturingTransportAction, commandMode, editingCountryFilter, editingSearch, playAdjacent, player, saveLearnedTransportKey, screen, stdin]);
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
       shutdown();
+      return;
+    }
+
+    if (capturingTransportAction) {
+      return;
+    }
+
+    if (Date.now() - lastRawTransportAtRef.current < 50) {
       return;
     }
 
@@ -748,6 +944,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       return;
     }
 
+    if (key.shift && key.leftArrow) {
+      playAdjacent(-1);
+      return;
+    }
+
+    if (key.shift && key.rightArrow) {
+      playAdjacent(1);
+      return;
+    }
+
     if (key.tab) {
       openAdjacentTab(key.shift ? -1 : 1);
       return;
@@ -765,7 +971,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
     if (screen === 'search' && editingSearch) {
       if (key.return) {
-        void runSearch();
+        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && selectedStation) {
+          void playStation(selectedStation);
+        } else {
+          void runSearch();
+        }
         return;
       }
 
@@ -776,12 +986,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
       if (isEditableInput(input, key)) {
         setSearchQuery(value => applyTextInput(value, input, key));
+        setEditingSearch(true);
+        return;
       }
-
-      return;
     }
 
-    if (screen === 'countries' && editingCountryFilter) {
+    if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
       if (key.return || key.escape) {
         setEditingCountryFilter(false);
         setSelected(0);
@@ -826,6 +1036,52 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       return;
     }
 
+    if (input === ',' || input === '<') {
+      playAdjacent(-1);
+      return;
+    }
+
+    if (input === '.' || input === '>') {
+      playAdjacent(1);
+      return;
+    }
+
+    if (input === 't') {
+      cycleDisplayColor();
+      return;
+    }
+
+    if (input === 'v') {
+      cycleSpectrumStyle();
+      return;
+    }
+
+    if (input === 'o') {
+      cyclePlaybackBackend();
+      return;
+    }
+
+    if (input === 'g') {
+      toggleRadioGarden();
+      return;
+    }
+
+    if (input === 'l') {
+      toggleNearbyLocation();
+      return;
+    }
+
+    if (input === 'x') {
+      toggleSkipBrokenStreams();
+      return;
+    }
+
+    if (input === 'r') {
+      refreshProviderHealth();
+      setMessage('Provider health refreshed.');
+      return;
+    }
+
     if (input === 's' && screen === 'now-playing') {
       cycleSleepTimer();
       return;
@@ -865,7 +1121,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       if (screen === 'search') {
         setEditingSearch(true);
       }
-      if (screen === 'countries') {
+      if (screen === 'countries' || screen === 'map') {
         setEditingCountryFilter(true);
       }
       return;
@@ -931,17 +1187,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       if (screen === 'settings') {
         const item = settingsItems[selected];
         if (item === 'Cycle display color') {
-          setLibrary(store.updateSettings({theme: nextTheme(library.settings.theme)}));
+          cycleDisplayColor();
         } else if (item === 'Toggle Radio Garden experimental adapter') {
-          setLibrary(store.updateSettings({enableRadioGarden: !library.settings.enableRadioGarden}));
-          setTimeout(refreshProviderHealth, 0);
+          toggleRadioGarden();
         } else if (item === 'Cycle spectrum style') {
-          setLibrary(store.updateSettings({receiverStyle: nextReceiverStyle(library.settings.receiverStyle)}));
+          cycleSpectrumStyle();
         } else if (item === 'Toggle nearby location lookup') {
-          setLibrary(store.updateSettings({enableNearbyLocation: !library.settings.enableNearbyLocation}));
+          toggleNearbyLocation();
         } else if (item === 'Cycle playback backend') {
-          const next = library.settings.preferredBackend === 'auto' ? 'mpv' : library.settings.preferredBackend === 'mpv' ? 'ffplay' : 'auto';
-          setLibrary(store.updateSettings({preferredBackend: next}));
+          cyclePlaybackBackend();
         } else if (item === 'Volume up') {
           adjustVolume(5);
         } else if (item === 'Volume down') {
@@ -949,9 +1203,18 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         } else if (item === 'Mute or unmute') {
           toggleMute();
         } else if (item === 'Toggle skip broken streams') {
-          setLibrary(store.updateSettings({skipBrokenStreams: !library.settings.skipBrokenStreams}));
+          toggleSkipBrokenStreams();
         } else if (item === 'Refresh provider health') {
           refreshProviderHealth();
+          setMessage('Provider health refreshed.');
+        } else if (item === 'Learn previous media key') {
+          beginLearningTransportKey('previous');
+        } else if (item === 'Learn play/pause media key') {
+          beginLearningTransportKey('playPause');
+        } else if (item === 'Learn next media key') {
+          beginLearningTransportKey('next');
+        } else if (item === 'Reset learned media keys') {
+          resetLearnedTransportKeys();
         }
         return;
       }
@@ -1011,6 +1274,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           countries={filteredCountries}
           selected={selected}
           loading={loadingCountries}
+          filter={countryFilter}
+          editingFilter={editingCountryFilter}
           theme={theme}
           pageSize={layout.mapCountryRows}
           mode={layout.mapMode}
@@ -1031,6 +1296,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           experimentalOn={library.settings.enableRadioGarden}
           filterLabel={filterLabel}
           pageSize={layout.stationRows}
+          width={frameWidth}
         />
       );
     }
@@ -1047,6 +1313,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           favorites={favoriteKeys}
           filterLabel={filterLabel}
           pageSize={layout.stationRows}
+          width={frameWidth}
         />
       );
     }
@@ -1121,125 +1388,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         {commandMode ? (
           <Text color={themeAccent(theme)}>COMMAND :{commandText}</Text>
         ) : (
-          <Text color="gray">←/→ tabs · : command · f favorite · [/] page · +/- volume · m mute</Text>
+          <Text color="gray">←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v · q quit</Text>
         )}
       </Box>
     </Box>
   );
-}
-
-function clamp(value: number, max: number): number {
-  return Math.min(Math.max(value, 0), Math.max(max, 0));
-}
-
-function clampVolume(value: number): number {
-  return Math.min(100, Math.max(0, Math.round(value)));
-}
-
-function applyStationFilters(stations: Station[], filters: SearchFilters): Station[] {
-  return stations.filter(station => {
-    if (filters.codec && station.codec && station.codec.toLowerCase() !== filters.codec.toLowerCase()) {
-      return false;
-    }
-
-    if (filters.language && station.language && !station.language.toLowerCase().includes(filters.language.toLowerCase())) {
-      return false;
-    }
-
-    if (filters.minBitrate && (station.bitrate ?? 0) < filters.minBitrate) {
-      return false;
-    }
-
-    return true;
-  });
-}
-
-function formatFilterLabel(filters: SearchFilters): string {
-  const parts = [
-    filters.codec ? `codec ${filters.codec}` : undefined,
-    filters.language ? `language ${filters.language}` : undefined,
-    filters.minBitrate ? `min ${filters.minBitrate} kbps` : undefined
-  ].filter(Boolean);
-
-  return parts.join(' · ') || 'none';
-}
-
-function formatTimeLeft(ms: number): string {
-  if (ms <= 0) {
-    return 'now';
-  }
-
-  const minutes = Math.ceil(ms / 60_000);
-  return `${minutes}m`;
-}
-
-function stationApproximateTime(station: Station | null): string {
-  if (!station || typeof station.longitude !== 'number') {
-    return 'unknown';
-  }
-
-  const offsetHours = Math.round(station.longitude / 15);
-  const date = new Date(Date.now() + offsetHours * 60 * 60 * 1000);
-  const sign = offsetHours >= 0 ? '+' : '';
-  return `${date.toISOString().slice(11, 16)} UTC${sign}${offsetHours}`;
-}
-
-function favoriteTarget(screen: Screen, selectedStation: Station | null, playingStation: Station | null): Station | null {
-  if (screen === 'now-playing') {
-    return playingStation;
-  }
-
-  if (screen === 'explore' || screen === 'stations' || screen === 'search' || screen === 'nearby' || screen === 'recent' || screen === 'favorites') {
-    return selectedStation;
-  }
-
-  return playingStation;
-}
-
-function activeTabForScreen(screen: Screen): Screen {
-  return screen === 'stations' ? 'explore' : screen;
-}
-
-function stationContextKeyForScreen(screen: Screen): StationContextKey | null {
-  if (
-    screen === 'explore' ||
-    screen === 'stations' ||
-    screen === 'search' ||
-    screen === 'nearby' ||
-    screen === 'recent' ||
-    screen === 'favorites'
-  ) {
-    return screen;
-  }
-
-  return null;
-}
-
-function isEditableInput(input: string, key: {backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean}): boolean {
-  return Boolean(key.backspace || key.delete || input);
-}
-
-function applyTextInput(
-  value: string,
-  input: string,
-  key: {backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean}
-): string {
-  if (key.backspace || key.delete || (key.ctrl && input === 'h')) {
-    return value.slice(0, -1);
-  }
-
-  if (key.ctrl || key.meta) {
-    return value;
-  }
-
-  let next = value;
-  for (const character of input) {
-    if (character === '\u007f' || character === '\b') {
-      next = next.slice(0, -1);
-    } else if (character >= ' ') {
-      next += character;
-    }
-  }
-
-  return next;
 }

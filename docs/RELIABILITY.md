@@ -17,12 +17,14 @@ product requirement.
 
 - Radio Browser mirror fallback
 - durable provider cache with stale fallback
+- bounded network calls for provider and location lookups
 - tune timeout
 - skip-to-next on failed tune when enabled
 - `mpv` IPC readiness check
 - metadata polling through `mpv`, avoiding a second stream listener
 - opt-in location lookup
 - corrupt store/cache backups
+- atomic local JSON writes
 - defensive playlist import
 - compact layout warning for tiny terminals
 

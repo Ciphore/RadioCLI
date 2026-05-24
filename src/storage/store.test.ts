@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
 import {JsonLibraryStore} from './store.js';
-import type {Station} from '../types.js';
+import {receiverStyleNames, type Station} from '../types.js';
 
 const roots: string[] = [];
 
@@ -31,7 +31,7 @@ describe('JsonLibraryStore', () => {
     store.finishActiveListeningSession(new Date('2026-05-24T12:05:00.000Z'));
     store.toggleFavorite(station);
     store.addImported([{...station, id: 'custom-1', provider: 'playlist', streamUrl: 'https://example.com/live'}]);
-    store.updateSettings({theme: 'amber', receiverStyle: 'oscilloscope'});
+    store.updateSettings({theme: 'amber', receiverStyle: 'oscilloscope', mediaKeys: {previous: ['prev'], playPause: ['pause'], next: ['next']}});
 
     const reloaded = new JsonLibraryStore(file).snapshot();
     expect(reloaded.recent[0]?.station.name).toBe('Test FM');
@@ -41,6 +41,7 @@ describe('JsonLibraryStore', () => {
     expect(reloaded.settings.theme).toBe('amber');
     expect(reloaded.settings.receiverStyle).toBe('oscilloscope');
     expect(reloaded.settings.receiverStyleVersion).toBe(2);
+    expect(reloaded.settings.mediaKeys.next).toEqual(['next']);
   });
 
   it('backs up corrupt store files before resetting', () => {
@@ -84,5 +85,18 @@ describe('JsonLibraryStore', () => {
     expect(state.settings.theme).toBe('ruby');
     expect(state.settings.receiverStyle).toBe('sdr');
     expect(state.settings.receiverStyleVersion).toBe(2);
+    expect(state.settings.mediaKeys).toEqual({previous: [], playPause: [], next: []});
+  });
+
+  it('persists every receiver style exposed by the UI cycle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+
+    for (const receiverStyle of receiverStyleNames) {
+      store.updateSettings({receiverStyle});
+      expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
+    }
   });
 });

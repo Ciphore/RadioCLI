@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "Ciphore",
-  "homepage": "https://github.com/ciphore/radio-atlas#readme",
+  "homepage": "https://github.com/Ciphore/RadioCLI#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ciphore/radio-atlas.git"
+    "url": "git+https://github.com/Ciphore/RadioCLI.git"
   },
   "bugs": {
-    "url": "https://github.com/ciphore/radio-atlas/issues"
+    "url": "https://github.com/Ciphore/RadioCLI/issues"
   },
   "keywords": [
     "terminal",
@@ -36,18 +36,25 @@
     "docs"
   ],
   "bin": {
-    "radio-atlas": "./dist/cli.js",
-    "radio": "./dist/cli.js"
+    "radio-atlas": "./dist/cli.js"
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
     "clean": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/ensure-bin-executable.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
+    "check:unused": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
+    "check:whitespace": "node scripts/whitespace-check.mjs",
+    "check:exports": "knip",
+    "check:package": "publint",
+    "lint": "npm run check:unused && npm run check:whitespace && npm run check:exports",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "verify": "npm run check && npm run test && npm run build && npm run smoke:data",
-    "pack:check": "npm run build && npm pack --dry-run",
+    "verify": "npm run check && npm run lint && npm run test && npm run build && npm run smoke:data",
+    "verify:release": "npm run verify && npm run smoke:playback && npm run pack:check && npm run fresh:check && npm run check:package",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check && npm run lint && npm run test && npm run smoke:data && npm run fresh:check && npm run check:package",
+    "pack:check": "npm pack --dry-run",
     "smoke:data": "tsx src/smoke/data-smoke.ts",
     "smoke:playback": "tsx src/smoke/playback-smoke.ts",
     "demo:script": "node scripts/demo-script.mjs",
@@ -61,6 +68,8 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.6",
+    "knip": "^6.14.2",
+    "publint": "^0.3.21",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"

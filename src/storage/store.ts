@@ -1,8 +1,8 @@
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {z} from 'zod';
-import type {AppSettings, LibraryState, ListeningSession, Station} from '../types.js';
+import {receiverStyleNames, type AppSettings, type LibraryState, type ListeningSession, type Station} from '../types.js';
 import {backupBadFile} from '../providers/cache.js';
 
 const stationSchema: z.ZodType<Station> = z
@@ -32,11 +32,17 @@ const stationSchema: z.ZodType<Station> = z
   })
   .strict();
 
+const defaultMediaKeys = {
+  previous: [],
+  playPause: [],
+  next: []
+};
+
 const settingsSchema: z.ZodType<AppSettings> = z.object({
   theme: z.enum(['green', 'amber', 'blue', 'ruby', 'ice', 'mono']).default('green'),
   receiverStyle: z.preprocess(
     value => value === 'scope' ? 'sdr' : value,
-    z.enum(['sdr', 'spectrum', 'oscilloscope', 'signal', 'retro', 'waterfall', 'cassette', 'equalizer', 'radar', 'blocks', 'leds', 'vinyl', 'stars']).default('sdr')
+    z.enum(receiverStyleNames).default('sdr')
   ),
   receiverStyleVersion: z.number().optional(),
   volume: z.number().min(0).max(100).default(70),
@@ -44,7 +50,14 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   enableNearbyLocation: z.boolean().default(false),
   preferredBackend: z.enum(['auto', 'mpv', 'ffplay']).default('auto'),
   tuneTimeoutSeconds: z.number().min(3).max(45).default(12),
-  skipBrokenStreams: z.boolean().default(true)
+  skipBrokenStreams: z.boolean().default(true),
+  mediaKeys: z
+    .object({
+      previous: z.array(z.string()).default([]),
+      playPause: z.array(z.string()).default([]),
+      next: z.array(z.string()).default([])
+    })
+    .default(defaultMediaKeys)
 });
 
 const librarySchema: z.ZodType<LibraryState> = z.object({
@@ -82,7 +95,8 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     enableNearbyLocation: false,
     preferredBackend: 'auto',
     tuneTimeoutSeconds: 12,
-    skipBrokenStreams: true
+    skipBrokenStreams: true,
+    mediaKeys: defaultMediaKeys
   })
 });
 
@@ -217,7 +231,7 @@ export class JsonLibraryStore {
 
   private write(): void {
     mkdirSync(dirname(this.filePath), {recursive: true});
-    writeFileSync(this.filePath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
+    writeJsonAtomically(this.filePath, this.state);
   }
 }
 
@@ -225,7 +239,7 @@ export function stationKey(station: Station): string {
   return `${station.provider}:${station.id}`;
 }
 
-export function defaultStorePath(): string {
+function defaultStorePath(): string {
   if (process.env.RADIO_ATLAS_HOME) {
     return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas.json');
   }
@@ -252,7 +266,8 @@ function defaultState(): LibraryState {
       enableNearbyLocation: false,
       preferredBackend: 'auto',
       tuneTimeoutSeconds: 12,
-      skipBrokenStreams: true
+      skipBrokenStreams: true,
+      mediaKeys: defaultMediaKeys
     }
   };
 }
@@ -270,4 +285,15 @@ function migrateLibraryState(state: LibraryState): LibraryState {
       receiverStyleVersion: 2
     }
   };
+}
+
+function writeJsonAtomically(filePath: string, value: unknown): void {
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    renameSync(tempPath, filePath);
+  } catch (error) {
+    rmSync(tempPath, {force: true});
+    throw error;
+  }
 }

@@ -21,7 +21,7 @@ export function computeTerminalLayout(columns = 100, rows = 30): TerminalLayout 
   const footerRows = 1;
   const contentRows = Math.max(1, safeRows - footerRows - topRows);
   const mapMode = safeColumns >= 88 && contentRows >= 24 ? 'full' : 'compact';
-  const stationRows = clamp(Math.floor((contentRows - 7) / 2), 1, 32);
+  const stationRows = clamp(contentRows - 6, 1, 48);
 
   return {
     columns: safeColumns,
