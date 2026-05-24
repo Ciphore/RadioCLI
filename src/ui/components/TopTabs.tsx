@@ -20,7 +20,7 @@ type TopTabsProps = {
 export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps): React.ReactElement {
   const accent = themeAccent(theme);
   const innerWidth = Math.max(20, width - 4);
-  const brand = 'radio atlas';
+  const brand = 'radiocli';
   const brandWidth = brand.length + 3;
   const rightText = ` ${rightLabel} `;
   const allTabsWidth = tabsWidth(tabs.map(tab => ({type: 'tab' as const, tab})));

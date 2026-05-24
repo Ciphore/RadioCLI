@@ -76,7 +76,7 @@ export function NowPlayingScreen({
             FM {station?.bitrate ? String(station.bitrate).padStart(3, '0') : '---'}.
             {station?.codec ? station.codec.slice(0, 1).toUpperCase() : '0'}
           </Text>
-          <Text color={accent}>RADIO ATLAS</Text>
+          <Text color={accent}>RADIOCLI</Text>
           <Text color={accent}>{playback.state.toUpperCase()}</Text>
         </Box>
         <Box marginTop={1}>

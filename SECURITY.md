@@ -1,6 +1,6 @@
 # Security
 
-Radio Atlas does not require secrets or accounts.
+RadioCLI does not require secrets or accounts.
 
 ## Reporting
 
@@ -15,7 +15,7 @@ unexpected command execution.
 - Location lookup uses approximate IP-based location when enabled.
 - The app stores recents, favorites, settings, imports, and provider cache data
   locally under the user data directory.
-- Radio Atlas does not proxy audio. It resolves public stream URLs and hands
+- RadioCLI does not proxy audio. It resolves public stream URLs and hands
   playback to `mpv` or `ffplay`.
 
 ## Supported Versions

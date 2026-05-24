@@ -6,8 +6,8 @@ import {spawnSync} from 'node:child_process';
 import process from 'node:process';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
-const tempProject = mkdtempSync(join(tmpdir(), 'radio-atlas-fresh-'));
-const tempStore = mkdtempSync(join(tmpdir(), 'radio-atlas-store-'));
+const tempProject = mkdtempSync(join(tmpdir(), 'radiocli-fresh-'));
+const tempStore = mkdtempSync(join(tmpdir(), 'radiocli-store-'));
 let packedTarball;
 
 try {
@@ -27,8 +27,8 @@ try {
   run('npm', ['install', '--no-audit', '--fund=false', packedTarball], {cwd: tempProject, timeout: 180_000});
 
   const bin = process.platform === 'win32'
-    ? join(tempProject, 'node_modules', '.bin', 'radio-atlas.cmd')
-    : join(tempProject, 'node_modules', '.bin', 'radio-atlas');
+    ? join(tempProject, 'node_modules', '.bin', 'radiocli.cmd')
+    : join(tempProject, 'node_modules', '.bin', 'radiocli');
 
   run(bin, ['help'], {cwd: tempProject, env: freshEnv(), timeout: 30_000});
   const check = run(bin, ['check'], {cwd: tempProject, env: freshEnv(), timeout: 45_000});
@@ -47,8 +47,8 @@ try {
 function freshEnv() {
   return {
     ...process.env,
-    RADIO_ATLAS_HOME: tempStore,
-    RADIO_ATLAS_DISABLE_ANIMATION: '1'
+    RADIOCLI_HOME: tempStore,
+    RADIOCLI_DISABLE_ANIMATION: '1'
   };
 }
 

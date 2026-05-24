@@ -1,5 +1,5 @@
 {
-  "name": "radio-atlas",
+  "name": "radiocli",
   "version": "0.1.0",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
@@ -36,7 +36,7 @@
     "docs"
   ],
   "bin": {
-    "radio-atlas": "./dist/cli.js"
+    "radiocli": "./dist/cli.js"
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",

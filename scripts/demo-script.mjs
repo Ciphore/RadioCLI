@@ -13,18 +13,18 @@ if (!existsSync(bin)) {
   run('npm', ['run', 'build', '--silent'], {cwd: root});
 }
 
-const demoHome = mkdtempSync(join(tmpdir(), 'radio-atlas-demo-'));
+const demoHome = mkdtempSync(join(tmpdir(), 'radiocli-demo-'));
 
 try {
-  console.log('Radio Atlas scripted demo');
+  console.log('RadioCLI scripted demo');
   console.log('Commands are executed against the current local build.\n');
 
-  runDemo('radio-atlas help', ['help']);
-  runDemo('radio-atlas check', ['check']);
-  runDemo('radio-atlas countries', ['countries'], {maxLines: 10});
-  runDemo('radio-atlas search "japan hits"', ['search', 'japan hits'], {maxLines: 8});
+  runDemo('radiocli help', ['help']);
+  runDemo('radiocli check', ['check']);
+  runDemo('radiocli countries', ['countries'], {maxLines: 10});
+  runDemo('radiocli search "japan hits"', ['search', 'japan hits'], {maxLines: 8});
 
-  console.log('\nNext interactive step: run `radio-atlas`, open Search, tune a station, then press `d` for diagnostics.');
+  console.log('\nNext interactive step: run `radiocli`, open Search, tune a station, then press `d` for diagnostics.');
 } finally {
   rmSync(demoHome, {force: true, recursive: true});
 }
@@ -32,7 +32,7 @@ try {
 function runDemo(label, args, options = {}) {
   console.log(`$ ${label}`);
   const result = run(process.execPath, [bin.pathname, ...args], {
-    env: {...process.env, RADIO_ATLAS_HOME: demoHome, RADIO_ATLAS_DISABLE_ANIMATION: '1'},
+    env: {...process.env, RADIOCLI_HOME: demoHome, RADIOCLI_DISABLE_ANIMATION: '1'},
     timeout: 30_000
   });
 

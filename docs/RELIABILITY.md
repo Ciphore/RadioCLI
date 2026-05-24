@@ -1,6 +1,6 @@
 # Reliability
 
-Internet radio fails in ordinary, boring ways. Radio Atlas treats that as a
+Internet radio fails in ordinary, boring ways. RadioCLI treats that as a
 product requirement.
 
 ## Failure Modes

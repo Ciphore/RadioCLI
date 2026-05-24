@@ -39,4 +39,11 @@ describe('computeTerminalLayout', () => {
     expect(layout.footerRows).toBe(2);
     expect(layout.contentRows).toBe(28);
   });
+
+  it('can reserve a live playback row above shortcuts', () => {
+    const layout = computeTerminalLayout(140, 34, 3);
+    expect(layout.footerRows).toBe(3);
+    expect(layout.contentRows).toBe(27);
+    expect(layout.stationRows).toBe(21);
+  });
 });

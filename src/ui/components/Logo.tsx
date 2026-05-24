@@ -10,7 +10,7 @@ export function Logo(): React.ReactElement {
         <Text color="#ffd866">██</Text>
         <Text color="#ff6188">██</Text>
         <Text>  </Text>
-        <Text bold>RADIO ATLAS</Text>
+        <Text bold>RADIOCLI</Text>
       </Box>
       <Text color="gray">Live public radio from around the world</Text>
     </Box>

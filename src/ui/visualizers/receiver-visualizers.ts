@@ -908,10 +908,10 @@ function buildSdrSpectrum(
   const graphWidth = Math.max(18, width - labelWidth);
   const graphHeight = Math.max(5, height - 5);
   const center = centerFrequency(station);
-  const seed = hashText(station?.id ?? station?.name ?? 'radio-atlas');
+  const seed = hashText(station?.id ?? station?.name ?? 'radiocli');
   const rows: VisualLine[] = [
     {
-      text: fitLine(`┌[ radio-atlas-sdr ]${'─'.repeat(Math.max(0, width - 20))}`, width),
+      text: fitLine(`┌[ radiocli-sdr ]${'─'.repeat(Math.max(0, width - 20))}`, width),
       color: '#c06cff'
     },
     {
@@ -1223,7 +1223,7 @@ function isCarrier(index: number, width: number): boolean {
 }
 
 function centerFrequency(station: Station | null): number {
-  const hash = hashText(station?.name ?? station?.id ?? 'radio-atlas');
+  const hash = hashText(station?.name ?? station?.id ?? 'radiocli');
   return 87.7 + (hash % 202) / 10;
 }
 

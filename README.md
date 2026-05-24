@@ -1,20 +1,20 @@
-# Radio Atlas
+# RadioCLI
 
-Radio Atlas is a terminal-first world radio receiver for exploring live public stations, tuning real streams, and keeping your listening history close to the command line.
+RadioCLI is a terminal-first world radio receiver for exploring live public stations, tuning real streams, and keeping your listening history close to the command line.
 
 It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://react.dev/), [Radio Browser](https://api.radio-browser.info/), and `mpv`. The goal is not a thin wrapper around a station list. The goal is a polished TUI product: fast discovery, resilient stream handling, local-first library state, and the kind of engineering surface that can grow without turning into terminal spaghetti.
 
 ## Features
 
-- Explore public radio from around the world through country lists, global station search, a symbolic world map, and opt-in nearby discovery.
+- Explore public radio from around the world through country lists, global station search, a full-width country-density world map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
-- Use a receiver-style Now Playing screen with selectable spectrum/receiver visualizers, backend status, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
-- Keep shortcuts in a fixed two-line footer: page-specific controls on the first row and global transport/navigation controls on the second.
-- Move previous/next through the station list you tuned from, even after navigating to another screen.
+- Use a receiver-style Now Playing screen with 17 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
+- Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
+- Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
 - Search by station name, place, language, tag, codec, or minimum bitrate.
 - Keep local recents, favorites, imported stations, listening activity, playback settings, learned media keys, and provider cache.
-- Review listening stats with a Tokscale-inspired tab rail, 52-week contribution graph, favorite station, sessions, streaks, active days, and total hours listened.
+- Review listening stats with a Tokscale-inspired tab rail, local-calendar contribution graph, favorite station, sessions, streaks, active days, and total hours listened from persisted sessions.
 - Import `.m3u`, `.pls`, and `.xspf` playlists, including nested local playlists.
 - Export favorites and imports as `.m3u`.
 - Survive ordinary internet-radio failure modes with provider mirror fallback, stale cache fallback, corrupt-file backups, tune timeouts, and skip-broken-stream behavior.
@@ -25,12 +25,12 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 The interactive TUI opens directly into the product, not a marketing screen:
 
 ```text
-Radio Atlas
+RadioCLI
 
 Overview  Explore  Countries  Search  Nearby  Now Playing  Stats  Recent  Favorites  Settings
 
   › 1. Explore world · Popular live stations across countries
-    2. World map · Station-density atlas by country
+    2. World map · Station-density map by country
     3. Countries · Browse by country list
     4. Search stations · Find stations by name, genre, language, place
     5. Nearby · Opt-in approximate location for local stations
@@ -51,10 +51,10 @@ The Now Playing screen is a framed receiver panel with 17 selectable spectrum/re
 ```text
 Now playing
 ╭────────────────────────────────────────────────────────────────────────╮
-│ FM 128.M      RADIO ATLAS                                      PLAYING │
+│ FM 128.M      RADIOCLI                                           PLAYING │
 │ KEXP 90.3 FM                                                            │
 │ UNITED STATES · WASHINGTON                                              │
-│ ┌[ radio-atlas-sdr ]────────────────────────────────────────────────── │
+│ ┌[ radiocli-sdr ]────────────────────────────────────────────────────── │
 │ Freq: 101.900 MHz  |  Rate: 0.20 Msps  |  Gain: Auto                  │
 │ Dyn Range: 80 dB  |  Ref Level: 0 dB  |  FPS: 15  |  PLAYING          │
 │ ---------------------------------------------------------------------- │
@@ -68,6 +68,7 @@ Now playing
 │ Backend mpv · Vol 70       ☆ NOT FAVORITE                 Sleep off     │
 ╰────────────────────────────────────────────────────────────────────────╯
 
+Playing: KEXP 90.3 FM · Now: Artist - Track · Seattle, Washington, United States · MP3 / 128 kbps / english · mpv · playing · vol 70 · Nearby 4/90
 space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
 ```
@@ -92,8 +93,8 @@ macOS:
 
 ```bash
 brew install mpv ffmpeg
-npm install -g radio-atlas
-radio-atlas
+npm install -g radiocli
+radiocli
 ```
 
 Local checkout:
@@ -104,7 +105,7 @@ cd RadioCLI
 npm ci
 npm run build
 npm link
-radio-atlas
+radiocli
 ```
 
 If you do not want to link the package globally:
@@ -116,14 +117,16 @@ npm run dev
 ## CLI Usage
 
 ```bash
-radio-atlas                 # Start the TUI
-radio-atlas check           # Show local store path, playback backends, provider health
-radio-atlas countries       # Print top countries by station count
-radio-atlas search "japan hits"
-radio-atlas import stations.m3u
-radio-atlas export favorites.m3u
-radio-atlas add-url <stream-url> [station name]
+radiocli                 # Start the TUI
+radiocli check           # Show local store path, playback backends, provider health
+radiocli countries       # Print top countries by station count
+radiocli search "japan hits"
+radiocli import stations.m3u
+radiocli export favorites.m3u
+radiocli add-url <stream-url> [station name]
 ```
+
+`radiocli export` writes `radiocli-favorites.m3u` when no output path is provided.
 
 After a local build, the same commands can be run with:
 
@@ -134,7 +137,7 @@ node dist/cli.js search "lagos talk"
 
 ## TUI Controls
 
-Radio Atlas keeps shortcuts at the bottom of the terminal. The first footer row changes with the current screen, and the second footer row stays global:
+RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active, a live station row sits above the shortcuts with station, metadata, backend, volume, queue, and sleep-timer details. The page shortcut row changes with the current screen, and the global transport row stays global:
 
 - `←` / `→` or `Tab` / `Shift+Tab`: move across the top screen tabs.
 - `F7` / `F9`, `,` / `.`, or `Shift+←` / `Shift+→`: tune previous or next station from the source list, wherever you are in the TUI.
@@ -178,7 +181,7 @@ Other active shortcuts:
 
 When you tune a station from Explore, Countries, Search, Nearby, Recent, or Favorites, that list becomes the playback queue. Previous/next keeps moving through that source list from any screen until you tune from another list.
 
-Hardware media keys depend on the OS and terminal. Radio Atlas enables enhanced keyboard reporting where supported, recognizes common F7/F8/F9, Kitty consumer/media-key codes, modified-arrow sequences, and learned custom bindings. Learn keys from Settings or with `:learn previous`, `:learn play`, and `:learn next`; clear them with `:keys reset`.
+Hardware media keys depend on the OS and terminal. RadioCLI maximizes compatibility by enabling enhanced keyboard reporting where supported, recognizing common F7/F8/F9 sequences, Kitty consumer/media-key codes, modified-arrow sequences, comma/dot transport fallback, and learned custom bindings. Learn keys from Settings or with `:learn previous`, `:learn play`, and `:learn next`; clear them with `:keys reset`.
 
 Useful command palette entries:
 
@@ -209,20 +212,22 @@ Useful command palette entries:
 :stop
 ```
 
-Settings persist display colors and spectrum/receiver styles without editing config files. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
+Settings persist display colors and spectrum/receiver styles without editing config files. The six display colors are green, amber, blue, ruby, ice, and mono. The 17 receiver styles are SDR, spectrum, oscilloscope, signal, retro, waterfall, cassette, equalizer, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
 
 ## Architecture
 
-Radio Atlas is split around four seams:
+RadioCLI is split around four seams:
 
 - TUI state and screens in `src/ui`
 - provider adapters in `src/providers`
 - playback lifecycle and metadata in `src/player`
 - local JSON persistence in `src/storage`
 
-Radio Browser is the primary provider. Its own docs recommend using a speaking user agent, resolving station clicks through `/json/url`, and retrying with other servers when one fails; Radio Atlas follows that shape with mirror fallback and durable cache. Radio Garden support is experimental because the useful endpoints are publicly discoverable but unofficial, and they can be blocked or changed independently of this project.
+Radio Browser is the primary provider. Its own docs recommend using a speaking user agent, resolving station clicks through `/json/url`, and retrying with other servers when one fails; RadioCLI follows that shape with mirror fallback and durable cache. Radio Garden support is experimental because the useful endpoints are publicly discoverable but unofficial, and they can be blocked or changed independently of this project.
 
-Playback prefers `mpv` because it handles real-world streams, redirects, HLS, codecs, and metadata better than a hand-rolled stream client. Radio Atlas controls `mpv` through JSON IPC for readiness, pause, mute, volume, and metadata polling.
+Playback prefers `mpv` because it handles real-world streams, redirects, HLS, codecs, and metadata better than a hand-rolled stream client. RadioCLI controls `mpv` through JSON IPC for readiness, pause, mute, volume, and metadata polling.
+
+The npm package and executable are both `radiocli`. Current installs store data under RadioCLI paths such as `radiocli.json` and `radiocli-cache.json`. Existing Radio Atlas data is still discovered when a new RadioCLI store does not exist, and legacy `RADIO_ATLAS_HOME` / animation environment variables remain supported as migration fallbacks. New automation should use `RADIOCLI_HOME` and `RADIOCLI_DISABLE_ANIMATION`.
 
 Read more:
 
@@ -241,16 +246,18 @@ This repo is intentionally small, but it is built like production software:
 - corrupt store/cache backup instead of silent overwrite
 - `mpv` readiness checks before reporting playback as active
 - tune timeout and skip-broken-stream behavior
+- cleaned ICY metadata, including key/value payloads such as `title="..." artist="..."`
 - source-list playback queues for previous/next transport
 - enhanced terminal keyboard parsing with learned media-key bindings
+- local-calendar activity bucketing for late-night listening sessions
 - local-first privacy posture for history, favorites, imports, and settings
-- responsive terminal layout utility with a fixed two-row footer and focused tests
+- responsive terminal layout utility with an adaptive footer and focused tests
 - smoke tests that exercise live provider data and real playback
 - package smoke test that packs the npm artifact, installs it into a fresh temp project, and runs the installed binary
 
 ## Privacy
 
-Nearby station discovery is off by default. If you enable it, Radio Atlas uses approximate IP-based location through `ipapi.co` to request nearby stations. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
+Nearby station discovery is off by default. If you enable it, RadioCLI uses approximate IP-based location through `ipapi.co` to request nearby stations. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
 
 ## Development
 
@@ -272,7 +279,7 @@ npm run verify:release
 
 ## Contributing
 
-Contributions are welcome when they keep the app practical, reliable, and honest about public radio streams. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and include `radio-atlas check` output for playback issues.
+Contributions are welcome when they keep the app practical, reliable, and honest about public radio streams. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and include `radiocli check` output for playback issues.
 
 ## References
 

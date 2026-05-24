@@ -4,5 +4,5 @@ dist/
 .DS_Store
 coverage/
 *.log
-.radio-atlas-test/
+.radiocli-test/
 .antigravitycli/

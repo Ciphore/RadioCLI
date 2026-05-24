@@ -180,7 +180,7 @@ export class PlayerController {
   }
 
   private playWithMpv(url: string): void {
-    this.ipcPath = join(tmpdir(), `radio-atlas-${process.pid}-${Date.now()}.sock`);
+    this.ipcPath = join(tmpdir(), `radiocli-${process.pid}-${Date.now()}.sock`);
     this.process = spawn(
       'mpv',
       [

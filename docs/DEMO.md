@@ -2,7 +2,7 @@
 
 The best demo is a short terminal recording that shows the product loop:
 
-1. Start `radio-atlas`.
+1. Start `radiocli`.
 2. Open World map.
 3. Search for `tokyo jazz`.
 4. Tune a station.
@@ -19,7 +19,7 @@ npm run demo:script
 Record an interactive demo with asciinema, if installed:
 
 ```bash
-asciinema rec assets/demo.cast --command "radio-atlas"
+asciinema rec assets/demo.cast --command "radiocli"
 ```
 
 Convert the cast to a GIF with `agg`, if installed:

@@ -206,7 +206,7 @@ export class RadioBrowserProvider {
     try {
       const response = await fetch('https://ipapi.co/json/', {
         signal: controller.signal,
-        headers: {'User-Agent': 'radio-atlas/0.1'}
+        headers: {'User-Agent': 'radiocli/0.1'}
       });
       if (!response.ok) {
         return null;
@@ -332,7 +332,7 @@ async function fetchWithTimeout(url: URL, timeoutMs: number): Promise<Response> 
     return await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'radio-atlas/0.1 (+https://radio-browser.info)',
+        'User-Agent': 'radiocli/0.1 (+https://radio-browser.info)',
         Accept: 'application/json'
       }
     });

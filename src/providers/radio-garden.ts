@@ -35,7 +35,7 @@ export class RadioGardenProvider {
   async health(): Promise<string> {
     try {
       const response = await fetchWithTimeout(`${this.baseUrl}/geo`, 5000, {
-        headers: {'User-Agent': 'radio-atlas/0.1'}
+        headers: {'User-Agent': 'radiocli/0.1'}
       });
       if (response.status === 403) {
         return 'blocked by edge protection';
@@ -52,7 +52,7 @@ export class RadioGardenProvider {
     url.searchParams.set('q', query);
 
     const response = await fetchWithTimeout(url, 9000, {
-      headers: {'User-Agent': 'radio-atlas/0.1', Accept: 'application/json'}
+      headers: {'User-Agent': 'radiocli/0.1', Accept: 'application/json'}
     });
 
     if (!response.ok) {

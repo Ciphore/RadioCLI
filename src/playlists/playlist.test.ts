@@ -14,7 +14,7 @@ describe('playlist import/export', () => {
   });
 
   it('parses m3u and exports m3u', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-playlist-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-playlist-'));
     roots.push(root);
     const input = join(root, 'stations.m3u');
     const output = join(root, 'favorites.m3u');
@@ -27,7 +27,7 @@ describe('playlist import/export', () => {
   });
 
   it('parses pls', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-playlist-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-playlist-'));
     roots.push(root);
     const input = join(root, 'stations.pls');
     writeFileSync(input, '[playlist]\nFile1=https://example.com/aac\nTitle1=PLS FM\n', 'utf8');
@@ -35,7 +35,7 @@ describe('playlist import/export', () => {
   });
 
   it('dedupes streams and follows nested local playlists', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-playlist-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-playlist-'));
     roots.push(root);
     writeFileSync(join(root, 'nested.m3u'), '#EXTM3U\n#EXTINF:-1,Nested FM\nhttps://example.com/nested.mp3\n', 'utf8');
     const input = join(root, 'root.m3u');

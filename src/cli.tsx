@@ -50,7 +50,7 @@ async function runCommand(args: string[]): Promise<void> {
   if (command === 'search') {
     const query = rest.join(' ').trim();
     if (!query) {
-      throw new Error('Usage: radio-atlas search <query>');
+      throw new Error('Usage: radiocli search <query>');
     }
 
     const stations = await providers.search(query, store.snapshot().settings, {limit: 20});
@@ -63,7 +63,7 @@ async function runCommand(args: string[]): Promise<void> {
   if (command === 'import') {
     const file = rest[0];
     if (!file) {
-      throw new Error('Usage: radio-atlas import <playlist.m3u|playlist.pls|playlist.xspf>');
+      throw new Error('Usage: radiocli import <playlist.m3u|playlist.pls|playlist.xspf>');
     }
 
     const stations = parsePlaylistFile(file);
@@ -73,7 +73,7 @@ async function runCommand(args: string[]): Promise<void> {
   }
 
   if (command === 'export') {
-    const file = rest[0] ?? 'radio-atlas-favorites.m3u';
+    const file = rest[0] ?? 'radiocli-favorites.m3u';
     const state = store.snapshot();
     writeM3u(file, [...state.favorites, ...state.imported]);
     console.log(`exported=${file}`);
@@ -83,7 +83,7 @@ async function runCommand(args: string[]): Promise<void> {
   if (command === 'add-url') {
     const url = rest[0];
     if (!url || !/^https?:\/\//i.test(url)) {
-      throw new Error('Usage: radio-atlas add-url <stream-url> [station name]');
+      throw new Error('Usage: radiocli add-url <stream-url> [station name]');
     }
 
     const station = stationFromUrl(url, rest.slice(1).join(' ') || url);
@@ -97,19 +97,19 @@ async function runCommand(args: string[]): Promise<void> {
     return;
   }
 
-  throw new Error(`Unknown command: ${command ?? ''}\nRun radio-atlas help.`);
+  throw new Error(`Unknown command: ${command ?? ''}\nRun radiocli help.`);
 }
 
 function printHelp(): void {
-  console.log(`Radio Atlas
+  console.log(`RadioCLI
 
 Usage:
-  radio-atlas                 Start the TUI
-  radio-atlas check           Show provider/backend health
-  radio-atlas countries       Print top countries
-  radio-atlas search <query>  Search public stations
-  radio-atlas import <file>   Import .m3u, .pls, or .xspf streams
-  radio-atlas export [file]   Export favorites/imports as .m3u
-  radio-atlas add-url <url> [name]
+  radiocli                 Start the TUI
+  radiocli check           Show provider/backend health
+  radiocli countries       Print top countries
+  radiocli search <query>  Search public stations
+  radiocli import <file>   Import .m3u, .pls, or .xspf streams
+  radiocli export [file]   Export favorites/imports as .m3u
+  radiocli add-url <url> [name]
 `);
 }

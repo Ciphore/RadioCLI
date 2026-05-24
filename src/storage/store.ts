@@ -240,10 +240,28 @@ export function stationKey(station: Station): string {
 }
 
 function defaultStorePath(): string {
+  if (process.env.RADIOCLI_HOME) {
+    return join(process.env.RADIOCLI_HOME, 'radiocli.json');
+  }
+
   if (process.env.RADIO_ATLAS_HOME) {
     return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas.json');
   }
 
+  const currentPath = currentDefaultStorePath();
+  const legacyPath = legacyDefaultStorePath();
+  return existsSync(currentPath) || !existsSync(legacyPath) ? currentPath : legacyPath;
+}
+
+function currentDefaultStorePath(): string {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'radiocli', 'radiocli.json');
+  }
+
+  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'radiocli', 'radiocli.json');
+}
+
+function legacyDefaultStorePath(): string {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'radio-atlas', 'radio-atlas.json');
   }

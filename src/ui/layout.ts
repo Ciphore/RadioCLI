@@ -13,13 +13,13 @@ export type TerminalLayout = {
   footerRows: number;
 };
 
-export function computeTerminalLayout(columns = 100, rows = 30): TerminalLayout {
+export function computeTerminalLayout(columns = 100, rows = 30, footerRows = 2): TerminalLayout {
   const safeColumns = Math.max(1, columns);
   const safeRows = Math.max(1, rows);
   const compact = safeColumns < 64 || safeRows < 18;
   const topRows = compact ? 0 : 4;
-  const footerRows = 2;
-  const contentRows = Math.max(1, safeRows - footerRows - topRows);
+  const reservedFooterRows = clamp(Math.round(footerRows), 2, 4);
+  const contentRows = Math.max(1, safeRows - reservedFooterRows - topRows);
   const mapMode = safeColumns >= 88 && contentRows >= 24 ? 'full' : 'compact';
   const stationRows = clamp(contentRows - 6, 1, 48);
 
@@ -35,7 +35,7 @@ export function computeTerminalLayout(columns = 100, rows = 30): TerminalLayout 
     mapMode,
     receiverWidth: compact ? safeColumns : Math.max(62, safeColumns - 4),
     receiverRows: compact ? safeRows : Math.max(10, contentRows - 1),
-    footerRows
+    footerRows: reservedFooterRows
   };
 }
 

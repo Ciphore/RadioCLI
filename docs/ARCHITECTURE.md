@@ -1,6 +1,6 @@
 # Architecture
 
-Radio Atlas is a terminal-first product built around four seams: TUI state,
+RadioCLI is a terminal-first product built around four seams: TUI state,
 provider adapters, playback control, and local persistence.
 
 ## Runtime Shape
@@ -16,9 +16,9 @@ src/cli.tsx
 
 The CLI has two modes:
 
-- Interactive TUI: `radio-atlas`
-- Command mode: `radio-atlas search "tokyo jazz"`, `radio-atlas check`,
-  `radio-atlas import stations.m3u`
+- Interactive TUI: `radiocli`
+- Command mode: `radiocli search "tokyo jazz"`, `radiocli check`,
+  `radiocli import stations.m3u`
 
 ## Provider Layer
 

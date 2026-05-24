@@ -6,16 +6,21 @@ import {JsonLibraryStore} from './store.js';
 import {receiverStyleNames, type Station} from '../types.js';
 
 const roots: string[] = [];
+const originalRadioCliHome = process.env.RADIOCLI_HOME;
+const originalRadioAtlasHome = process.env.RADIO_ATLAS_HOME;
 
 describe('JsonLibraryStore', () => {
   afterEach(() => {
     for (const root of roots.splice(0)) {
       rmSync(root, {recursive: true, force: true});
     }
+
+    restoreEnv('RADIOCLI_HOME', originalRadioCliHome);
+    restoreEnv('RADIO_ATLAS_HOME', originalRadioAtlasHome);
   });
 
   it('persists recents, favorites, and settings', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
     const station: Station = {
@@ -45,7 +50,7 @@ describe('JsonLibraryStore', () => {
   });
 
   it('backs up corrupt store files before resetting', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
     writeFileSync(file, '{not json', 'utf8');
@@ -57,7 +62,7 @@ describe('JsonLibraryStore', () => {
   });
 
   it('migrates the old scope receiver style to the sdr default', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
     writeFileSync(
@@ -89,7 +94,7 @@ describe('JsonLibraryStore', () => {
   });
 
   it('persists every receiver style exposed by the UI cycle', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radio-atlas-'));
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
     const store = new JsonLibraryStore(file);
@@ -99,4 +104,32 @@ describe('JsonLibraryStore', () => {
       expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
     }
   });
+
+  it('uses the new RADIOCLI_HOME override', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    process.env.RADIOCLI_HOME = root;
+
+    const store = new JsonLibraryStore();
+    expect(store.filePath).toBe(join(root, 'radiocli.json'));
+  });
+
+  it('still accepts the old RADIO_ATLAS_HOME override for existing setups', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    process.env.RADIO_ATLAS_HOME = root;
+
+    const store = new JsonLibraryStore();
+    expect(store.filePath).toBe(join(root, 'radio-atlas.json'));
+  });
+
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
+}

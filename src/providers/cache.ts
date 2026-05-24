@@ -58,10 +58,28 @@ export class ProviderCache {
 }
 
 function defaultProviderCachePath(): string {
+  if (process.env.RADIOCLI_HOME) {
+    return join(process.env.RADIOCLI_HOME, 'radiocli-cache.json');
+  }
+
   if (process.env.RADIO_ATLAS_HOME) {
     return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas-cache.json');
   }
 
+  const currentPath = currentDefaultProviderCachePath();
+  const legacyPath = legacyDefaultProviderCachePath();
+  return existsSync(currentPath) || !existsSync(legacyPath) ? currentPath : legacyPath;
+}
+
+function currentDefaultProviderCachePath(): string {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'radiocli', 'radiocli-cache.json');
+  }
+
+  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'radiocli', 'radiocli-cache.json');
+}
+
+function legacyDefaultProviderCachePath(): string {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'radio-atlas', 'radio-atlas-cache.json');
   }

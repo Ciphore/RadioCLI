@@ -1,6 +1,6 @@
 # Design Notes
 
-Radio Atlas is meant to feel like a product, not a terminal proof of concept.
+RadioCLI is meant to feel like a product, not a terminal proof of concept.
 
 ## Why Ink
 
@@ -29,7 +29,7 @@ its API is stable for terminal clients.
 ## Why Location Is Opt-In
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
-Radio Atlas requires explicit opt-in through Settings or `:location on`.
+RadioCLI requires explicit opt-in through Settings or `:location on`.
 
 ## TUI Aesthetic
 

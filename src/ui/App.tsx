@@ -16,6 +16,7 @@ import {StatsScreen} from './screens/StatsScreen.js';
 import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout} from './layout.js';
 import {truncate} from './format.js';
+import {playbackFooterText, shouldShowPlaybackFooter} from './playback-footer.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -178,7 +179,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const displayStations = useMemo(() => applyStationFilters(stationContext.stations, filters), [filters, stationContext.stations]);
   displayStationsRef.current = displayStations;
   const sleepLabel = sleepUntil ? `Sleep ${formatTimeLeft(sleepUntil - Date.now())}` : 'Sleep off';
-  const layout = computeTerminalLayout(columns, rows);
+  const showPlaybackFooter = shouldShowPlaybackFooter(playingStation, playback);
+  const layout = computeTerminalLayout(columns, rows, showPlaybackFooter ? 3 : 2);
   const frameWidth = Math.max(40, layout.columns - 2);
 
   useEffect(() => player.onChange(setPlayback), [player]);
@@ -197,7 +199,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [renderedStationContextKey, screen, selected]);
 
   useEffect(() => {
-    if (screen !== 'now-playing' || process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1') {
+    if (
+      screen !== 'now-playing' ||
+      process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
+      process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
+    ) {
       return;
     }
 
@@ -494,7 +500,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           go('now-playing');
         }
 
-        setMessage(`Playing: ${station.name}`);
+        setMessage(null);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not tune station.';
         const currentList = queue.stations;
@@ -1242,7 +1248,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     if (layout.compact) {
       return (
         <Box flexDirection="column">
-          <Text bold>Radio Atlas</Text>
+          <Text bold>RadioCLI</Text>
           <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
           <Text color="gray">Resize to at least 64x18 for the full receiver UI.</Text>
           <Text color="gray">Playback: {playback.state} · {playback.backend}</Text>
@@ -1280,6 +1286,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           theme={theme}
           pageSize={layout.mapCountryRows}
           mode={layout.mapMode}
+          width={frameWidth}
         />
       );
     }
@@ -1364,6 +1371,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const hasTopTabs = !layout.compact;
   const globalFooter = '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
+  const playbackFooter = playbackFooterText({
+    station: playingStation,
+    playback,
+    metadata: nowPlaying,
+    queue: playbackQueueRef.current,
+    favorite: store.isFavorite(playingStation),
+    sleepLabel,
+    width: frameWidth
+  });
   const pageFooter = (() => {
     if (capturingTransportAction) {
       return `Learn ${mediaActionLabel(capturingTransportAction)} key: press key · Esc cancel`;
@@ -1438,6 +1454,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         ) : null}
       </Box>
       <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={panelBackground}>
+        {playbackFooter ? <Text color={themeAccent(theme)}>{playbackFooter}</Text> : null}
         <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : 'gray'}>
           {truncate(pageFooter, frameWidth)}
         </Text>

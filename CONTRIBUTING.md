@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution. Radio Atlas is intentionally small, but
+Thanks for considering a contribution. RadioCLI is intentionally small, but
 the bar is high: changes should improve the product, preserve terminal
 ergonomics, and respect the unreliability of public radio streams.
 
@@ -53,4 +53,4 @@ checks.
 ## Issue Triage
 
 Playback issues should include station name, country, backend, and
-`radio-atlas check` output when possible.
+`radiocli check` output when possible.
