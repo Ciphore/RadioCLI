@@ -7,6 +7,7 @@ import {
   applyTextInput,
   favoriteTarget,
   mediaTransportActionForInput,
+  nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   stationContextKeyForScreen
 } from './app-state.js';
@@ -64,5 +65,12 @@ describe('app state helpers', () => {
   it('uses learned transport bindings when the terminal emits custom input', () => {
     const mediaKeys = addMediaKeyBinding(normalizeMediaKeyBindings(null), 'next', '\u001B[custom-next');
     expect(mediaTransportActionForInput('\u001B[custom-next', mediaKeys)).toBe('next');
+  });
+
+  it('cycles sleep timer through off instead of skipping it', () => {
+    expect(nextSleepTimerMinutes(null)).toBe(15);
+    expect(nextSleepTimerMinutes(15)).toBe(30);
+    expect(nextSleepTimerMinutes(30)).toBe(60);
+    expect(nextSleepTimerMinutes(60)).toBeNull();
   });
 });

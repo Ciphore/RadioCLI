@@ -51,7 +51,7 @@ export function HomeScreen({selected, theme, library, playback}: HomeProps): Rea
       </Box>
       <Box marginTop={1}>
         <Text color="gray">
-          {library.recent.length} recent · {library.favorites.length} favorites · {library.imported.length} imported · [←→ tabs, ↑↓ navigate, t color, v visual, q quit]
+          {library.recent.length} recent · {library.favorites.length} favorites · {library.imported.length} imported
         </Text>
       </Box>
     </Box>

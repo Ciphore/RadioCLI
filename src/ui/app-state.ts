@@ -33,6 +33,7 @@ export type PlaybackQueue = {
 };
 
 export type MediaTransportAction = 'previous' | 'playPause' | 'next';
+export type SleepTimerMinutes = 15 | 30 | 60 | null;
 
 const emptyMediaKeyBindings: MediaKeyBindings = {
   previous: [],
@@ -41,6 +42,7 @@ const emptyMediaKeyBindings: MediaKeyBindings = {
 };
 
 const mediaTransportActions = ['previous', 'playPause', 'next'] as const;
+const sleepTimerOptions: SleepTimerMinutes[] = [null, 15, 30, 60];
 
 export const initialStationContexts: Record<StationContextKey, StationContext> = {
   explore: {
@@ -131,6 +133,12 @@ export function formatTimeLeft(ms: number): string {
 
   const minutes = Math.ceil(ms / 60_000);
   return `${minutes}m`;
+}
+
+export function nextSleepTimerMinutes(currentMinutes: number | null): SleepTimerMinutes {
+  const currentIndex = sleepTimerOptions.findIndex(option => option === currentMinutes);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % sleepTimerOptions.length : 0;
+  return sleepTimerOptions[nextIndex] ?? null;
 }
 
 export function stationApproximateTime(station: Station | null): string {

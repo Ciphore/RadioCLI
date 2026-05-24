@@ -15,6 +15,7 @@ import {MapScreen} from './screens/MapScreen.js';
 import {StatsScreen} from './screens/StatsScreen.js';
 import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout} from './layout.js';
+import {truncate} from './format.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -30,6 +31,7 @@ import {
   isPlainPrintableInput,
   mediaActionLabel,
   mediaTransportActionForInput,
+  nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   parseMediaActionName,
   stationApproximateTime,
@@ -584,10 +586,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [updateSettings]);
 
   const cycleSleepTimer = useCallback(() => {
-    const options = [null, 15, 30, 60] as const;
     const currentMinutes = sleepUntil ? Math.round((sleepUntil - Date.now()) / 60000) : null;
-    const currentIndex = options.findIndex(option => option === currentMinutes);
-    const next = options[(currentIndex + 1 + options.length) % options.length] ?? options[1];
+    const next = nextSleepTimerMinutes(currentMinutes);
     setSleepUntil(next ? Date.now() + next * 60_000 : null);
   }, [sleepUntil]);
 
@@ -1362,6 +1362,58 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   })();
 
   const hasTopTabs = !layout.compact;
+  const globalFooter = '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
+  const pageFooter = (() => {
+    if (capturingTransportAction) {
+      return `Learn ${mediaActionLabel(capturingTransportAction)} key: press key · Esc cancel`;
+    }
+
+    if (commandMode) {
+      return `COMMAND :${commandText}`;
+    }
+
+    if (screen === 'home') {
+      return '↑/↓ move · Enter open · 1-9/0 jump · : command';
+    }
+
+    if (screen === 'search' && editingSearch) {
+      return 'Type query · Backspace edit · Enter search/tune · Esc finish';
+    }
+
+    if (screen === 'search') {
+      return '/ edit query · ↑/↓ or n/p move · Enter tune · f favorite · b home';
+    }
+
+    if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
+      return 'Type country filter · Enter/Esc apply';
+    }
+
+    if (screen === 'countries') {
+      return '/ filter · ↑/↓ move · Enter open stations · b home';
+    }
+
+    if (screen === 'map') {
+      return '/ filter · ↑/↓ move · Enter open country · b home';
+    }
+
+    if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'recent' || screen === 'favorites') {
+      return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b home';
+    }
+
+    if (screen === 'now-playing') {
+      return 'space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home';
+    }
+
+    if (screen === 'settings') {
+      return 'Enter change selected · g Radio Garden · l location · x skip · o backend · r health · b home';
+    }
+
+    if (screen === 'stats') {
+      return 'b home';
+    }
+
+    return ': command';
+  })();
 
   return (
     <Box flexDirection="column" paddingX={1} height={layout.rows} width={layout.columns} overflow="hidden" backgroundColor={appBackground}>
@@ -1385,11 +1437,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         ) : null}
       </Box>
       <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={panelBackground}>
-        {commandMode ? (
-          <Text color={themeAccent(theme)}>COMMAND :{commandText}</Text>
-        ) : (
-          <Text color="gray">←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v · q quit</Text>
-        )}
+        <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : 'gray'}>
+          {truncate(pageFooter, frameWidth)}
+        </Text>
+        <Text color="gray">{truncate(globalFooter, frameWidth)}</Text>
       </Box>
     </Box>
   );

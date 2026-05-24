@@ -47,7 +47,7 @@ export function NowPlayingScreen({
   const panelWidth = Math.max(62, width);
   const panelHeight = Math.max(10, height);
   const innerWidth = Math.max(28, panelWidth - 6);
-  const visualHeight = visualizerHeight(receiverStyle, panelHeight - (showDiagnostics ? 19 : 15));
+  const visualHeight = visualizerHeight(receiverStyle, panelHeight - (showDiagnostics ? 18 : 14));
   const visualRows = buildVisualizer(receiverStyle, pulse, innerWidth, visualHeight, station, playback, theme);
   const stationName = station ? truncate(station.name, innerWidth) : 'No station tuned';
   const stationPlace = station
@@ -56,7 +56,6 @@ export function NowPlayingScreen({
   const tech = station ? truncate(stationTech(station), innerWidth) : 'Playback backend ready when mpv or ffplay is installed.';
   const tags = station ? truncate(stationTags(station), innerWidth) : 'No stream metadata yet.';
   const metadataLine = metadata?.title ? truncate(metadata.title, innerWidth) : 'Waiting for ICY track metadata';
-  const controls = truncate('space/F8 pause · f favorite · +/- volume · m mute · s sleep · n/p/F7/F9/,/. station · d diagnostics · b back', innerWidth);
 
   return (
     <Box flexDirection="column">
@@ -102,9 +101,6 @@ export function NowPlayingScreen({
           </Text>
           <Text color={favorite ? 'yellow' : 'gray'}>{favorite ? '★ FAVORITE' : '☆ NOT FAVORITE'}</Text>
           <Text color="gray">{sleepLabel}</Text>
-        </Box>
-        <Box>
-          <Text color="gray">{controls}</Text>
         </Box>
         {showDiagnostics ? (
           <Box marginTop={1} flexDirection="column">

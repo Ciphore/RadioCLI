@@ -50,8 +50,6 @@ export function SettingsScreen({
   return (
     <Box flexDirection="column">
       <Text bold>Settings</Text>
-      <Text color="gray">Enter changes selected · t color · v visual · o backend · r health</Text>
-      <Text color="gray">F7/F8/F9 media · ,/. station · g/l/x toggles · b back</Text>
       <Box marginTop={1} flexDirection="column">
         <Text>
           Display color: <Text color={themeAccent(theme)}>{settings.theme}</Text>

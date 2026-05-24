@@ -30,7 +30,7 @@ export function CountriesScreen({
     <Box flexDirection="column">
       <Text bold>Countries</Text>
       <Text color={editingFilter ? themeAccent(theme) : 'gray'}>
-        {editingFilter ? 'Type a country filter, Enter to apply, Esc to cancel' : '/ filter · Enter opens stations · b back'}
+        {editingFilter ? 'Filtering countries' : 'Browse country directory'}
       </Text>
       <Text>
         Filter: <Text color={themeAccent(theme)}>{filter || 'all'}</Text>

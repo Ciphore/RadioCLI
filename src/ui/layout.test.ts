@@ -13,9 +13,9 @@ describe('computeTerminalLayout', () => {
     const tall = computeTerminalLayout(100, 42);
     expect(tall.stationRows).toBeGreaterThan(short.stationRows);
     expect(tall.countryRows).toBeGreaterThan(short.countryRows);
-    expect(short.stationRows).toBe(13);
-    expect(computeTerminalLayout(124, 33).stationRows).toBe(22);
-    expect(computeTerminalLayout(159, 45).countryRows).toBe(36);
+    expect(short.stationRows).toBe(12);
+    expect(computeTerminalLayout(124, 33).stationRows).toBe(21);
+    expect(computeTerminalLayout(159, 45).countryRows).toBe(35);
   });
 
   it('expands receiver width with wide terminals', () => {
@@ -29,14 +29,14 @@ describe('computeTerminalLayout', () => {
   });
 
   it('expands receiver rows with terminal height', () => {
-    expect(computeTerminalLayout(120, 24).receiverRows).toBe(18);
-    expect(computeTerminalLayout(120, 45).receiverRows).toBe(39);
+    expect(computeTerminalLayout(120, 24).receiverRows).toBe(17);
+    expect(computeTerminalLayout(120, 45).receiverRows).toBe(38);
   });
 
   it('reserves fixed rows for tabs and footer', () => {
     const layout = computeTerminalLayout(140, 34);
     expect(layout.topRows).toBe(4);
-    expect(layout.footerRows).toBe(1);
-    expect(layout.contentRows).toBe(29);
+    expect(layout.footerRows).toBe(2);
+    expect(layout.contentRows).toBe(28);
   });
 });

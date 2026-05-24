@@ -33,27 +33,36 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
       <Menu
         items={window.items}
         selected={selected - window.start}
-        render={(station, index, active) => (
-          <Box flexDirection="column">
-            <Box>
-              <Pointer active={active} />
-              <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                {truncate(station.name, nameWidth).padEnd(nameWidth)}
-              </Text>
-              <Text color="gray"> {favorites.has(`${station.provider}:${station.id}`) ? '★' : ' '} </Text>
-              <Text color="gray">
-                {truncate(`${stationLocation(station)} · ${stationTech(station)}`, metaWidth)}
-              </Text>
-            </Box>
-            {active ? (
-              <Box marginLeft={4}>
+        render={(station, index, active) => {
+          const favorite = favorites.has(`${station.provider}:${station.id}`);
+          const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);
+          const titleWidth = nameWidth + 2;
+          const titleUsed = stationName.length + (favorite ? 2 : 0);
+          const titlePadding = ' '.repeat(Math.max(1, titleWidth - titleUsed));
+
+          return (
+            <Box flexDirection="column">
+              <Box>
+                <Pointer active={active} />
+                <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                  {stationName}
+                </Text>
+                {favorite ? <Text color="yellow"> ★</Text> : null}
+                <Text>{titlePadding}</Text>
                 <Text color="gray">
-                  #{window.start + index + 1} · {truncate(stationTags(station), rowWidth - 8)}
+                  {truncate(`${stationLocation(station)} · ${stationTech(station)}`, metaWidth)}
                 </Text>
               </Box>
-            ) : null}
-          </Box>
-        )}
+              {active ? (
+                <Box marginLeft={4}>
+                  <Text color="gray">
+                    #{window.start + index + 1} · {truncate(stationTags(station), rowWidth - 8)}
+                  </Text>
+                </Box>
+              ) : null}
+            </Box>
+          );
+        }}
       />
     </Box>
   );

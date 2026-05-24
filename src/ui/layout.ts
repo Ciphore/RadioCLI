@@ -18,7 +18,7 @@ export function computeTerminalLayout(columns = 100, rows = 30): TerminalLayout 
   const safeRows = Math.max(1, rows);
   const compact = safeColumns < 64 || safeRows < 18;
   const topRows = compact ? 0 : 4;
-  const footerRows = 1;
+  const footerRows = 2;
   const contentRows = Math.max(1, safeRows - footerRows - topRows);
   const mapMode = safeColumns >= 88 && contentRows >= 24 ? 'full' : 'compact';
   const stationRows = clamp(contentRows - 6, 1, 48);

@@ -35,7 +35,7 @@ export function SearchScreen({
     <Box flexDirection="column">
       <Text bold>Search stations</Text>
       <Text color={editing ? themeAccent(theme) : 'gray'}>
-        {editing ? 'INPUT MODE · Type query, Backspace edits, Enter searches or tunes' : '/ edit query · Enter tune · f favorite · b back'}
+        {editing ? 'INPUT MODE' : 'Search results'}
       </Text>
       <Text>
         Query: <Text color={themeAccent(theme)}>{query || 'start typing'}</Text>

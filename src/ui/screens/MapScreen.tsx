@@ -47,7 +47,7 @@ export function MapScreen({
     <Box flexDirection="column">
       <Text bold>World map</Text>
       <Text color={editingFilter ? themeAccent(theme) : 'gray'}>
-        {editingFilter ? 'Type a country filter, Enter to apply, Esc to cancel' : 'Station density atlas · Enter opens selected country · / filters country list · b back'}
+        {editingFilter ? 'Filtering country list' : 'Station density atlas'}
       </Text>
       <Text>
         Filter: <Text color={themeAccent(theme)}>{filter || 'all'}</Text>
