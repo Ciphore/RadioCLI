@@ -69,7 +69,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.9.1",
     "@types/react": "^19.2.6",
     "knip": "^6.14.2",
     "publint": "^0.3.21",
