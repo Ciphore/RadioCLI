@@ -6,6 +6,7 @@ import {ProviderManager} from './providers/provider-manager.js';
 import {PlayerController} from './player/player-controller.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
+import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
   const args = process.argv.slice(2);
@@ -39,6 +40,13 @@ export async function runCommand(args: string[]): Promise<void> {
     throw new Error(`Unknown command: ${command}\nRun radiocli help.`);
   }
 
+  if (command === 'doctor') {
+    const backends = detectPlaybackBackends();
+    console.log(`backends=${backends.join(',') || 'none'}`);
+    printPlaybackBackendStatus(backends);
+    return;
+  }
+
   if (command === 'check') {
     const store = new JsonLibraryStore();
     const providers = new ProviderManager();
@@ -47,6 +55,7 @@ export async function runCommand(args: string[]): Promise<void> {
     const health = await providers.health(store.snapshot().settings);
     console.log(`store=${store.filePath}`);
     console.log(`backends=${backends.join(',') || 'none'}`);
+    printPlaybackBackendStatus(backends);
     for (const [provider, status] of Object.entries(health)) {
       console.log(`${provider}=${status}`);
     }
@@ -119,6 +128,7 @@ export function printHelp(): void {
 Usage:
   radiocli                 Start the TUI
   radiocli check           Show provider/backend health
+  radiocli doctor          Show local playback setup guidance
   radiocli countries       Print top countries
   radiocli search <query>  Search public stations
   radiocli import <file>   Import .m3u, .pls, or .xspf streams
@@ -140,5 +150,11 @@ export function isDirectRun(entryPath: string | undefined, moduleUrl: string): b
 }
 
 function isKnownCommand(command: string): boolean {
-  return ['check', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
+  return ['check', 'doctor', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
+}
+
+function printPlaybackBackendStatus(backends: string[]): void {
+  for (const line of playbackBackendStatusLines(backends)) {
+    console.log(line);
+  }
 }

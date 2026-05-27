@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Text, useApp, useStdin, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController} from '../player/player-controller.js';
+import {playbackBackendInstallHint} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import type {AppSettings, Country, IcyNowPlaying, LibraryState, LocationGuess, PlaybackState, Screen, Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, themeAccent} from './theme.js';
@@ -245,7 +246,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
     if (backends.length === 0) {
-      setMessage('No playback backend found. Install mpv or ffplay before tuning stations.');
+      setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
   }, [player]);
 

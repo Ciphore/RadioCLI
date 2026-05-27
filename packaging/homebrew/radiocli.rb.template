@@ -1,0 +1,20 @@
+class Radiocli < Formula
+  desc "Terminal-first world radio receiver"
+  homepage "https://github.com/Ciphore/RadioCLI"
+  url "https://registry.npmjs.org/radiocli/-/radiocli-{{VERSION}}.tgz"
+  sha256 "{{SHA256}}"
+  license "MIT"
+
+  depends_on "node"
+  depends_on "mpv"
+
+  def install
+    system "npm", "install", *std_npm_args(prefix: libexec)
+    bin.install_symlink libexec/"bin/radiocli"
+  end
+
+  test do
+    assert_match "radiocli doctor", shell_output("#{bin}/radiocli --help")
+    assert_match "playback=", shell_output("#{bin}/radiocli doctor")
+  end
+end

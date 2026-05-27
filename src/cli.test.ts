@@ -36,7 +36,16 @@ describe('CLI command dispatch', () => {
   it('prints help without creating user library state', async () => {
     await runCommand(['help']);
 
+    expect(logs.join('\n')).toContain('radiocli doctor');
     expect(logs.join('\n')).toContain('radiocli add-url <url> [name]');
+    expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('prints doctor setup guidance without creating user library state', async () => {
+    await runCommand(['doctor']);
+
+    expect(logs.join('\n')).toContain('npm_install=RadioCLI only; native playback comes from mpv or ffplay');
+    expect(logs.join('\n')).toContain('install_mpv=');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 

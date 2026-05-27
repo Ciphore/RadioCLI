@@ -51,6 +51,11 @@ audioMotion-style neon bars, blob waves, split-area scopes, dotted amplitude
 fields, contour rings, braided oscilloscopes, ambient matrix/hologram displays,
 and a spinning ASCII cube inspired by terminal 3D demos.
 
+Receiver motion is tied to playback truth rather than screen presence. Visualizers
+animate only when playback is `playing` and backend-ready; idle, loading, paused,
+stopped, and error states render a flat zero-signal frame so the display never
+implies live audio when nothing is playing.
+
 ## Tokscale-Inspired Navigation And Stats
 
 The horizontal tab rail is intentionally dense: it keeps the app feeling like a

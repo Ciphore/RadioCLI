@@ -8,7 +8,7 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 - Explore public radio from around the world through country lists, global station search, a full-width country-density world map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
-- Use a receiver-style Now Playing screen with 23 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, and station skipping.
+- Use a receiver-style Now Playing screen with 23 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
 - Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
 - Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
@@ -46,7 +46,7 @@ Overview  Explore  Countries  Search  Nearby  Now Playing  Stats  Recent  Favori
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
 ```
 
-The Now Playing screen is a framed receiver panel with 23 selectable spectrum/receiver styles. The sample below shows the default SDR analyzer; press `v` to cycle through SDR, spectrum bars, oscilloscope, signal meters, retro tuner, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube styles:
+The Now Playing screen is a framed receiver panel with 23 selectable spectrum/receiver styles. The sample below shows the default SDR analyzer; press `v` to cycle through SDR, spectrum bars, oscilloscope, signal meters, retro tuner, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube styles. Visualizers animate only while playback is actually playing and backend-ready; paused, stopped, idle, loading, and error states render a flat zero-signal display instead of a frozen waveform:
 
 ```text
 Now playing
@@ -105,21 +105,49 @@ Requirements:
 - `mpv` for best playback; RadioCLI expects one local playback backend at runtime
 - `ffplay` from FFmpeg as an optional fallback
 
-macOS:
+NPM installs RadioCLI and its JavaScript dependencies. It does not install native
+system playback tools. Use `radiocli doctor` after installation to check local
+playback readiness and get the right setup command for your OS:
 
 ```bash
-brew install mpv ffmpeg
+npm install -g radiocli
+radiocli doctor
+radiocli
+```
+
+macOS with npm:
+
+```bash
+brew install mpv
 npm install -g radiocli
 radiocli
 ```
 
-Linux:
+Linux with npm:
 
 ```bash
-sudo apt install mpv ffmpeg
+sudo apt install mpv
 npm install -g radiocli
 radiocli
 ```
+
+`ffplay` is optional fallback support. Install FFmpeg separately if you want it:
+
+```bash
+brew install ffmpeg        # macOS
+sudo apt install ffmpeg    # Debian/Ubuntu
+```
+
+The repo also includes a Homebrew formula template in `packaging/homebrew` for a
+native one-command macOS tap. Once the tap formula is published, the intended
+Homebrew install path is:
+
+```bash
+brew install ciphore/tap/radiocli
+```
+
+That formula depends on `node` and `mpv`, keeping native dependencies in the
+native package manager instead of running system installs from npm.
 
 CI covers command-mode typecheck, tests, builds, and package checks on Ubuntu. Native Windows terminals are not release-tested yet; use WSL with Linux `mpv` / `ffplay` for the supported path.
 
@@ -145,6 +173,7 @@ npm run dev
 ```bash
 radiocli                 # Start the TUI
 radiocli check           # Show local store path, playback backends, provider health
+radiocli doctor          # Show playback setup status and install guidance
 radiocli countries       # Print top countries by station count
 radiocli search "japan hits"
 radiocli import stations.m3u
@@ -261,6 +290,7 @@ Read more:
 - [Design notes](docs/DESIGN_NOTES.md)
 - [Reliability](docs/RELIABILITY.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Release packaging](docs/RELEASE_PACKAGING.md)
 
 ## Engineering Highlights
 

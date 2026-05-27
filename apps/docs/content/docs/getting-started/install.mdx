@@ -12,23 +12,61 @@ RadioCLI needs:
   backend at runtime
 - `ffplay` from FFmpeg as an optional fallback
 
-## macOS
+## NPM
+
+NPM installs RadioCLI and its JavaScript dependencies. It does not install native
+system playback tools like `mpv` or FFmpeg.
 
 ```bash
-brew install mpv ffmpeg
+npm install -g radiocli
+radiocli doctor
+radiocli
+```
+
+Run `radiocli doctor` any time you want to verify local playback readiness.
+
+## macOS With NPM
+
+```bash
+brew install mpv
 npm install -g radiocli
 radiocli
 ```
 
-## Linux
+Install FFmpeg separately only if you want `ffplay` fallback support:
 
 ```bash
-sudo apt install mpv ffmpeg
+brew install ffmpeg
+```
+
+## Linux With NPM
+
+```bash
+sudo apt install mpv
 npm install -g radiocli
 radiocli
+```
+
+Install FFmpeg separately only if you want `ffplay` fallback support:
+
+```bash
+sudo apt install ffmpeg
 ```
 
 CI covers command-mode typecheck, tests, builds, and package checks on Ubuntu.
+
+## Homebrew Tap
+
+The repo includes a Homebrew formula template in `packaging/homebrew` for the
+native one-command macOS lane. Once the tap formula is published, the intended
+install path is:
+
+```bash
+brew install ciphore/tap/radiocli
+```
+
+That formula depends on `node` and `mpv`, so native playback stays in the native
+package manager instead of being installed by npm lifecycle scripts.
 
 ## Windows
 

@@ -5,7 +5,25 @@ description: Public release history for RadioCLI.
 
 ## Unreleased
 
-- No unreleased changes yet.
+### Packaging And Install
+
+- Added `radiocli doctor` to report local playback readiness and print OS-specific
+  `mpv` / FFmpeg setup guidance without creating user library state.
+- Clarified that npm installs RadioCLI and JavaScript dependencies only, while
+  native playback tools stay in the system package manager.
+- Added a Homebrew formula template and release notes for a tap-based
+  `brew install ciphore/tap/radiocli` lane that depends on `node` and `mpv`.
+
+### Fixed
+
+- Fixed globally linked `radiocli` launches by resolving symlinks before deciding
+  whether the CLI module is being run directly.
+- Now Playing receiver graphics now stop at a true zero-signal frame when playback
+  is idle, loading, paused, stopped, errored, or not backend-ready, instead of
+  leaving a frozen spectrum waveform on screen.
+- Reduced the ASCII cube receiver footprint so the spinning cube stays centered
+  inside the Now Playing visualizer area instead of crowding or clipping against
+  nearby receiver content.
 
 ## 0.1.0 - 2026-05-25
 

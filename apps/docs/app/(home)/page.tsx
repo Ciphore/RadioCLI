@@ -38,7 +38,7 @@ const features = [
   },
   {
     title: 'A receiver, not a wrapper',
-    body: 'Now Playing includes spectrum styles, stream diagnostics, ICY metadata cleanup, transport controls, favorites, volume, and sleep timer state.',
+    body: 'Now Playing includes signal-gated spectrum styles, stream diagnostics, ICY metadata cleanup, transport controls, favorites, volume, and sleep timer state.',
   },
   {
     title: 'Local-first library state',
@@ -130,7 +130,7 @@ export default function HomePage() {
 
       <section className="site-section">
         <div className="install-strip">
-          <code>brew install mpv ffmpeg && npm install -g radiocli</code>
+          <code>brew install mpv && npm install -g radiocli && radiocli doctor</code>
           <Link className="radio-button" href="/docs/getting-started/install">
             Start tuning
           </Link>

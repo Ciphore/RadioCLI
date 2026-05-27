@@ -20,6 +20,7 @@ try {
   console.log('Commands are executed against the current local build.\n');
 
   runDemo('radiocli help', ['help']);
+  runDemo('radiocli doctor', ['doctor']);
   runDemo('radiocli check', ['check']);
   runDemo('radiocli countries', ['countries'], {maxLines: 10});
   runDemo('radiocli search "japan hits"', ['search', 'japan hits'], {maxLines: 8});

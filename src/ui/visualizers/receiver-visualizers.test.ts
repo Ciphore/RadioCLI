@@ -31,6 +31,32 @@ function frameText(rows: ReturnType<typeof buildVisualizer>): string {
   return rows.map(row => row.text).join('\n');
 }
 
+function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegExp): {width: number; minY: number; maxY: number} {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.text.length; x += 1) {
+      if (!pattern.test(row.text[x]!)) {
+        continue;
+      }
+
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  });
+
+  return {
+    width: Number.isFinite(minX) ? maxX - minX + 1 : 0,
+    minY: Number.isFinite(minY) ? minY : -1,
+    maxY: Number.isFinite(maxY) ? maxY : -1
+  };
+}
+
 describe('receiver visualizers', () => {
   it('renders every receiver style inside the requested width', () => {
     for (const style of receiverStyleNames) {
@@ -55,6 +81,18 @@ describe('receiver visualizers', () => {
 
     expect(firstFrame).toMatch(/[#@*+=;:%]/);
     expect(nextFrame).not.toBe(firstFrame);
+  });
+
+  it('keeps the ascii cube centered inside the receiver viewport', () => {
+    for (const pulse of [1, 10, 22]) {
+      const rows = buildVisualizer('cube', pulse, 120, 12, station, playback, 'ruby');
+      const footprint = glyphFootprint(rows, /[#@*%=;:]/);
+
+      expect(footprint.width).toBeGreaterThan(0);
+      expect(footprint.width).toBeLessThanOrEqual(58);
+      expect(footprint.minY).toBeGreaterThan(0);
+      expect(footprint.maxY).toBeLessThan(rows.length - 1);
+    }
   });
 
   it('renders audioMotion-inspired styles with segmented color data', () => {

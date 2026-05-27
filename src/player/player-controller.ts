@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Socket} from 'node:net';
 import type {AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
-import {commandExists} from './command.js';
+import {detectPlaybackBackends, playbackBackendInstallHint} from './backend-install.js';
 
 export type PlayerEvent = (state: PlaybackState) => void;
 export type MetadataEvent = (metadata: IcyNowPlaying) => void;
@@ -57,7 +57,7 @@ export class PlayerController {
   }
 
   refreshDetectedBackends(): string[] {
-    this.availableBackends = ['mpv', 'ffplay'].filter(commandExists);
+    this.availableBackends = detectPlaybackBackends();
     return this.detectedBackends();
   }
 
@@ -65,7 +65,7 @@ export class PlayerController {
     await this.stop();
     const backend = this.selectBackend();
     if (!backend) {
-      throw new Error('No playback backend found. Install mpv or ffplay.');
+      throw new Error(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
 
     this.backend = backend;

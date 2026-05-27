@@ -53,7 +53,11 @@ export function NowPlayingScreen({
   const stationPlace = station
     ? truncate(stationLocation(station).toUpperCase(), innerWidth)
     : 'Choose a station from Explore, Countries, Search, Nearby, Recent, or Favorites.';
-  const tech = station ? truncate(stationTech(station), innerWidth) : 'Playback backend ready when mpv or ffplay is installed.';
+  const tech = station
+    ? truncate(stationTech(station), innerWidth)
+    : diagnostics.availableBackends.length > 0
+      ? 'Playback backend ready. Choose a station to start tuning.'
+      : 'No playback backend found. Run radiocli doctor for setup help.';
   const tags = station ? truncate(stationTags(station), innerWidth) : 'No stream metadata yet.';
   const metadataLine = metadata?.title ? truncate(metadata.title, innerWidth) : 'Waiting for ICY track metadata';
 

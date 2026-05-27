@@ -1125,15 +1125,15 @@ function buildAsciiCube(
 ): VisualLine[] {
   const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
   const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
-  const cx = Math.floor(width * 0.52);
-  const cy = Math.floor(height * 0.5);
-  const xScale = Math.max(8, Math.min(width * 0.28, height * 2.05));
-  const yScale = Math.max(4, Math.min(height * 0.48, width * 0.08));
-  const detail = Math.max(18, Math.min(46, Math.round(Math.min(width * 0.58, height * 3.3))));
+  const cx = Math.floor(width * 0.5);
+  const cy = Math.floor((height - 1) * 0.48);
+  const xScale = Math.max(6, Math.min(width * 0.18, height * 1.32));
+  const yScale = Math.max(2, Math.min(height * 0.18, width * 0.035));
+  const detail = Math.max(14, Math.min(34, Math.round(Math.min(width * 0.36, height * 2.45))));
   const angleY = pulse * 0.065;
   const angleX = pulse * 0.039 + 0.42;
   const angleZ = pulse * 0.021 - 0.18;
-  const distance = 4.4;
+  const distance = 5.6;
   const light = normalize3d({x: -0.35, y: -0.62, z: 0.7});
   const shadeChars = ['.', ':', ';', '=', '+', '*', '#', '%', '@'];
   const faces = [
@@ -1624,15 +1624,15 @@ function drawAsciiCubeEdge(grid: string[][], zBuffer: number[][], from: Projecte
 function addCubeSignalSpecks(grid: string[][], pulse: number): void {
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
-  const specks = Math.max(8, Math.min(22, Math.floor(width / 6)));
+  const specks = Math.max(4, Math.min(10, Math.floor(width / 16)));
   const chars = ['.', "'", '+', 'o', 'O'];
 
   for (let index = 0; index < specks; index += 1) {
     const seed = index * 37.7;
     const orbit = pulse * (0.018 + index * 0.0009) + seed;
     const side = index % 3 === 0 ? -1 : 1;
-    const x = Math.round(width * (side < 0 ? 0.18 : 0.82) + Math.sin(orbit) * width * 0.09 + Math.cos(seed) * width * 0.04);
-    const y = Math.round(height * 0.5 + Math.cos(orbit * 1.7) * height * 0.38);
+    const x = Math.round(width * (side < 0 ? 0.28 : 0.72) + Math.sin(orbit) * width * 0.05 + Math.cos(seed) * width * 0.025);
+    const y = Math.round(height * 0.5 + Math.cos(orbit * 1.7) * height * 0.26);
 
     if (x < 0 || x >= width || y < 0 || y >= height || grid[y]![x] !== ' ') {
       continue;

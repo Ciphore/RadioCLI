@@ -21,6 +21,8 @@ product requirement.
 - tune timeout
 - skip-to-next on failed tune when enabled
 - `mpv` IPC readiness check
+- playback-gated receiver animation and zero-signal visualizer frames for
+  inactive playback states
 - metadata polling through `mpv`, avoiding a second stream listener
 - opt-in location lookup
 - corrupt store/cache backups

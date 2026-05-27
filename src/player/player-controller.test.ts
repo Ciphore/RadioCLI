@@ -45,7 +45,7 @@ describe('PlayerController lifecycle', () => {
     const controller = new PlayerController(() => settings());
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
-      'No playback backend found. Install mpv or ffplay.'
+      'No playback backend found. Install mpv for playback'
     );
     expect(spawnMock).not.toHaveBeenCalled();
     expect(controller.getState()).toMatchObject({backend: 'none', state: 'stopped', ready: false});

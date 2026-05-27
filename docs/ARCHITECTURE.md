@@ -70,6 +70,11 @@ live in `src/ui/app-state.ts`. The Now Playing screen owns receiver layout while
 the signal visualizer builders live under `src/ui/visualizers`, keeping the
 screen component focused on composition.
 
+Receiver animation has a single state boundary: `shouldAnimateReceiver()` allows
+the shared pulse timer to advance only on the Now Playing screen while playback is
+`playing` and backend-ready. The visualizer builders also guard inactive playback
+states and return zero-signal frames, so UI cadence and rendered signal agree.
+
 ## Persistence
 
 The store is local JSON. It keeps:

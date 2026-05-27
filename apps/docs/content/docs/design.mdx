@@ -49,6 +49,11 @@ feel like a receiver without locking the product into one animation. The default
 SDR style borrows from retro spectrum-analyzer tools: dB labels, frequency ticks,
 sampling-rate readouts, and a steady CRT-like cadence.
 
+Receiver motion is tied to playback truth rather than screen presence. Visualizers
+animate only when playback is `playing` and backend-ready; idle, loading, paused,
+stopped, and error states render a flat zero-signal frame so the display never
+implies live audio when nothing is playing.
+
 ## Navigation And Stats
 
 The horizontal tab rail is intentionally dense: it keeps the app feeling like a

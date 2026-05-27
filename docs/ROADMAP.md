@@ -17,11 +17,11 @@
 - richer provider diagnostics
 - sharper command palette
 - better compact world-map variant
+- publish the Homebrew tap for one-command macOS installs
 - `npm create` or install guide polish
 
 ## 0.3
 
-- Homebrew formula
 - release automation
 - theme presets
 - keyboard help screen
