@@ -44,11 +44,11 @@ export function StatsScreen({library, playback, theme, width, height}: StatsScre
         </Box>
         <Box marginTop={compact ? 0 : 1} flexDirection="column">
           <Text color="gray">      {graph.months}</Text>
-          {graph.rows.map((row, rowIndex) => (
-            <Box key={`${row.label}-${rowIndex}`}>
+          {graph.rows.map(row => (
+            <Box key={row.key}>
               <Text color="gray">{row.label.padEnd(5)}</Text>
-              {row.cells.map((cell, index) => (
-                <Text key={index} color={graphColors[cell.level]}>
+              {row.cells.map(cell => (
+                <Text key={cell.key} color={graphColors[cell.level]}>
                   {cell.text}
                 </Text>
               ))}
@@ -148,7 +148,7 @@ function metricPair(
 
 function buildContributionGraph(days: DailyListening[], width: number): {
   months: string;
-  rows: Array<{label: string; cells: Array<{level: number; text: string}>}>;
+  rows: Array<{key: string; label: string; cells: Array<{key: string; level: number; text: string}>}>;
 } {
   const cellWidth = width >= 168 ? 3 : width >= 120 ? 2 : 1;
   const weeks = Array.from({length: 53}, (_, weekIndex) =>
@@ -158,11 +158,12 @@ function buildContributionGraph(days: DailyListening[], width: number): {
   const labels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
   const rows = Array.from({length: 7}, (_, dayIndex) => ({
+    key: `day-${dayIndex}`,
     label: labels[dayIndex] ?? '',
     cells: weeks.map(week => {
       const day = week[dayIndex];
       const level = contributionLevel(day?.seconds ?? 0, maxSeconds);
-      return {level, text: '█'.repeat(cellWidth)};
+      return {key: day?.date ?? `${week[0]?.date ?? 'empty'}-${dayIndex}`, level, text: '█'.repeat(cellWidth)};
     })
   }));
 

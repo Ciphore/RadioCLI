@@ -1,5 +1,31 @@
+import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
+
+const homeDescription =
+  'Explore live public stations around the world, tune real streams through local playback backends, and keep your radio library close to the command line.';
+
+export const metadata: Metadata = {
+  title: {
+    absolute: 'RadioCLI',
+  },
+  description: homeDescription,
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: 'RadioCLI',
+    description: homeDescription,
+    images: ['/radiocli-receiver-preview.png'],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'RadioCLI',
+    description: homeDescription,
+    images: ['/radiocli-receiver-preview.png'],
+  },
+};
 
 const features = [
   {
@@ -35,10 +61,7 @@ export default function HomePage() {
         <div className="hero-copy">
           <p className="eyebrow">terminal receiver for public radio</p>
           <h1 className="hero-title">RadioCLI</h1>
-          <p className="hero-lede">
-            Explore live public stations around the world, tune real streams through local
-            playback backends, and keep your radio library close to the command line.
-          </p>
+          <p className="hero-lede">{homeDescription}</p>
           <div className="hero-actions">
             <Link className="radio-button" href="/docs/getting-started/install">
               Install RadioCLI

@@ -24,7 +24,7 @@ export default async function Page({ params }: DocsPageProps) {
   const page = source.getPage(slug);
   if (!page) notFound();
 
-  const MDX = page.data.body;
+  const MdxContent = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
 
   return (
@@ -39,7 +39,7 @@ export default async function Page({ params }: DocsPageProps) {
         />
       </div>
       <DocsBody>
-        <MDX
+        <MdxContent
           components={getMDXComponents({
             a: createRelativeLink(source, page),
           })}

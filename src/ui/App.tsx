@@ -1,40 +1,32 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Box, Text, useApp, useInput, useStdin, useWindowSize} from 'ink';
+import {Box, Text, useApp, useStdin, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController} from '../player/player-controller.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import type {AppSettings, Country, IcyNowPlaying, LibraryState, LocationGuess, PlaybackState, Screen, Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, themeAccent} from './theme.js';
-import {HomeScreen, homeItems} from './screens/HomeScreen.js';
-import {CountriesScreen} from './screens/CountriesScreen.js';
-import {StationScreen} from './screens/StationScreen.js';
-import {SearchScreen} from './screens/SearchScreen.js';
-import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
-import {SettingsScreen, settingsItems} from './screens/SettingsScreen.js';
-import {MapScreen} from './screens/MapScreen.js';
-import {StatsScreen} from './screens/StatsScreen.js';
+import {homeItems, settingsItems} from './screen-items.js';
+import {AppContent} from './AppContent.js';
 import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout} from './layout.js';
 import {truncate} from './format.js';
 import {playbackFooterText, shouldShowPlaybackFooter} from './playback-footer.js';
+import {pageFooterText} from './page-footer.js';
+import {useAppInput} from './use-app-input.js';
+import {useCommandExecutor} from './use-command-executor.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
   applyStationFilters,
-  applyTextInput,
   clamp,
   clampVolume,
-  favoriteTarget,
   formatFilterLabel,
   formatTimeLeft,
   initialStationContexts,
-  isEditableInput,
-  isPlainPrintableInput,
   mediaActionLabel,
-  mediaTransportActionForInput,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
-  parseMediaActionName,
+  shouldAnimateReceiver,
   stationApproximateTime,
   stationContextKeyForScreen,
   topTabs,
@@ -82,6 +74,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const player = useMemo(() => new PlayerController(() => settingsRef.current), []);
   const [playback, setPlayback] = useState<PlaybackState>(() => player.getState());
+  const [availableBackends, setAvailableBackends] = useState<string[]>(() => player.detectedBackends());
   const [screen, setScreen] = useState<Screen>('home');
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -200,7 +193,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   useEffect(() => {
     if (
-      screen !== 'now-playing' ||
+      !shouldAnimateReceiver(screen, playback) ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -210,7 +203,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     const intervalMs = LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle) ? LIVE_RECEIVER_PULSE_MS : AMBIENT_RECEIVER_PULSE_MS;
     const timer = setInterval(() => setPulse(value => (value + 1) % 240), intervalMs);
     return () => clearInterval(timer);
-  }, [library.settings.receiverStyle, screen]);
+  }, [library.settings.receiverStyle, playback.ready, playback.state, screen]);
 
   useEffect(() => {
     if ((screen === 'countries' || screen === 'map') && countries.length === 0 && !loadingCountries) {
@@ -249,7 +242,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [player, sleepUntil, store]);
 
   useEffect(() => {
-    if (player.detectedBackends().length === 0) {
+    const backends = player.refreshDetectedBackends();
+    setAvailableBackends(backends);
+    if (backends.length === 0) {
       setMessage('No playback backend found. Install mpv or ffplay before tuning stations.');
     }
   }, [player]);
@@ -656,194 +651,34 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [openScreen, screen]
   );
 
-  const executeCommand = useCallback(
-    async (rawCommand: string) => {
-      const trimmed = rawCommand.trim();
-      if (!trimmed) {
-        return;
-      }
-
-      const [name = '', ...rest] = trimmed.split(/\s+/);
-      const value = rest.join(' ');
-
-      if (name === 'search' || name === 's') {
-        setSearchQuery(value);
-        go('search');
-        await runSearch(value);
-        return;
-      }
-
-      if (name === 'country' || name === 'c') {
-        if (!value.trim()) {
-          setMessage('Usage: :country <name or code>');
-          return;
-        }
-
-        const availableCountries = countries.length > 0 ? countries : await providers.countries();
-        if (countries.length === 0) {
-          setCountries(availableCountries);
-        }
-
-        const match = availableCountries.find(country =>
-          `${country.code} ${country.name}`.toLowerCase().includes(value.toLowerCase())
-        );
-        if (!match) {
-          setMessage(`Country not found: ${value}`);
-          return;
-        }
-
-        await loadCountry(match);
-        return;
-      }
-
-      if (name === 'codec') {
-        setFilters(current => ({...current, codec: value && value !== 'any' ? value.toUpperCase() : null}));
-        return;
-      }
-
-      if (name === 'language' || name === 'lang') {
-        setFilters(current => ({...current, language: value && value !== 'any' ? value : null}));
-        return;
-      }
-
-      if (name === 'bitrate') {
-        const bitrate = Number(value);
-        setFilters(current => ({...current, minBitrate: Number.isFinite(bitrate) && bitrate > 0 ? bitrate : null}));
-        return;
-      }
-
-      if (name === 'clear') {
-        setFilters({codec: null, language: null, minBitrate: null});
-        setMessage('Filters cleared.');
-        return;
-      }
-
-      if (name === 'vol' || name === 'volume') {
-        const volume = Number(value);
-        if (Number.isFinite(volume)) {
-          setVolume(volume);
-        }
-        return;
-      }
-
-      if (name === 'mute') {
-        toggleMute();
-        return;
-      }
-
-      if (name === 'location') {
-        const enabled = value === 'on' || value === 'true' || value === '1';
-        updateSettings({enableNearbyLocation: enabled});
-        setMessage(`Nearby location lookup ${enabled ? 'enabled' : 'disabled'}.`);
-        return;
-      }
-
-      if (name === 'timeout') {
-        const seconds = Number(value);
-        if (Number.isFinite(seconds)) {
-          updateSettings({tuneTimeoutSeconds: Math.min(45, Math.max(3, seconds))});
-        }
-        return;
-      }
-
-      if (name === 'skip') {
-        const enabled = value !== 'off' && value !== 'false' && value !== '0';
-        updateSettings({skipBrokenStreams: enabled});
-        return;
-      }
-
-      if (name === 'learn' || name === 'bind' || name === 'key') {
-        const action = parseMediaActionName(value);
-        if (!action) {
-          setMessage('Usage: :learn previous, :learn play, or :learn next');
-          return;
-        }
-
-        beginLearningTransportKey(action);
-        return;
-      }
-
-      if (name === 'keys') {
-        if (value === 'reset' || value === 'clear') {
-          resetLearnedTransportKeys();
-          return;
-        }
-
-        const mediaKeys = normalizeMediaKeyBindings(settingsRef.current.mediaKeys);
-        setMessage(`Learned keys: prev ${mediaKeys.previous.length}, play ${mediaKeys.playPause.length}, next ${mediaKeys.next.length}. Use :keys reset to clear.`);
-        return;
-      }
-
-      if (name === 'sleep') {
-        const minutes = Number(value);
-        setSleepUntil(Number.isFinite(minutes) && minutes > 0 ? Date.now() + minutes * 60_000 : null);
-        return;
-      }
-
-      if (name === 'map') {
-        go('map');
-        return;
-      }
-
-      if (name === 'stats') {
-        go('stats');
-        return;
-      }
-
-      if (name === 'recent') {
-        showStationContext({
-          title: 'Recent',
-          subtitle: 'Stations played on this machine',
-          stations: library.recent.map(item => item.station)
-        }, 'recent', {resetSelection: false});
-        return;
-      }
-
-      if (name === 'favorites' || name === 'imports') {
-        loadImported();
-        return;
-      }
-
-      if (name === 'favorite' || name === 'fav') {
-        toggleFavorite(favoriteTarget(screen, selectedStation, playingStation));
-        return;
-      }
-
-      if (name === 'settings') {
-        go('settings');
-        return;
-      }
-
-      if (name === 'stop') {
-        setLibrary(store.finishActiveListeningSession());
-        await player.stop();
-        return;
-      }
-
-      setMessage(`Unknown command: ${name}`);
-    },
-    [
-      countries,
-      go,
-      library.recent,
-      loadCountry,
-      loadImported,
-      providers,
-      player,
-      playingStation,
-      beginLearningTransportKey,
-      resetLearnedTransportKeys,
-      runSearch,
-      screen,
-      selectedStation,
-      setVolume,
-      showStationContext,
-      store,
-      toggleFavorite,
-      toggleMute,
-      updateSettings
-    ]
-  );
+  const executeCommand = useCommandExecutor({
+    beginLearningTransportKey,
+    countries,
+    go,
+    library,
+    loadCountry,
+    loadImported,
+    player,
+    playingStation,
+    providers,
+    resetLearnedTransportKeys,
+    runSearch,
+    screen,
+    selectedStation,
+    setCountries,
+    setFilters,
+    setLibrary,
+    setMessage,
+    setSearchQuery,
+    setSleepUntil,
+    setVolume,
+    settingsRef,
+    showStationContext,
+    store,
+    toggleFavorite,
+    toggleMute,
+    updateSettings
+  });
 
   const playAdjacent = useCallback(
     (direction: 1 | -1) => {
@@ -875,499 +710,62 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [playStation, playingStation, queueContainsStation, queueFromCurrentList, rememberQueueSelection]
   );
 
-  useEffect(() => {
-    const onData = (data: Buffer | string) => {
-      const rawInput = String(data);
-      if (capturingTransportAction) {
-        if (rawInput === '\u001B') {
-          setCapturingTransportAction(null);
-          setMessage('Media key learning canceled.');
-          return;
-        }
-
-        if (rawInput === '\u0003' || rawInput.length === 0) {
-          return;
-        }
-
-        saveLearnedTransportKey(capturingTransportAction, rawInput);
-        return;
-      }
-
-      const action = mediaTransportActionForInput(rawInput, settingsRef.current.mediaKeys);
-      if (isPlainPrintableInput(rawInput) && (commandMode || (screen === 'search' && editingSearch) || ((screen === 'countries' || screen === 'map') && editingCountryFilter))) {
-        return;
-      }
-
-      if (action === 'previous') {
-        lastRawTransportAtRef.current = Date.now();
-        playAdjacent(-1);
-      } else if (action === 'next') {
-        lastRawTransportAtRef.current = Date.now();
-        playAdjacent(1);
-      } else if (action === 'playPause') {
-        lastRawTransportAtRef.current = Date.now();
-        void player.togglePause();
-      }
-    };
-
-    stdin.on('data', onData);
-    return () => {
-      stdin.off('data', onData);
-    };
-  }, [capturingTransportAction, commandMode, editingCountryFilter, editingSearch, playAdjacent, player, saveLearnedTransportKey, screen, stdin]);
-
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      shutdown();
-      return;
-    }
-
-    if (capturingTransportAction) {
-      return;
-    }
-
-    if (Date.now() - lastRawTransportAtRef.current < 50) {
-      return;
-    }
-
-    if (commandMode) {
-      if (key.return) {
-        void executeCommand(commandText);
-        setCommandText('');
-        setCommandMode(false);
-        return;
-      }
-
-      if (key.escape) {
-        setCommandText('');
-        setCommandMode(false);
-        return;
-      }
-
-      if (isEditableInput(input, key)) {
-        setCommandText(value => applyTextInput(value, input, key));
-      }
-
-      return;
-    }
-
-    if (key.shift && key.leftArrow) {
-      playAdjacent(-1);
-      return;
-    }
-
-    if (key.shift && key.rightArrow) {
-      playAdjacent(1);
-      return;
-    }
-
-    if (key.tab) {
-      openAdjacentTab(key.shift ? -1 : 1);
-      return;
-    }
-
-    if (key.rightArrow) {
-      openAdjacentTab(1);
-      return;
-    }
-
-    if (key.leftArrow) {
-      openAdjacentTab(-1);
-      return;
-    }
-
-    if (screen === 'search' && editingSearch) {
-      if (key.return) {
-        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && selectedStation) {
-          void playStation(selectedStation);
-        } else {
-          void runSearch();
-        }
-        return;
-      }
-
-      if (key.escape) {
-        setEditingSearch(false);
-        return;
-      }
-
-      if (isEditableInput(input, key)) {
-        setSearchQuery(value => applyTextInput(value, input, key));
-        setEditingSearch(true);
-        return;
-      }
-    }
-
-    if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
-      if (key.return || key.escape) {
-        setEditingCountryFilter(false);
-        setSelected(0);
-        return;
-      }
-
-      if (isEditableInput(input, key)) {
-        setCountryFilter(value => applyTextInput(value, input, key));
-      }
-
-      return;
-    }
-
-    if (input === 'q') {
-      shutdown();
-      return;
-    }
-
-    if (input.startsWith(':')) {
-      const seed = input.slice(1).replace(/[\r\n]+$/g, '');
-      if (/[\r\n]/.test(input)) {
-        void executeCommand(seed);
-      } else {
-        setCommandMode(true);
-        setCommandText(seed);
-      }
-      return;
-    }
-
-    if (input === '+' || input === '=') {
-      adjustVolume(5);
-      return;
-    }
-
-    if (input === '-') {
-      adjustVolume(-5);
-      return;
-    }
-
-    if (input === 'm') {
-      toggleMute();
-      return;
-    }
-
-    if (input === ',' || input === '<') {
-      playAdjacent(-1);
-      return;
-    }
-
-    if (input === '.' || input === '>') {
-      playAdjacent(1);
-      return;
-    }
-
-    if (input === 't') {
-      cycleDisplayColor();
-      return;
-    }
-
-    if (input === 'v') {
-      cycleSpectrumStyle();
-      return;
-    }
-
-    if (input === 'o') {
-      cyclePlaybackBackend();
-      return;
-    }
-
-    if (input === 'g') {
-      toggleRadioGarden();
-      return;
-    }
-
-    if (input === 'l') {
-      toggleNearbyLocation();
-      return;
-    }
-
-    if (input === 'x') {
-      toggleSkipBrokenStreams();
-      return;
-    }
-
-    if (input === 'r') {
-      refreshProviderHealth();
-      setMessage('Provider health refreshed.');
-      return;
-    }
-
-    if (input === 's' && screen === 'now-playing') {
-      cycleSleepTimer();
-      return;
-    }
-
-    if (input === 'd' && screen === 'now-playing') {
-      setShowDiagnostics(value => !value);
-      return;
-    }
-
-    if (input === ']') {
-      setSelected(value => clamp(value + 10, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (input === '[') {
-      setSelected(value => clamp(value - 10, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (screen === 'home' && (/^[1-9]$/.test(input) || input === '0')) {
-      const menuIndex = input === '0' ? 9 : Number(input) - 1;
-      setSelected(menuIndex);
-      const target = homeItems[menuIndex]?.screen;
-      if (target) {
-        openScreen(target);
-      }
-      return;
-    }
-
-    if (input === 'b' || key.escape) {
-      go(screen === 'home' ? 'home' : 'home');
-      return;
-    }
-
-    if (input === '/') {
-      if (screen === 'search') {
-        setEditingSearch(true);
-      }
-      if (screen === 'countries' || screen === 'map') {
-        setEditingCountryFilter(true);
-      }
-      return;
-    }
-
-    if (input === 'f') {
-      toggleFavorite(favoriteTarget(screen, selectedStation, playingStation));
-      return;
-    }
-
-    if (input === ' ') {
-      void player.togglePause();
-      return;
-    }
-
-    if (input === 'n' && screen === 'now-playing') {
-      playAdjacent(1);
-      return;
-    }
-
-    if (input === 'p' && screen === 'now-playing') {
-      playAdjacent(-1);
-      return;
-    }
-
-    if (input === 'n') {
-      setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (input === 'p') {
-      setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (key.downArrow) {
-      setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (key.upArrow) {
-      setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
-      return;
-    }
-
-    if (key.return) {
-      if (screen === 'home') {
-        const target = homeItems[selected]?.screen;
-        if (target) {
-          openScreen(target);
-        }
-        return;
-      }
-
-      if (screen === 'countries') {
-        const country = filteredCountries[selected];
-        if (country) {
-          void loadCountry(country);
-        }
-        return;
-      }
-
-      if (screen === 'settings') {
-        const item = settingsItems[selected];
-        if (item === 'Cycle display color') {
-          cycleDisplayColor();
-        } else if (item === 'Toggle Radio Garden experimental adapter') {
-          toggleRadioGarden();
-        } else if (item === 'Cycle spectrum style') {
-          cycleSpectrumStyle();
-        } else if (item === 'Toggle nearby location lookup') {
-          toggleNearbyLocation();
-        } else if (item === 'Cycle playback backend') {
-          cyclePlaybackBackend();
-        } else if (item === 'Volume up') {
-          adjustVolume(5);
-        } else if (item === 'Volume down') {
-          adjustVolume(-5);
-        } else if (item === 'Mute or unmute') {
-          toggleMute();
-        } else if (item === 'Toggle skip broken streams') {
-          toggleSkipBrokenStreams();
-        } else if (item === 'Refresh provider health') {
-          refreshProviderHealth();
-          setMessage('Provider health refreshed.');
-        } else if (item === 'Learn previous media key') {
-          beginLearningTransportKey('previous');
-        } else if (item === 'Learn play/pause media key') {
-          beginLearningTransportKey('playPause');
-        } else if (item === 'Learn next media key') {
-          beginLearningTransportKey('next');
-        } else if (item === 'Reset learned media keys') {
-          resetLearnedTransportKeys();
-        }
-        return;
-      }
-
-      if (screen === 'map') {
-        const country = filteredCountries[selected];
-        if (country) {
-          void loadCountry(country);
-        }
-        return;
-      }
-
-      if (selectedStation) {
-        void playStation(selectedStation);
-      }
-    }
+  useAppInput({
+    adjustVolume,
+    beginLearningTransportKey,
+    capturingTransportAction,
+    commandMode,
+    commandText,
+    currentItemCount,
+    cycleDisplayColor,
+    cyclePlaybackBackend,
+    cycleSleepTimer,
+    cycleSpectrumStyle,
+    editingCountryFilter,
+    editingSearch,
+    executeCommand,
+    filteredCountries,
+    go,
+    lastRawTransportAtRef,
+    lastSubmittedSearchRef,
+    loadCountry,
+    openAdjacentTab,
+    openScreen,
+    playAdjacent,
+    playStation,
+    player,
+    playingStation,
+    refreshProviderHealth,
+    resetLearnedTransportKeys,
+    runSearch,
+    saveLearnedTransportKey,
+    screen,
+    searchQuery,
+    selected,
+    selectedStation,
+    setCapturingTransportAction,
+    setCommandMode,
+    setCommandText,
+    setCountryFilter,
+    setEditingCountryFilter,
+    setEditingSearch,
+    setMessage,
+    setSearchQuery,
+    setSelected,
+    setShowDiagnostics,
+    settingsRef,
+    shutdown,
+    stdin,
+    toggleFavorite,
+    toggleMute,
+    toggleNearbyLocation,
+    toggleRadioGarden,
+    toggleSkipBrokenStreams
   });
 
   function currentItemCount(currentScreen: Screen): number {
     return itemCountsRef.current[currentScreen] ?? 0;
   }
-
-  const content = (() => {
-    if (layout.compact) {
-      return (
-        <Box flexDirection="column">
-          <Text bold>RadioCLI</Text>
-          <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
-          <Text color="gray">Resize to at least 64x18 for the full receiver UI.</Text>
-          <Text color="gray">Playback: {playback.state} · {playback.backend}</Text>
-          <Text color="gray">q quit · Ctrl+C always exits</Text>
-        </Box>
-      );
-    }
-
-    if (screen === 'home') {
-      return <HomeScreen selected={selected} theme={theme} library={library} playback={playback} />;
-    }
-
-    if (screen === 'countries') {
-      return (
-        <CountriesScreen
-          countries={filteredCountries}
-          selected={selected}
-          loading={loadingCountries}
-          filter={countryFilter}
-          editingFilter={editingCountryFilter}
-          theme={theme}
-          pageSize={layout.countryRows}
-        />
-      );
-    }
-
-    if (screen === 'map') {
-      return (
-        <MapScreen
-          countries={filteredCountries}
-          selected={selected}
-          loading={loadingCountries}
-          filter={countryFilter}
-          editingFilter={editingCountryFilter}
-          theme={theme}
-          pageSize={layout.mapCountryRows}
-          mode={layout.mapMode}
-          width={frameWidth}
-        />
-      );
-    }
-
-    if (screen === 'search') {
-      return (
-        <SearchScreen
-          query={searchQuery}
-          editing={editingSearch}
-          loading={loadingStations}
-          stations={displayStations}
-          selected={selected}
-          theme={theme}
-          favorites={favoriteKeys}
-          experimentalOn={library.settings.enableRadioGarden}
-          filterLabel={filterLabel}
-          pageSize={layout.stationRows}
-          width={frameWidth}
-        />
-      );
-    }
-
-    if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'recent' || screen === 'favorites') {
-      return (
-        <StationScreen
-          title={stationContext.title}
-          subtitle={stationContext.subtitle}
-          stations={displayStations}
-          selected={selected}
-          loading={loadingStations}
-          theme={theme}
-          favorites={favoriteKeys}
-          filterLabel={filterLabel}
-          pageSize={layout.stationRows}
-          width={frameWidth}
-        />
-      );
-    }
-
-    if (screen === 'now-playing') {
-      return (
-        <NowPlayingScreen
-          station={playingStation}
-          playback={playback}
-          metadata={nowPlaying}
-          theme={theme}
-          favorite={store.isFavorite(playingStation)}
-          pulse={pulse}
-          diagnostics={diagnostics}
-          sleepLabel={sleepLabel}
-          showDiagnostics={showDiagnostics}
-          stationTime={stationApproximateTime(playingStation)}
-          receiverStyle={library.settings.receiverStyle}
-          width={layout.receiverWidth}
-          height={layout.receiverRows}
-        />
-      );
-    }
-
-    if (screen === 'stats') {
-      return <StatsScreen library={library} playback={playback} theme={theme} width={frameWidth} height={layout.contentRows} />;
-    }
-
-    if (screen === 'settings') {
-      return (
-        <SettingsScreen
-          selected={selected}
-          settings={library.settings}
-          storePath={store.filePath}
-          playback={playback}
-          backends={player.detectedBackends()}
-          providerHealth={providerHealth}
-          theme={theme}
-          diagnostics={diagnostics}
-          width={frameWidth}
-        />
-      );
-    }
-
-    return <Text>Unknown screen.</Text>;
-  })();
 
   const hasTopTabs = !layout.compact;
   const globalFooter = '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
@@ -1380,57 +778,14 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     sleepLabel,
     width: frameWidth
   });
-  const pageFooter = (() => {
-    if (capturingTransportAction) {
-      return `Learn ${mediaActionLabel(capturingTransportAction)} key: press key · Esc cancel`;
-    }
-
-    if (commandMode) {
-      return `COMMAND :${commandText}`;
-    }
-
-    if (screen === 'home') {
-      return '↑/↓ move · Enter open · 1-9/0 jump · : command';
-    }
-
-    if (screen === 'search' && editingSearch) {
-      return 'Type query · Backspace edit · Enter search/tune · Esc finish';
-    }
-
-    if (screen === 'search') {
-      return '/ edit query · ↑/↓ or n/p move · Enter tune · f favorite · b home';
-    }
-
-    if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
-      return 'Type country filter · Enter/Esc apply';
-    }
-
-    if (screen === 'countries') {
-      return '/ filter · ↑/↓ move · Enter open stations · b home';
-    }
-
-    if (screen === 'map') {
-      return '/ filter · ↑/↓ move · Enter open country · b home';
-    }
-
-    if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'recent' || screen === 'favorites') {
-      return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b home';
-    }
-
-    if (screen === 'now-playing') {
-      return 'space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home';
-    }
-
-    if (screen === 'settings') {
-      return 'Enter change selected · g Radio Garden · l location · x skip · o backend · r health · b home';
-    }
-
-    if (screen === 'stats') {
-      return 'b home';
-    }
-
-    return ': command';
-  })();
+  const pageFooter = pageFooterText({
+    capturingTransportAction,
+    commandMode,
+    commandText,
+    editingCountryFilter,
+    editingSearch,
+    screen
+  });
 
   return (
     <Box flexDirection="column" paddingX={1} height={layout.rows} width={layout.columns} overflow="hidden" backgroundColor={appBackground}>
@@ -1446,7 +801,37 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         </Box>
       ) : null}
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={appBackground}>
-        {content}
+        <AppContent
+          backends={availableBackends}
+          countryFilter={countryFilter}
+          diagnostics={diagnostics}
+          displayStations={displayStations}
+          editingCountryFilter={editingCountryFilter}
+          editingSearch={editingSearch}
+          favoriteKeys={favoriteKeys}
+          filterLabel={filterLabel}
+          filteredCountries={filteredCountries}
+          frameWidth={frameWidth}
+          layout={layout}
+          library={library}
+          loadingCountries={loadingCountries}
+          loadingStations={loadingStations}
+          nowPlaying={nowPlaying}
+          playback={playback}
+          playingStation={playingStation}
+          providerHealth={providerHealth}
+          pulse={pulse}
+          searchQuery={searchQuery}
+          screen={screen}
+          selected={selected}
+          showDiagnostics={showDiagnostics}
+          sleepLabel={sleepLabel}
+          stationContext={stationContext}
+          stationFavorite={store.isFavorite(playingStation)}
+          stationTime={stationApproximateTime(playingStation)}
+          storePath={store.filePath}
+          theme={theme}
+        />
         {message ? (
           <Box marginTop={1}>
             <Text color={themeAccent(theme)}>{message}</Text>

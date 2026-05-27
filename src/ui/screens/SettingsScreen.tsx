@@ -3,6 +3,7 @@ import {Box, Text} from 'ink';
 import type {AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {truncate} from '../format.js';
+import {settingsItems} from '../screen-items.js';
 import {themeAccent} from '../theme.js';
 
 type SettingsScreenProps = {
@@ -16,23 +17,6 @@ type SettingsScreenProps = {
   diagnostics: PlaybackDiagnostics;
   width: number;
 };
-
-export const settingsItems = [
-  'Cycle display color',
-  'Cycle spectrum style',
-  'Toggle Radio Garden experimental adapter',
-  'Toggle nearby location lookup',
-  'Cycle playback backend',
-  'Volume up',
-  'Volume down',
-  'Mute or unmute',
-  'Toggle skip broken streams',
-  'Refresh provider health',
-  'Learn previous media key',
-  'Learn play/pause media key',
-  'Learn next media key',
-  'Reset learned media keys'
-] as const;
 
 export function SettingsScreen({
   selected,
@@ -89,6 +73,7 @@ export function SettingsScreen({
         <Menu
           items={settingsItems}
           selected={selected}
+          keyFor={item => item}
           render={(item, _index, active) => (
             <Box>
               <Pointer active={active} />

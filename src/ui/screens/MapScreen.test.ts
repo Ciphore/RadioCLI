@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import type {Country} from '../../types.js';
-import {buildWorldMap} from './MapScreen.js';
+import {buildWorldMap} from '../world-map.js';
 
 const countries: Country[] = [
   {code: 'US', name: 'The United States Of America', stationCount: 7168},

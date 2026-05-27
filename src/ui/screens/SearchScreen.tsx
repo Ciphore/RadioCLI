@@ -42,7 +42,7 @@ export function SearchScreen({
         <Text color="gray"> · Radio Browser{experimentalOn ? ' + Radio Garden experimental' : ''}</Text>
       </Text>
       <Text color="gray">Filters: {filterLabel}</Text>
-      {loading ? <Text color="gray">Searching public station directories...</Text> : null}
+      {loading ? <Text color="gray">Searching public station directories…</Text> : null}
       {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
     </Box>
   );

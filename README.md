@@ -95,12 +95,14 @@ npm run docs:check
 npm run docs:build
 ```
 
+Set `NEXT_PUBLIC_SITE_URL` for the canonical public docs URL. Preview builds also read Vercel's `VERCEL_URL` and Cloudflare Pages' `CF_PAGES_URL`.
+
 ## Install
 
 Requirements:
 
 - Node.js 22 or newer
-- `mpv` for best playback
+- `mpv` for best playback; RadioCLI expects one local playback backend at runtime
 - `ffplay` from FFmpeg as an optional fallback
 
 macOS:
@@ -110,6 +112,16 @@ brew install mpv ffmpeg
 npm install -g radiocli
 radiocli
 ```
+
+Linux:
+
+```bash
+sudo apt install mpv ffmpeg
+npm install -g radiocli
+radiocli
+```
+
+CI covers command-mode typecheck, tests, builds, and package checks on Ubuntu. Native Windows terminals are not release-tested yet; use WSL with Linux `mpv` / `ffplay` for the supported path.
 
 Local checkout:
 
@@ -271,7 +283,7 @@ This repo is intentionally small, but it is built like production software:
 
 ## Privacy
 
-Nearby station discovery is off by default. If you enable it, RadioCLI uses approximate IP-based location through `ipapi.co` to request nearby stations. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
+Nearby station discovery is off by default. If you enable it, RadioCLI requests approximate IP-based location from `ipapi.co` and uses the returned city/region/country/coordinates to sort nearby stations. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
 
 ## Development
 

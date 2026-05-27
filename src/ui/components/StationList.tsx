@@ -33,6 +33,7 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
       <Menu
         items={window.items}
         selected={selected - window.start}
+        keyFor={station => `${station.provider}:${station.id}`}
         render={(station, index, active) => {
           const favorite = favorites.has(`${station.provider}:${station.id}`);
           const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);

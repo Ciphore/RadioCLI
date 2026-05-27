@@ -17,6 +17,8 @@ export class PlayerController {
   private state: PlaybackState = {backend: 'none', state: 'idle', volume: 70, muted: false, ready: false};
   private listeners = new Set<PlayerEvent>();
   private metadataListeners = new Set<MetadataEvent>();
+  private availableBackends: string[] | null = null;
+  private nextMpvRequestId = 1;
 
   constructor(private readonly getSettings: () => AppSettings) {}
 
@@ -51,7 +53,12 @@ export class PlayerController {
   }
 
   detectedBackends(): string[] {
-    return ['mpv', 'ffplay'].filter(commandExists);
+    return [...(this.availableBackends ?? [])];
+  }
+
+  refreshDetectedBackends(): string[] {
+    this.availableBackends = ['mpv', 'ffplay'].filter(commandExists);
+    return this.detectedBackends();
   }
 
   async play(station: Station, url: string): Promise<void> {
@@ -160,19 +167,20 @@ export class PlayerController {
 
   private selectBackend(): 'mpv' | 'ffplay' | null {
     const preferred = this.getSettings().preferredBackend;
+    const backends = this.availableBackends ?? this.refreshDetectedBackends();
     if (preferred === 'mpv') {
-      return commandExists('mpv') ? 'mpv' : null;
+      return backends.includes('mpv') ? 'mpv' : null;
     }
 
     if (preferred === 'ffplay') {
-      return commandExists('ffplay') ? 'ffplay' : null;
+      return backends.includes('ffplay') ? 'ffplay' : null;
     }
 
-    if (commandExists('mpv')) {
+    if (backends.includes('mpv')) {
       return 'mpv';
     }
 
-    if (commandExists('ffplay')) {
+    if (backends.includes('ffplay')) {
       return 'ffplay';
     }
 
@@ -249,36 +257,58 @@ export class PlayerController {
     return new Promise((resolve, reject) => {
       const socket = new Socket();
       let buffer = '';
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error('mpv IPC timed out.'));
-      }, 1000);
-      socket.once('error', error => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-      socket.on('data', chunk => {
-        buffer += chunk.toString('utf8');
-        const newlineIndex = buffer.indexOf('\n');
-        if (newlineIndex === -1) {
+      let settled = false;
+      const requestId = this.nextMpvRequestId;
+      this.nextMpvRequestId = this.nextMpvRequestId >= Number.MAX_SAFE_INTEGER ? 1 : this.nextMpvRequestId + 1;
+      const requestPayload = attachMpvRequestId(payload, requestId);
+      const settle = (callback: () => void): void => {
+        if (settled) {
           return;
         }
 
-        const line = buffer.slice(0, newlineIndex);
+        settled = true;
         clearTimeout(timeout);
         socket.end();
-        try {
-          const parsed = JSON.parse(line) as {data?: T};
-          resolve(parsed.data ?? null);
-        } catch {
-          resolve(null);
+        callback();
+      };
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        settle(() => reject(new Error('mpv IPC timed out.')));
+      }, 1000);
+      socket.once('error', error => {
+        settle(() => reject(error));
+      });
+      socket.on('data', chunk => {
+        buffer += chunk.toString('utf8');
+        let newlineIndex = buffer.indexOf('\n');
+        while (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          newlineIndex = buffer.indexOf('\n');
+          if (!line.trim()) {
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(line) as {request_id?: number; error?: string; data?: T};
+            if (parsed.request_id !== requestId) {
+              continue;
+            }
+
+            if (parsed.error && parsed.error !== 'success') {
+              settle(() => reject(new Error(`mpv IPC failed: ${parsed.error}`)));
+            } else {
+              settle(() => resolve(parsed.data ?? null));
+            }
+          } catch {
+            settle(() => resolve(null));
+          }
         }
       });
       socket.connect(this.ipcPath!, () => {
-        socket.write(`${JSON.stringify(payload)}\n`, error => {
+        socket.write(`${JSON.stringify(requestPayload)}\n`, error => {
           if (error) {
-            socket.end();
-            reject(error);
+            settle(() => reject(error));
           }
         });
       });
@@ -295,7 +325,7 @@ export class PlayerController {
       }
 
       if (backend === 'ffplay') {
-        await delay(500);
+        await waitForStartupWindow(() => this.process, Math.min(500, timeoutMs));
         return;
       }
 
@@ -403,6 +433,25 @@ export function extractMpvTitle(metadata: Record<string, string> | null): string
   }
 
   return undefined;
+}
+
+function attachMpvRequestId(payload: unknown, requestId: number): unknown {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return {...payload, request_id: requestId};
+  }
+
+  return {command: payload, request_id: requestId};
+}
+
+async function waitForStartupWindow(getProcess: () => ChildProcessWithoutNullStreams | null, ms: number): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < ms) {
+    if (!getProcess()) {
+      throw new Error('Player exited before the stream became ready.');
+    }
+
+    await delay(Math.min(100, ms - (Date.now() - started)));
+  }
 }
 
 function cleanMetadataTitle(value: string | undefined): string | undefined {

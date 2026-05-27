@@ -8,7 +8,8 @@ RadioCLI does not require secrets or accounts.
 ## Privacy Notes
 
 - Nearby station discovery is off by default.
-- Location lookup uses approximate IP-based location only when enabled.
+- Location lookup uses approximate IP-based location from `ipapi.co` only when
+  enabled.
 - Recents, favorites, settings, imports, listening activity, and provider cache
   data are stored locally on your machine.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
@@ -17,11 +18,14 @@ RadioCLI does not require secrets or accounts.
 ## Location Lookup
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
-RadioCLI requires explicit opt-in through Settings or `:location on`.
+RadioCLI requires explicit opt-in through Settings or `:location on`. When it is
+enabled, RadioCLI requests an approximate location from `ipapi.co` and uses the
+returned city, region, country, latitude, and longitude to sort nearby public
+stations.
 
 ## Reporting Security Issues
 
-Open a private security advisory on GitHub if available:
+Open a private security advisory on GitHub:
 
 ```text
 https://github.com/Ciphore/RadioCLI/security/advisories
@@ -29,6 +33,9 @@ https://github.com/Ciphore/RadioCLI/security/advisories
 
 Please avoid filing public issues for vulnerabilities that could expose local
 files, private network information, or unexpected command execution.
+
+If private reporting is unavailable, open a minimal public issue asking for a
+private disclosure path, but do not include exploit details.
 
 ## Supported Versions
 

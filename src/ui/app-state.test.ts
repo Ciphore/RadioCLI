@@ -9,8 +9,10 @@ import {
   mediaTransportActionForInput,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
+  shouldAnimateReceiver,
   stationContextKeyForScreen
 } from './app-state.js';
+import type {PlaybackState} from '../types.js';
 
 const station: Station = {
   id: 'station-1',
@@ -20,6 +22,14 @@ const station: Station = {
   codec: 'MP3',
   bitrate: 128,
   language: 'English'
+};
+
+const playingPlayback: PlaybackState = {
+  backend: 'mpv',
+  state: 'playing',
+  volume: 70,
+  muted: false,
+  ready: true
 };
 
 describe('app state helpers', () => {
@@ -72,5 +82,13 @@ describe('app state helpers', () => {
     expect(nextSleepTimerMinutes(15)).toBe(30);
     expect(nextSleepTimerMinutes(30)).toBe(60);
     expect(nextSleepTimerMinutes(60)).toBeNull();
+  });
+
+  it('animates the receiver only while playback is actively playing', () => {
+    expect(shouldAnimateReceiver('now-playing', playingPlayback)).toBe(true);
+    expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'paused'})).toBe(false);
+    expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'stopped', ready: false})).toBe(false);
+    expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'idle', ready: false})).toBe(false);
+    expect(shouldAnimateReceiver('search', playingPlayback)).toBe(false);
   });
 });

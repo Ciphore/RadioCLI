@@ -1,4 +1,4 @@
-import type {MediaKeyBindings, Screen, Station} from '../types.js';
+import type {MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import type {TopTab} from './components/TopTabs.js';
 
 export type StationContext = {
@@ -183,6 +183,10 @@ export function stationContextKeyForScreen(screen: Screen): StationContextKey | 
   return null;
 }
 
+export function shouldAnimateReceiver(screen: Screen, playback: PlaybackState): boolean {
+  return screen === 'now-playing' && playback.state === 'playing' && playback.ready;
+}
+
 export function isEditableInput(input: string, key: {backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean}): boolean {
   return Boolean(key.backspace || key.delete || input);
 }
@@ -215,7 +219,7 @@ export function applyTextInput(
 export function mediaTransportActionForInput(input: string, mediaKeys: MediaKeyBindings = emptyMediaKeyBindings): MediaTransportAction | null {
   const normalized = normalizeMediaKeyBindings(mediaKeys);
   for (const action of mediaTransportActions) {
-    if (normalized[action].includes(input)) {
+    if (new Set(normalized[action]).has(input)) {
       return action;
     }
   }

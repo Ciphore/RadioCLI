@@ -32,7 +32,7 @@
     "CHANGELOG.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
-    "scripts",
+    "CODE_OF_CONDUCT.md",
     "docs"
   ],
   "bin": {

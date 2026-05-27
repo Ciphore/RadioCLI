@@ -33,7 +33,7 @@ export function StationScreen({
       <Text bold>{title}</Text>
       <Text color="gray">{subtitle}</Text>
       <Text color="gray">Filters: {filterLabel}</Text>
-      {loading ? <Text color="gray">Loading stations...</Text> : null}
+      {loading ? <Text color="gray">Loading stations…</Text> : null}
       {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
     </Box>
   );

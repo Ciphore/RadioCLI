@@ -136,6 +136,12 @@ export class RadioBrowserProvider {
     ]);
 
     let rows = variants.flatMap(result => (result.status === 'fulfilled' ? result.value : []));
+    const failures = variants.filter(result => result.status === 'rejected');
+    if (failures.length === variants.length) {
+      const firstError = failures[0]?.reason;
+      const message = firstError instanceof Error ? firstError.message : String(firstError ?? 'all search requests failed');
+      throw new Error(`${this.label} search failed: ${message}`);
+    }
     const tokens = trimmed.split(/\s+/).filter(token => token.length > 2).slice(0, 4);
 
     if (rows.length === 0 && tokens.length > 1) {

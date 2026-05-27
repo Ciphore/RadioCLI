@@ -85,13 +85,9 @@ export function NowPlayingScreen({
         <Text color="gray">{truncate(stationPlace, innerWidth)}</Text>
         <Box marginTop={1} flexDirection="column">
           {visualRows.map((row, index) => (
-            <Text key={index} color={row.segments ? undefined : row.color}>
+            <Text key={`${index}-${row.color}-${row.text}`} color={row.segments ? undefined : row.color}>
               {row.segments
-                ? row.segments.map((segment, segmentIndex) => (
-                  <Text key={segmentIndex} color={segment.color}>
-                    {segment.text}
-                  </Text>
-                ))
+                ? renderSegments(row.segments)
                 : row.text}
             </Text>
           ))}
@@ -122,4 +118,17 @@ export function NowPlayingScreen({
       </Box>
     </Box>
   );
+}
+
+function renderSegments(segments: Array<{text: string; color: string}>): React.ReactNode {
+  let offset = 0;
+  return segments.map(segment => {
+    const key = `${offset}-${segment.color}`;
+    offset += segment.text.length;
+    return (
+      <Text key={key} color={segment.color}>
+        {segment.text}
+      </Text>
+    );
+  });
 }

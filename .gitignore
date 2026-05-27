@@ -3,9 +3,12 @@ dist/
 apps/docs/.next/
 apps/docs/.source/
 apps/docs/out/
+.playwright-cli/
+output/
 .env
 .DS_Store
 coverage/
 *.log
+*.tsbuildinfo
 .radiocli-test/
 .antigravitycli/

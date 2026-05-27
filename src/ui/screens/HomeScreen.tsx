@@ -3,20 +3,8 @@ import {Box, Text} from 'ink';
 import {Logo} from '../components/Logo.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {themeAccent} from '../theme.js';
+import {homeItems} from '../screen-items.js';
 import type {LibraryState, PlaybackState, ThemeName} from '../../types.js';
-
-export const homeItems = [
-  {screen: 'explore', label: 'Explore world', detail: 'Popular live stations across countries'},
-  {screen: 'map', label: 'World map', detail: 'Station-density map by country'},
-  {screen: 'countries', label: 'Countries', detail: 'Browse by country list'},
-  {screen: 'search', label: 'Search stations', detail: 'Find stations by name, genre, language, place'},
-  {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},
-  {screen: 'now-playing', label: 'Now playing', detail: 'Receiver display and controls'},
-  {screen: 'stats', label: 'Stats', detail: 'Listening graph, sessions, streaks, hours'},
-  {screen: 'recent', label: 'Recent', detail: 'Stations played on this machine'},
-  {screen: 'favorites', label: 'Favorites', detail: 'Saved and imported stations'},
-  {screen: 'settings', label: 'Settings', detail: 'Playback backend, colors, providers'}
-] as const;
 
 type HomeProps = {
   selected: number;
@@ -38,6 +26,7 @@ export function HomeScreen({selected, theme, library, playback}: HomeProps): Rea
         <Menu
           items={homeItems}
           selected={selected}
+          keyFor={item => item.screen}
           render={(item, index, active) => (
             <Box>
               <Pointer active={active} />

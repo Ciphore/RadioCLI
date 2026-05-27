@@ -51,7 +51,12 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
   });
 
   const activeDays = days.filter(day => day.seconds > 0).length;
-  const favorite = [...secondsByStation.values()].sort((a, b) => b.seconds - a.seconds)[0] ?? null;
+  let favorite: {station: Station; seconds: number} | null = null;
+  for (const entry of secondsByStation.values()) {
+    if (!favorite || entry.seconds > favorite.seconds) {
+      favorite = entry;
+    }
+  }
 
   return {
     favoriteStation: favorite?.station ?? null,

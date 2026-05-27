@@ -35,7 +35,7 @@ export function CountriesScreen({
       <Text>
         Filter: <Text color={themeAccent(theme)}>{filter || 'all'}</Text>
       </Text>
-      {loading ? <Text color="gray">Loading countries from Radio Browser...</Text> : null}
+      {loading ? <Text color="gray">Loading countries from Radio Browser…</Text> : null}
       {!loading ? (
         <Box flexDirection="column">
           <Text color="gray">
@@ -44,6 +44,7 @@ export function CountriesScreen({
           <Menu
             items={window.items}
             selected={selected - window.start}
+            keyFor={country => country.code}
             render={(country, _index, active) => (
               <Box>
                 <Pointer active={active} />

@@ -1,38 +1,52 @@
 #!/usr/bin/env node
-import {render} from 'ink';
-import {App} from './ui/App.js';
+import {realpathSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {ProviderManager} from './providers/provider-manager.js';
 import {PlayerController} from './player/player-controller.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 
-const args = process.argv.slice(2);
+if (isDirectRun(process.argv[1], import.meta.url)) {
+  const args = process.argv.slice(2);
 
-if (args.length > 0) {
-  await runCommand(args).catch(error => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
-} else {
-  render(<App />, {
-    exitOnCtrlC: true,
-    kittyKeyboard: {
-      mode: 'auto',
-      flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']
-    }
-  });
+  if (args.length > 0) {
+    await runCommand(args).catch(error => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+  } else {
+    const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
+    render(<App />, {
+      exitOnCtrlC: true,
+      kittyKeyboard: {
+        mode: 'auto',
+        flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']
+      }
+    });
+  }
 }
 
-async function runCommand(args: string[]): Promise<void> {
+export async function runCommand(args: string[]): Promise<void> {
   const [command, ...rest] = args;
-  const store = new JsonLibraryStore();
-  const providers = new ProviderManager();
+
+  if (!command || command === 'help' || command === '--help' || command === '-h') {
+    printHelp();
+    return;
+  }
+
+  if (!isKnownCommand(command)) {
+    throw new Error(`Unknown command: ${command}\nRun radiocli help.`);
+  }
 
   if (command === 'check') {
+    const store = new JsonLibraryStore();
+    const providers = new ProviderManager();
     const player = new PlayerController(() => store.snapshot().settings);
+    const backends = player.refreshDetectedBackends();
     const health = await providers.health(store.snapshot().settings);
     console.log(`store=${store.filePath}`);
-    console.log(`backends=${player.detectedBackends().join(',') || 'none'}`);
+    console.log(`backends=${backends.join(',') || 'none'}`);
     for (const [provider, status] of Object.entries(health)) {
       console.log(`${provider}=${status}`);
     }
@@ -40,6 +54,7 @@ async function runCommand(args: string[]): Promise<void> {
   }
 
   if (command === 'countries') {
+    const providers = new ProviderManager();
     const countries = await providers.countries(30);
     for (const country of countries) {
       console.log(`${country.code}\t${country.stationCount}\t${country.name}`);
@@ -53,6 +68,8 @@ async function runCommand(args: string[]): Promise<void> {
       throw new Error('Usage: radiocli search <query>');
     }
 
+    const store = new JsonLibraryStore();
+    const providers = new ProviderManager();
     const stations = await providers.search(query, store.snapshot().settings, {limit: 20});
     for (const station of stations) {
       console.log(`${station.provider}:${station.id}\t${station.name}\t${station.country ?? ''}\t${station.codec ?? ''}\t${station.bitrate ?? ''}`);
@@ -67,6 +84,7 @@ async function runCommand(args: string[]): Promise<void> {
     }
 
     const stations = parsePlaylistFile(file);
+    const store = new JsonLibraryStore();
     store.addImported(stations);
     console.log(`imported=${stations.length}`);
     return;
@@ -74,6 +92,7 @@ async function runCommand(args: string[]): Promise<void> {
 
   if (command === 'export') {
     const file = rest[0] ?? 'radiocli-favorites.m3u';
+    const store = new JsonLibraryStore();
     const state = store.snapshot();
     writeM3u(file, [...state.favorites, ...state.imported]);
     console.log(`exported=${file}`);
@@ -87,20 +106,14 @@ async function runCommand(args: string[]): Promise<void> {
     }
 
     const station = stationFromUrl(url, rest.slice(1).join(' ') || url);
+    const store = new JsonLibraryStore();
     store.addImported([station]);
     console.log(`added=${station.name}`);
     return;
   }
-
-  if (command === 'help' || command === '--help' || command === '-h') {
-    printHelp();
-    return;
-  }
-
-  throw new Error(`Unknown command: ${command ?? ''}\nRun radiocli help.`);
 }
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`RadioCLI
 
 Usage:
@@ -112,4 +125,20 @@ Usage:
   radiocli export [file]   Export favorites/imports as .m3u
   radiocli add-url <url> [name]
 `);
+}
+
+export function isDirectRun(entryPath: string | undefined, moduleUrl: string): boolean {
+  if (!entryPath) {
+    return false;
+  }
+
+  try {
+    return realpathSync(resolve(entryPath)) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+function isKnownCommand(command: string): boolean {
+  return ['check', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
 }

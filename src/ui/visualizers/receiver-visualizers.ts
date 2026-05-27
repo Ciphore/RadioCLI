@@ -27,6 +27,10 @@ export function buildVisualizer(
   playback: PlaybackState,
   theme: ThemeName
 ): VisualLine[] {
+  if (!playbackHasSignal(playback)) {
+    return buildZeroSignalVisualizer(style, width, height, station, playback, theme);
+  }
+
   if (style === 'sdr') {
     return buildSdrSpectrum(pulse, width, height, station, playback);
   }
@@ -116,6 +120,38 @@ export function buildVisualizer(
   }
 
   return buildSpectrum(pulse, width, height).map(text => ({text, color: '#ffb000'}));
+}
+
+function playbackHasSignal(playback: PlaybackState): boolean {
+  return playback.state === 'playing' && playback.ready;
+}
+
+function buildZeroSignalVisualizer(
+  style: ReceiverStyle,
+  width: number,
+  height: number,
+  station: Station | null,
+  playback: PlaybackState,
+  theme: ThemeName
+): VisualLine[] {
+  if (style === 'sdr') {
+    return buildZeroSdrSpectrum(width, height, station, playback);
+  }
+
+  return buildFlatZeroSignal(width, height, theme);
+}
+
+function buildFlatZeroSignal(width: number, requestedHeight: number, theme: ThemeName): VisualLine[] {
+  const lineWidth = Math.max(0, width);
+  const height = Math.max(1, requestedHeight);
+  const blank = ''.padEnd(lineWidth, ' ');
+  const baseline = '▁'.repeat(lineWidth);
+  const accent = themeAccent(theme);
+
+  return Array.from({length: height}, (_, rowIndex) => ({
+    text: rowIndex === height - 1 ? baseline : blank,
+    color: rowIndex === height - 1 ? accent : '#767676'
+  }));
 }
 
 function buildRetro(
@@ -1251,6 +1287,55 @@ function buildSdrSpectrum(
     rows.push({
       text: `${label}${trace}`.slice(0, width),
       color: rowIndex < Math.max(1, graphHeight * 0.35) ? '#7e2dbb' : '#ff64d8'
+    });
+  }
+
+  rows.push({
+    text: `${' '.repeat(labelWidth)}${frequencyMarkers(center, graphWidth)}`.slice(0, width),
+    color: '#d4d8e1'
+  });
+
+  return rows.slice(0, height);
+}
+
+function buildZeroSdrSpectrum(
+  width: number,
+  requestedHeight: number,
+  station: Station | null,
+  playback: PlaybackState
+): VisualLine[] {
+  const height = Math.max(10, requestedHeight);
+  const labelWidth = 5;
+  const graphWidth = Math.max(18, width - labelWidth);
+  const graphHeight = Math.max(5, height - 5);
+  const center = centerFrequency(station);
+  const rows: VisualLine[] = [
+    {
+      text: fitLine(`┌[ radiocli-sdr ]${'─'.repeat(Math.max(0, width - 20))}`, width),
+      color: '#c06cff'
+    },
+    {
+      text: fitLine(`Freq: ${center.toFixed(3)} MHz  |  Rate: 0.00 Msps  |  Signal: 0`, width),
+      color: '#d4d8e1'
+    },
+    {
+      text: fitLine(`Dyn Range: 80 dB  |  Ref Level: 0 dB  |  ${playback.state.toUpperCase()}`, width),
+      color: '#d4d8e1'
+    },
+    {
+      text: fitLine('-'.repeat(width), width),
+      color: '#7e2dbb'
+    }
+  ];
+
+  for (let rowIndex = 0; rowIndex < graphHeight; rowIndex += 1) {
+    const rowDb = sdrRowDb(rowIndex, graphHeight);
+    const label = String(rowDb).padStart(labelWidth - 1, ' ').padEnd(labelWidth, ' ');
+    const trace = rowIndex === graphHeight - 1 ? '▁'.repeat(graphWidth) : ''.padEnd(graphWidth, ' ');
+
+    rows.push({
+      text: `${label}${trace}`.slice(0, width),
+      color: rowIndex === graphHeight - 1 ? '#ff64d8' : '#7e2dbb'
     });
   }
 

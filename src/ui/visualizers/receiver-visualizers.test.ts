@@ -19,6 +19,18 @@ const playback: PlaybackState = {
   ready: true
 };
 
+const inactivePlaybacks: PlaybackState[] = [
+  {...playback, state: 'idle', backend: 'none', message: 'idle', ready: false},
+  {...playback, state: 'paused', message: 'paused'},
+  {...playback, state: 'stopped', message: 'stopped', ready: false},
+  {...playback, state: 'loading', message: 'loading', ready: false},
+  {...playback, state: 'error', message: 'error', ready: false}
+];
+
+function frameText(rows: ReturnType<typeof buildVisualizer>): string {
+  return rows.map(row => row.text).join('\n');
+}
+
 describe('receiver visualizers', () => {
   it('renders every receiver style inside the requested width', () => {
     for (const style of receiverStyleNames) {
@@ -52,5 +64,31 @@ describe('receiver visualizers', () => {
       const rows = buildVisualizer(style, 8, 64, visualizerHeight(style, 12), station, playback, 'ruby');
       expect(rows.some(row => row.segments && row.segments.length > 1)).toBe(true);
     }
+  });
+
+  it('holds every receiver style at a zero-signal frame when playback is inactive', () => {
+    for (const style of receiverStyleNames) {
+      const height = visualizerHeight(style, 12);
+      for (const inactivePlayback of inactivePlaybacks) {
+        const firstFrame = buildVisualizer(style, 1, 64, height, station, inactivePlayback, 'ruby');
+        const laterFrame = buildVisualizer(style, 24, 64, height, station, inactivePlayback, 'ruby');
+
+        expect(frameText(laterFrame)).toBe(frameText(firstFrame));
+        expect(firstFrame.length).toBeGreaterThan(0);
+        expect(firstFrame.length).toBeLessThanOrEqual(height);
+        for (const row of firstFrame) {
+          expect(row.text.length).toBeLessThanOrEqual(64);
+        }
+      }
+    }
+  });
+
+  it('renders inactive neon as a flat zero-level baseline', () => {
+    const rows = buildVisualizer('neon', 8, 32, 6, station, inactivePlaybacks[0]!, 'ruby');
+
+    expect(rows).toHaveLength(6);
+    expect(rows.slice(0, -1).every(row => row.text.trim() === '')).toBe(true);
+    expect(rows.at(-1)?.text).toBe('▁'.repeat(32));
+    expect(frameText(rows)).not.toMatch(/[▃▅▆▇█]/);
   });
 });
