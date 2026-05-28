@@ -21,10 +21,13 @@ import {
   applyStationFilters,
   clamp,
   clampVolume,
+  defaultExploreCursor,
+  formatExploreCursor,
   formatFilterLabel,
   formatTimeLeft,
   initialStationContexts,
   mediaActionLabel,
+  moveExploreCursor as shiftExploreCursor,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
@@ -37,7 +40,9 @@ import {
   type PlayStationOptions,
   type SearchFilters,
   type StationContext,
-  type StationContextKey
+  type StationContextKey,
+  type ExploreCursor,
+  type ExploreMoveDirection
 } from './app-state.js';
 
 type AppProps = {
@@ -103,6 +108,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [playingStation, setPlayingStation] = useState<Station | null>(null);
   const [nowPlaying, setNowPlaying] = useState<IcyNowPlaying | null>(null);
   const [location, setLocation] = useState<LocationGuess | null>(null);
+  const [exploreCursor, setExploreCursor] = useState<ExploreCursor>(defaultExploreCursor);
   const [providerHealth, setProviderHealth] = useState<Record<string, string>>({});
   const [pulse, setPulse] = useState(0);
   const [commandMode, setCommandMode] = useState(false);
@@ -121,6 +127,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const stationContextsRef = useRef(stationContexts);
   const lastStationContextKeyRef = useRef<StationContextKey>('explore');
   const lastSubmittedSearchRef = useRef('');
+  const exploreCursorRef = useRef(exploreCursor);
+  const exploreRequestRef = useRef(0);
+  const exploreMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const theme = library.settings.theme;
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
@@ -150,6 +159,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   screenRef.current = screen;
   selectedRef.current = selected;
   stationContextsRef.current = activeStationContexts;
+  exploreCursorRef.current = exploreCursor;
 
   const renderedStationContextKey = stationContextKeyForScreen(screen);
   const activeStationContextKey = renderedStationContextKey ?? lastStationContextKeyRef.current;
@@ -234,6 +244,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         .finally(() => setLoadingCountries(false));
     }
   }, [countries.length, loadingCountries, providers, screen]);
+
+  useEffect(
+    () => () => {
+      if (exploreMoveTimerRef.current) {
+        clearTimeout(exploreMoveTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     setSelected(value => clamp(value, currentItemCount(screen) - 1));
@@ -349,23 +368,75 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [go, setStationContextFor]
   );
 
-  const loadPopular = useCallback(async () => {
+  const loadExploreAt = useCallback(async (cursor: ExploreCursor, options: NavigationOptions = {}) => {
+    const requestId = exploreRequestRef.current + 1;
+    exploreRequestRef.current = requestId;
     setLoadingStations(true);
     setMessage(null);
-    go('explore', {resetSelection: true});
+    if (screenRef.current !== 'explore') {
+      go('explore', {resetSelection: options.resetSelection ?? true, clearMessage: options.clearMessage});
+    }
+    exploreCursorRef.current = cursor;
+    setExploreCursor(cursor);
+    setStationContextFor('explore', {
+      title: 'Explore world',
+      subtitle: `Scanning near ${formatExploreCursor(cursor)}`,
+      stations: []
+    });
     try {
-      const stations = await providers.popular(90);
+      const stations = await providers.nearby(exploreCursorLocation(cursor), 90);
+      if (requestId !== exploreRequestRef.current) {
+        return;
+      }
       setStationContextFor('explore', {
         title: 'Explore world',
-        subtitle: 'Popular live stations from Radio Browser',
+        subtitle: `Stations nearest ${formatExploreCursor(cursor)}`,
         stations
       });
+      selectedByScreenRef.current.explore = 0;
+      if (screenRef.current === 'explore') {
+        setSelected(0);
+      }
+      if (stations.length === 0) {
+        setMessage(`No geotagged stations found near ${formatExploreCursor(cursor)}.`);
+      }
     } catch (error) {
+      if (requestId !== exploreRequestRef.current) {
+        return;
+      }
       setMessage(error instanceof Error ? error.message : 'Could not load world stations.');
     } finally {
-      setLoadingStations(false);
+      if (requestId === exploreRequestRef.current) {
+        setLoadingStations(false);
+      }
     }
   }, [go, providers, setStationContextFor]);
+
+  const loadExplore = useCallback(async () => {
+    await loadExploreAt(exploreCursorRef.current, {resetSelection: true});
+  }, [loadExploreAt]);
+
+  const moveExploreMapCursor = useCallback(
+    (direction: ExploreMoveDirection, fast = false) => {
+      const next = shiftExploreCursor(exploreCursorRef.current, direction, fast);
+      exploreCursorRef.current = next;
+      setExploreCursor(next);
+      setSelected(0);
+      setLoadingStations(true);
+      setStationContextFor('explore', {
+        title: 'Explore world',
+        subtitle: `Move cursor: ${formatExploreCursor(next)}`,
+        stations: []
+      });
+      if (exploreMoveTimerRef.current) {
+        clearTimeout(exploreMoveTimerRef.current);
+      }
+      exploreMoveTimerRef.current = setTimeout(() => {
+        void loadExploreAt(next, {resetSelection: true, clearMessage: false});
+      }, 220);
+    },
+    [loadExploreAt, setStationContextFor]
+  );
 
   const loadCountry = useCallback(
     async (country: Country) => {
@@ -624,7 +695,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         if (stationContextsRef.current.explore.stations.length > 0) {
           go('explore');
         } else {
-          void loadPopular();
+          void loadExplore();
         }
       } else if (target === 'nearby') {
         if (stationContextsRef.current.nearby.stations.length > 0) {
@@ -641,7 +712,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         go(target);
       }
     },
-    [go, loadNearby, loadPopular, openLibrary]
+    [go, loadExplore, loadNearby, openLibrary]
   );
 
   const openAdjacentTab = useCallback(
@@ -739,6 +810,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     playStation,
     player,
     playingStation,
+    moveExploreCursor: moveExploreMapCursor,
     refreshProviderHealth,
     resetLearnedTransportKeys,
     runSearch,
@@ -831,6 +903,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           showDiagnostics={showDiagnostics}
           sleepLabel={sleepLabel}
           stationContext={stationContext}
+          exploreCursor={exploreCursor}
           stationFavorite={store.isFavorite(playingStation)}
           stationTime={stationApproximateTime(playingStation)}
           storePath={store.filePath}
@@ -879,6 +952,14 @@ function buildLibraryStations(library: LibraryState): Station[] {
   }
 
   return stations;
+}
+
+function exploreCursorLocation(cursor: ExploreCursor): LocationGuess {
+  return {
+    latitude: cursor.latitude,
+    longitude: cursor.longitude,
+    source: 'explore cursor'
+  };
 }
 
 function librarySubtitle(library: LibraryState): string {

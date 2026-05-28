@@ -36,7 +36,8 @@ product requirement.
 - Radio Garden can be blocked by edge protection.
 - Station health is local and opportunistic; there is not yet a long-term health
   score per station.
-- The world map is symbolic, not a geographic renderer.
+- The country-density map is symbolic; Explore uses a Natural Earth braille map
+  with a movable scan cursor, but results depend on provider geotag coverage.
 
 ## Next Reliability Work
 

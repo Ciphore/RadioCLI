@@ -6,7 +6,7 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 ## Features
 
-- Explore public radio from around the world through country lists, global station search, a full-width country-density world map, and opt-in nearby discovery.
+- Explore public radio from around the world through a cosmo-style braille world map beside the station list, plus country lists, global station search, a country-density map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
 - Use a receiver-style Now Playing screen with 25 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
 - Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
@@ -31,7 +31,7 @@ Overview  Playing  Library  Explore  Search  Countries  Nearby  Stats  Settings
 
   › 1. Playing · Receiver display and controls
     2. Library · Favorites, recent stations, imported streams
-    3. Explore · Popular live stations across countries
+    3. Explore · Move a map cursor to scan local stations
     4. Search · Find stations by name, genre, language, place
     5. Countries · Browse by country list with a world-map toggle
     6. Nearby · Opt-in approximate location for local stations

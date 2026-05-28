@@ -5,8 +5,11 @@ import {
   addMediaKeyBinding,
   applyStationFilters,
   applyTextInput,
+  defaultExploreCursor,
   favoriteTarget,
+  formatExploreCursor,
   mediaTransportActionForInput,
+  moveExploreCursor,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
@@ -100,6 +103,14 @@ describe('app state helpers', () => {
     expect(nextSleepTimerMinutes(15)).toBe(30);
     expect(nextSleepTimerMinutes(30)).toBe(60);
     expect(nextSleepTimerMinutes(60)).toBeNull();
+  });
+
+  it('moves the explore cursor around the globe and wraps longitude', () => {
+    expect(formatExploreCursor(defaultExploreCursor)).toBe('48.9N, 2.4E');
+    expect(moveExploreCursor({latitude: 83, longitude: 176}, 'up')).toEqual({latitude: 84, longitude: 176});
+    expect(moveExploreCursor({latitude: -83, longitude: -176}, 'down')).toEqual({latitude: -84, longitude: -176});
+    expect(moveExploreCursor({latitude: 0, longitude: 176}, 'right')).toEqual({latitude: 0, longitude: -172});
+    expect(moveExploreCursor({latitude: 0, longitude: -176}, 'left', true)).toEqual({latitude: 0, longitude: 160});
   });
 
   it('animates the receiver only while playback is actively playing', () => {

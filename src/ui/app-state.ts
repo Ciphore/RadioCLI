@@ -15,6 +15,13 @@ export type SearchFilters = {
   minBitrate: number | null;
 };
 
+export type ExploreCursor = {
+  latitude: number;
+  longitude: number;
+};
+
+export type ExploreMoveDirection = 'up' | 'down' | 'left' | 'right';
+
 export type NavigationOptions = {
   resetSelection?: boolean;
   clearMessage?: boolean;
@@ -43,11 +50,15 @@ const emptyMediaKeyBindings: MediaKeyBindings = {
 
 const mediaTransportActions = ['previous', 'playPause', 'next'] as const;
 const sleepTimerOptions: SleepTimerMinutes[] = [null, 15, 30, 60];
+export const defaultExploreCursor: ExploreCursor = {
+  latitude: 48.8566,
+  longitude: 2.3522
+};
 
 export const initialStationContexts: Record<StationContextKey, StationContext> = {
   explore: {
     title: 'Explore world',
-    subtitle: 'Popular stations from Radio Browser',
+    subtitle: `Map cursor near ${formatExploreCursor(defaultExploreCursor)}`,
     stations: []
   },
   stations: {
@@ -133,6 +144,39 @@ export function nextSleepTimerMinutes(currentMinutes: number | null): SleepTimer
   const currentIndex = sleepTimerOptions.findIndex(option => option === currentMinutes);
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % sleepTimerOptions.length : 0;
   return sleepTimerOptions[nextIndex] ?? null;
+}
+
+export function moveExploreCursor(cursor: ExploreCursor, direction: ExploreMoveDirection, fast = false): ExploreCursor {
+  const latitudeStep = fast ? 12 : 6;
+  const longitudeStep = fast ? 24 : 12;
+  const latitudeDelta = direction === 'up' ? latitudeStep : direction === 'down' ? -latitudeStep : 0;
+  const longitudeDelta = direction === 'right' ? longitudeStep : direction === 'left' ? -longitudeStep : 0;
+
+  return {
+    latitude: Math.min(84, Math.max(-84, cursor.latitude + latitudeDelta)),
+    longitude: wrapLongitude(cursor.longitude + longitudeDelta)
+  };
+}
+
+export function formatExploreCursor(cursor: ExploreCursor): string {
+  const latitude = `${Math.abs(cursor.latitude).toFixed(1)}${cursor.latitude >= 0 ? 'N' : 'S'}`;
+  const longitude = `${Math.abs(cursor.longitude).toFixed(1)}${cursor.longitude >= 0 ? 'E' : 'W'}`;
+  return `${latitude}, ${longitude}`;
+}
+
+function wrapLongitude(longitude: number): number {
+  if (!Number.isFinite(longitude)) {
+    return 0;
+  }
+
+  let wrapped = longitude;
+  while (wrapped > 180) {
+    wrapped -= 360;
+  }
+  while (wrapped < -180) {
+    wrapped += 360;
+  }
+  return wrapped;
 }
 
 export function stationApproximateTime(station: Station | null): string {

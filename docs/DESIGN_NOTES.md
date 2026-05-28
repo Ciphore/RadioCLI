@@ -55,6 +55,12 @@ animate only when playback is `playing` and backend-ready; idle, loading, paused
 stopped, and error states render a flat zero-signal frame so the display never
 implies live audio when nothing is playing.
 
+Explore uses a dense braille world map next to the station list on wide
+terminals. That layout keeps global discovery spatial without forcing the user
+to switch away from the playable list. The map has one movable scan cursor
+instead of many station pins; WASD moves the cursor and the station list reloads
+around that coordinate.
+
 ## Tokscale-Inspired Navigation And Stats
 
 The horizontal tab rail is intentionally dense: it keeps the app feeling like a

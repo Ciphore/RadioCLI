@@ -11,6 +11,7 @@ import {
   isEditableInput,
   isPlainPrintableInput,
   mediaTransportActionForInput,
+  type ExploreMoveDirection,
   type MediaTransportAction
 } from './app-state.js';
 
@@ -48,6 +49,7 @@ type AppInputOptions = {
   playStation: (station: Station) => Promise<void>;
   player: PlayerController;
   playingStation: Station | null;
+  moveExploreCursor: (direction: ExploreMoveDirection, fast?: boolean) => void;
   refreshProviderHealth: () => void;
   resetLearnedTransportKeys: () => void;
   runSearch: () => Promise<void>;
@@ -101,6 +103,7 @@ export function useAppInput({
   playStation,
   player,
   playingStation,
+  moveExploreCursor,
   refreshProviderHealth,
   resetLearnedTransportKeys,
   runSearch,
@@ -280,6 +283,14 @@ export function useAppInput({
       }
 
       return;
+    }
+
+    if (screen === 'explore') {
+      const exploreMove = exploreMoveForInput(input);
+      if (exploreMove) {
+        moveExploreCursor(exploreMove.direction, exploreMove.fast);
+        return;
+      }
     }
 
     if (input === 'q') {
@@ -519,4 +530,25 @@ export function useAppInput({
       }
     }
   });
+}
+
+function exploreMoveForInput(input: string): {direction: ExploreMoveDirection; fast: boolean} | null {
+  const normalized = input.toLowerCase();
+  if (normalized === 'w') {
+    return {direction: 'up', fast: input === 'W'};
+  }
+
+  if (normalized === 's') {
+    return {direction: 'down', fast: input === 'S'};
+  }
+
+  if (normalized === 'a') {
+    return {direction: 'left', fast: input === 'A'};
+  }
+
+  if (normalized === 'd') {
+    return {direction: 'right', fast: input === 'D'};
+  }
+
+  return null;
 }

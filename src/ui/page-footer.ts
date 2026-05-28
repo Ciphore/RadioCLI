@@ -50,9 +50,12 @@ export function pageFooterText({
     return '/ filter · ↑/↓ move · Enter open country · w list · b home';
   }
 
+  if (screen === 'explore') {
+    return 'WASD move map cursor · ↑/↓ station · Enter tune · f favorite · [/] page · b home';
+  }
+
   if (
     screen === 'nearby' ||
-    screen === 'explore' ||
     screen === 'stations' ||
     screen === 'library'
   ) {

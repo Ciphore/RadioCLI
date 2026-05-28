@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### App Surface
+
+- Reworked Explore into a side-by-side terminal map view with a cosmo-tui-inspired
+  braille Natural Earth world map on the left and the live station list on the
+  right.
+- Changed Explore from a static popular-stations list into a movable map-cursor
+  scanner: WASD moves the cursor and the station list reloads around that
+  coordinate.
+
 ### Packaging And Install
 
 - Added `radiocli doctor` to report local playback readiness and print OS-specific

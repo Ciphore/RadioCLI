@@ -15,11 +15,12 @@ import {HomeScreen} from './screens/HomeScreen.js';
 import {CountriesScreen} from './screens/CountriesScreen.js';
 import {MapScreen} from './screens/MapScreen.js';
 import {SearchScreen} from './screens/SearchScreen.js';
+import {ExploreScreen} from './screens/ExploreScreen.js';
 import {StationScreen} from './screens/StationScreen.js';
 import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
 import {StatsScreen} from './screens/StatsScreen.js';
 import {SettingsScreen} from './screens/SettingsScreen.js';
-import type {StationContext} from './app-state.js';
+import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
 
 type AppContentProps = {
@@ -29,6 +30,7 @@ type AppContentProps = {
   displayStations: Station[];
   editingCountryFilter: boolean;
   editingSearch: boolean;
+  exploreCursor: ExploreCursor;
   favoriteKeys: Set<string>;
   filterLabel: string;
   filteredCountries: Country[];
@@ -61,6 +63,7 @@ export function AppContent({
   displayStations,
   editingCountryFilter,
   editingSearch,
+  exploreCursor,
   favoriteKeys,
   filterLabel,
   filteredCountries,
@@ -149,7 +152,26 @@ export function AppContent({
     );
   }
 
-  if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'library') {
+  if (screen === 'explore') {
+    return (
+      <ExploreScreen
+        title={stationContext.title}
+        subtitle={stationContext.subtitle}
+        stations={displayStations}
+        selected={selected}
+        loading={loadingStations}
+        theme={theme}
+        favorites={favoriteKeys}
+        filterLabel={filterLabel}
+        cursor={exploreCursor}
+        pageSize={layout.stationRows}
+        width={frameWidth}
+        height={layout.contentRows}
+      />
+    );
+  }
+
+  if (screen === 'nearby' || screen === 'stations' || screen === 'library') {
     return (
       <StationScreen
         title={stationContext.title}
