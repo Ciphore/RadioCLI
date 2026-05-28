@@ -63,7 +63,7 @@ function fakeRuntime() {
 function settings(): AppSettings {
   return {
     theme: 'green',
-    receiverStyle: 'sdr',
+    receiverStyle: 'spectrum',
     receiverStyleVersion: 2,
     volume: 70,
     enableRadioGarden: false,

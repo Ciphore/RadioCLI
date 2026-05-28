@@ -5,7 +5,7 @@
 - Ink TUI
 - Radio Browser provider
 - `mpv` and `ffplay` playback
-- search, countries, world map, nearby, recent, favorites
+- search, countries, world map, nearby, library
 - playlist import/export
 - provider cache and tune timeouts
 - open-source repo hygiene

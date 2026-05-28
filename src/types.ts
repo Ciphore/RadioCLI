@@ -1,11 +1,8 @@
 const providerIds = ['radio-browser', 'radio-garden', 'playlist'] as const;
-const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'mono'] as const;
+export const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper', 'mono'] as const;
 export const receiverStyleNames = [
-  'sdr',
   'spectrum',
   'oscilloscope',
-  'signal',
-  'retro',
   'waterfall',
   'cassette',
   'equalizer',
@@ -18,12 +15,17 @@ export const receiverStyleNames = [
   'radar',
   'blocks',
   'leds',
-  'vinyl',
   'stars',
-  'neon',
   'matrix',
   'hologram',
-  'cube'
+  'cube',
+  'fire',
+  'fireworks',
+  'plasma',
+  'radio-waves',
+  'raindrops',
+  'spinning-donut',
+  'starfield'
 ] as const;
 
 type ProviderId = (typeof providerIds)[number];
@@ -37,9 +39,8 @@ export type Screen =
   | 'nearby'
   | 'map'
   | 'now-playing'
+  | 'library'
   | 'stats'
-  | 'recent'
-  | 'favorites'
   | 'settings';
 
 export type ThemeName = (typeof themeNames)[number];

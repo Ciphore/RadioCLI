@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
 import {JsonLibraryStore} from './store.js';
-import {receiverStyleNames, type Station} from '../types.js';
+import {receiverStyleNames, themeNames, type Station} from '../types.js';
 
 const roots: string[] = [];
 const originalRadioCliHome = process.env.RADIOCLI_HOME;
@@ -56,12 +56,12 @@ describe('JsonLibraryStore', () => {
     writeFileSync(file, '{not json', 'utf8');
     const store = new JsonLibraryStore(file);
     expect(store.snapshot().settings.theme).toBe('green');
-    expect(store.snapshot().settings.receiverStyle).toBe('sdr');
+    expect(store.snapshot().settings.receiverStyle).toBe('spectrum');
     expect(store.snapshot().activity.sessions).toEqual([]);
     expect(readdirSync(root).some(name => name.startsWith('library.json.bad-'))).toBe(true);
   });
 
-  it('migrates the old scope receiver style to the sdr default', () => {
+  it('migrates removed receiver styles to the spectrum default', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
@@ -88,7 +88,7 @@ describe('JsonLibraryStore', () => {
 
     const state = new JsonLibraryStore(file).snapshot();
     expect(state.settings.theme).toBe('ruby');
-    expect(state.settings.receiverStyle).toBe('sdr');
+    expect(state.settings.receiverStyle).toBe('spectrum');
     expect(state.settings.receiverStyleVersion).toBe(2);
     expect(state.settings.mediaKeys).toEqual({previous: [], playPause: [], next: []});
   });
@@ -102,6 +102,18 @@ describe('JsonLibraryStore', () => {
     for (const receiverStyle of receiverStyleNames) {
       store.updateSettings({receiverStyle});
       expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
+    }
+  });
+
+  it('persists every display color exposed by the UI cycle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+
+    for (const theme of themeNames) {
+      store.updateSettings({theme});
+      expect(new JsonLibraryStore(file).snapshot().settings.theme).toBe(theme);
     }
   });
 

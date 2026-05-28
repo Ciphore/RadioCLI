@@ -1,13 +1,11 @@
 export const homeItems = [
-  {screen: 'explore', label: 'Explore world', detail: 'Popular live stations across countries'},
-  {screen: 'map', label: 'World map', detail: 'Station-density map by country'},
-  {screen: 'countries', label: 'Countries', detail: 'Browse by country list'},
-  {screen: 'search', label: 'Search stations', detail: 'Find stations by name, genre, language, place'},
+  {screen: 'now-playing', label: 'Playing', detail: 'Receiver display and controls'},
+  {screen: 'library', label: 'Library', detail: 'Favorites, recent stations, imported streams'},
+  {screen: 'explore', label: 'Explore', detail: 'Popular live stations across countries'},
+  {screen: 'search', label: 'Search', detail: 'Find stations by name, genre, language, place'},
+  {screen: 'countries', label: 'Countries', detail: 'Browse by country list with a world-map toggle'},
   {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},
-  {screen: 'now-playing', label: 'Now playing', detail: 'Receiver display and controls'},
   {screen: 'stats', label: 'Stats', detail: 'Listening graph, sessions, streaks, hours'},
-  {screen: 'recent', label: 'Recent', detail: 'Stations played on this machine'},
-  {screen: 'favorites', label: 'Favorites', detail: 'Saved and imported stations'},
   {screen: 'settings', label: 'Settings', detail: 'Playback backend, colors, providers'}
 ] as const;
 

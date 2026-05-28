@@ -3,7 +3,7 @@ import type {AppSettings, Country, LibraryState, Screen, Station} from '../types
 import type {ProviderManager} from '../providers/provider-manager.js';
 import type {PlayerController} from '../player/player-controller.js';
 import type {JsonLibraryStore} from '../storage/store.js';
-import type {MediaTransportAction, SearchFilters, StationContext, NavigationOptions} from './app-state.js';
+import type {MediaTransportAction, SearchFilters, NavigationOptions} from './app-state.js';
 import {favoriteTarget, normalizeMediaKeyBindings, parseMediaActionName} from './app-state.js';
 
 type SettingsRef = {
@@ -14,9 +14,8 @@ type UseCommandExecutorOptions = {
   beginLearningTransportKey: (action: MediaTransportAction) => void;
   countries: Country[];
   go: (next: Screen, options?: NavigationOptions) => void;
-  library: LibraryState;
   loadCountry: (country: Country) => Promise<void>;
-  loadImported: () => void;
+  openLibrary: () => void;
   player: PlayerController;
   playingStation: Station | null;
   providers: ProviderManager;
@@ -32,7 +31,6 @@ type UseCommandExecutorOptions = {
   setSleepUntil: Dispatch<SetStateAction<number | null>>;
   setVolume: (volume: number) => void;
   settingsRef: SettingsRef;
-  showStationContext: (context: StationContext, next?: Screen, options?: NavigationOptions) => void;
   store: JsonLibraryStore;
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
@@ -43,9 +41,8 @@ export function useCommandExecutor({
   beginLearningTransportKey,
   countries,
   go,
-  library,
   loadCountry,
-  loadImported,
+  openLibrary,
   player,
   playingStation,
   providers,
@@ -61,7 +58,6 @@ export function useCommandExecutor({
   setSleepUntil,
   setVolume,
   settingsRef,
-  showStationContext,
   store,
   toggleFavorite,
   toggleMute,
@@ -201,17 +197,8 @@ export function useCommandExecutor({
         return;
       }
 
-      if (name === 'recent') {
-        showStationContext({
-          title: 'Recent',
-          subtitle: 'Stations played on this machine',
-          stations: library.recent.map(item => item.station)
-        }, 'recent', {resetSelection: false});
-        return;
-      }
-
-      if (name === 'favorites' || name === 'imports') {
-        loadImported();
+      if (name === 'library' || name === 'recent' || name === 'favorites' || name === 'imports') {
+        openLibrary();
         return;
       }
 
@@ -237,9 +224,8 @@ export function useCommandExecutor({
       beginLearningTransportKey,
       countries,
       go,
-      library.recent,
       loadCountry,
-      loadImported,
+      openLibrary,
       player,
       playingStation,
       providers,
@@ -255,7 +241,6 @@ export function useCommandExecutor({
       setSleepUntil,
       setVolume,
       settingsRef,
-      showStationContext,
       store,
       toggleFavorite,
       toggleMute,

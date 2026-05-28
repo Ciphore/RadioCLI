@@ -31,20 +31,8 @@ export function buildVisualizer(
     return buildZeroSignalVisualizer(style, width, height, station, playback, theme);
   }
 
-  if (style === 'sdr') {
-    return buildSdrSpectrum(pulse, width, height, station, playback);
-  }
-
   if (style === 'oscilloscope') {
     return buildScope(pulse, width, height).map(text => ({text, color: '#53a8ff'}));
-  }
-
-  if (style === 'signal') {
-    return buildSignal(pulse, width, height).map(text => ({text, color: '#74f28a'}));
-  }
-
-  if (style === 'retro') {
-    return buildRetro(pulse, width, height, station, theme);
   }
 
   if (style === 'waterfall') {
@@ -95,16 +83,8 @@ export function buildVisualizer(
     return buildLeds(pulse, width, height, theme);
   }
 
-  if (style === 'vinyl') {
-    return buildVinyl(pulse, width, height);
-  }
-
   if (style === 'stars') {
     return buildStars(pulse, width, height, theme);
-  }
-
-  if (style === 'neon') {
-    return buildNeon(pulse, width, height, theme);
   }
 
   if (style === 'matrix') {
@@ -119,6 +99,34 @@ export function buildVisualizer(
     return buildAsciiCube(pulse, width, height, theme);
   }
 
+  if (style === 'fire') {
+    return buildAsciiFire(pulse, width, height, theme);
+  }
+
+  if (style === 'fireworks') {
+    return buildAsciiFireworks(pulse, width, height, theme);
+  }
+
+  if (style === 'plasma') {
+    return buildAsciiPlasma(pulse, width, height, theme);
+  }
+
+  if (style === 'radio-waves') {
+    return buildAsciiRadioWaves(pulse, width, height, theme);
+  }
+
+  if (style === 'raindrops') {
+    return buildAsciiRaindrops(pulse, width, height, theme);
+  }
+
+  if (style === 'spinning-donut') {
+    return buildAsciiDonut(pulse, width, height, theme);
+  }
+
+  if (style === 'starfield') {
+    return buildAsciiStarfield(pulse, width, height, theme);
+  }
+
   return buildSpectrum(pulse, width, height).map(text => ({text, color: '#ffb000'}));
 }
 
@@ -127,17 +135,13 @@ function playbackHasSignal(playback: PlaybackState): boolean {
 }
 
 function buildZeroSignalVisualizer(
-  style: ReceiverStyle,
+  _style: ReceiverStyle,
   width: number,
   height: number,
-  station: Station | null,
-  playback: PlaybackState,
+  _station: Station | null,
+  _playback: PlaybackState,
   theme: ThemeName
 ): VisualLine[] {
-  if (style === 'sdr') {
-    return buildZeroSdrSpectrum(width, height, station, playback);
-  }
-
   return buildFlatZeroSignal(width, height, theme);
 }
 
@@ -154,129 +158,36 @@ function buildFlatZeroSignal(width: number, requestedHeight: number, theme: Them
   }));
 }
 
-function buildRetro(
-  pulse: number,
-  width: number,
-  _height: number,
-  station: Station | null,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const wLeft = Math.floor((width - 3) / 2);
-  const wRight = width - 3 - wLeft;
-
-  const t = pulse * 0.15;
-  const leftLvl = Math.max(0.1, Math.min(0.95, 0.4 * Math.sin(t * 1.8) + 0.3 * Math.cos(t * 0.7) + 0.5 + 0.05 * Math.sin(pulse * 1.5)));
-  const rightLvl = Math.max(0.1, Math.min(0.95, 0.4 * Math.cos(t * 1.5) + 0.3 * Math.sin(t * 0.9) + 0.5 + 0.05 * Math.cos(pulse * 1.8)));
-
-  const leftMeter = buildVuMeter(leftLvl, wLeft, 'L');
-  const rightMeter = buildVuMeter(rightLvl, wRight, 'R');
-
-  const rows: VisualLine[] = [];
-  for (let i = 0; i < 4; i++) {
-    rows.push({
-      text: `${leftMeter[i]} ${rightMeter[i]}`,
-      color: i === 2 ? '#ff5f87' : accent
-    });
-  }
-
-  const signalPercent = Math.round(78 + 12 * Math.sin(pulse * 0.05));
-  const indicatorLine = ` TUNED [●]   STEREO [●]   SIGNAL: ${'█'.repeat(Math.round(Math.max(0, (width - 36) * 0.3 * (signalPercent / 100))))} ${signalPercent}%`;
-  rows.push({
-    text: indicatorLine.padEnd(width).slice(0, width),
-    color: accent
-  });
-
-  rows.push({
-    text: `┌${'─'.repeat(width - 2)}┐`,
-    color: '#767676'
-  });
-
-  const center = centerFrequency(station);
-  const pct = (center - 87.7) / (107.9 - 87.7);
-  const pointerPos = Math.max(2, Math.min(width - 5, Math.round(pct * (width - 6)) + 2));
-  const sliderText = `│${'─'.repeat(pointerPos - 2)}[█]${'─'.repeat(width - pointerPos - 3)}│`;
-  rows.push({
-    text: sliderText,
-    color: accent
-  });
-
-  const labels = ['88', '92', '96', '100', '104', '108'];
-  const labelRow = Array.from({length: width}, () => ' ');
-  labelRow[0] = '│';
-  labelRow[width - 1] = '│';
-  for (let i = 0; i < labels.length; i++) {
-    const lbl = labels[i]!;
-    const anchor = Math.round((i / (labels.length - 1)) * (width - lbl.length - 12)) + 6;
-    for (let c = 0; c < lbl.length; c++) {
-      labelRow[anchor + c] = lbl[c]!;
-    }
-  }
-  const mhzAnchor = width - 8;
-  labelRow[mhzAnchor] = 'M';
-  labelRow[mhzAnchor+1] = 'H';
-  labelRow[mhzAnchor+2] = 'z';
-  rows.push({
-    text: labelRow.join(''),
-    color: '#767676'
-  });
-
-  return rows;
-}
-
-function buildVuMeter(lvl: number, w: number, channel: string): string[] {
-  const title = ` ${channel}-VU METER `;
-  const titlePad = Math.max(0, Math.floor((w - title.length) / 2));
-  const frameTop = `┌${'─'.repeat(titlePad)}${title}${'─'.repeat(Math.max(0, w - 2 - title.length - titlePad))}┐`;
-
-  const scaleText = " -20  -10   -3   0  +3 ";
-  const scalePad = Math.max(0, Math.floor((w - 2 - scaleText.length) / 2));
-  const scaleLine = `│${' '.repeat(scalePad)}${scaleText}${' '.repeat(Math.max(0, w - 2 - scaleText.length - scalePad))}│`;
-
-  const range = w - 8;
-  const pos = Math.max(2, Math.min(w - 5, Math.round(lvl * range) + 3));
-  const needleChar = pos < Math.floor(w / 2) - 1 ? '\\' : pos > Math.floor(w / 2) + 1 ? '/' : '|';
-  const needleLine = `│${' '.repeat(pos)}${needleChar}${' '.repeat(Math.max(0, w - 2 - 1 - pos))}│`;
-
-  const frameBot = `└${'─'.repeat(w - 2)}┘`;
-  return [frameTop, scaleLine, needleLine, frameBot];
-}
-
 function buildWaterfall(
   pulse: number,
   width: number,
   height: number,
   theme: ThemeName
 ): VisualLine[] {
-  const chars = [' ', '·', '░', '▒', '▓', '█'];
+  const chars = [' ', '.', ':', ';', '+', '*', '#', '@'];
   const colors = themeContributionColors(theme);
-
-  const carrier1X = Math.round(width * 0.28);
-  const carrier2X = Math.round(width * 0.62);
-  const carrier3X = Math.round(width * 0.82);
-
   const rows: VisualLine[] = [];
 
   for (let y = 0; y < height; y++) {
-    const t = pulse - y;
+    const age = y / Math.max(1, height - 1);
+    const t = pulse * 0.92 - y * 1.35;
     let rowText = '';
 
     for (let x = 0; x < width; x++) {
-      const c1 = Math.exp(-Math.pow((x - carrier1X) / 1.5, 2)) * (0.6 + 0.35 * Math.sin(t * 0.2));
-      const c2 = Math.exp(-Math.pow((x - carrier2X) / 1.0, 2)) * (0.5 + 0.45 * Math.cos(t * 0.13));
-      const c3 = Math.exp(-Math.pow((x - carrier3X) / 2.0, 2)) * (0.4 + 0.3 * Math.sin(t * 0.28));
-
-      const sweepCenter = width * (0.45 + 0.28 * Math.sin(t * 0.04));
-      const sweep = Math.exp(-Math.pow((x - sweepCenter) / 2.2, 2)) * (0.75 + 0.2 * Math.sin(t * 0.35));
-
-      const noise = Math.abs(Math.sin(x * 2.3 + t * 0.7) * Math.cos(x * 1.1 - t * 0.5)) * 0.18 + 0.05;
-
-      const intensity = Math.min(1.0, Math.max(0.0, c1 + c2 + c3 + sweep + noise));
+      const position = x / Math.max(1, width - 1);
+      const drift = Math.sin(t * 0.035) * width * 0.08;
+      const carrierA = Math.exp(-Math.pow((x - (width * 0.22 + drift)) / 1.8, 2)) * 0.9;
+      const carrierB = Math.exp(-Math.pow((x - (width * 0.55 - drift * 0.6)) / 1.35, 2)) * 1.0;
+      const carrierC = Math.exp(-Math.pow((x - (width * 0.78 + Math.sin(t * 0.05) * width * 0.04)) / 2.4, 2)) * 0.72;
+      const fallingStreak = Math.exp(-Math.pow(((x + y * 2.8 - pulse * 3.2) % 41) - 20, 2) / 58) * 0.42;
+      const rainTexture = Math.abs(Math.sin(position * 48 + t * 0.72) * Math.cos(position * 19 - t * 0.38)) * 0.22;
+      const fade = 1 - age * 0.44;
+      const intensity = clampNumber((carrierA + carrierB + carrierC + fallingStreak + rainTexture) * fade, 0, 1);
       const charIdx = Math.min(chars.length - 1, Math.floor(intensity * chars.length));
       rowText += chars[charIdx]!;
     }
 
-    let color = colors[0] ?? '#161b22';
+    let color = colors[1] ?? '#161b22';
     if (y === 0) {
       color = '#ffffff';
     } else if (y === 1) {
@@ -307,20 +218,20 @@ function buildCassette(
   const spokeLeft = ['\\', '|', '/', '-'][pulse % 4];
   const spokeRight = ['/', '|', '\\', '-'][pulse % 4];
 
-  const labelText1 = station ? truncate(station.name, 13).toUpperCase() : 'NO TUNE';
-  const labelText2 = station?.codec ? `${station.codec.toUpperCase()} ${station.bitrate ?? ''}`.slice(0, 13) : 'FM STEREO';
-  const lbl1 = labelText1.padStart(Math.floor((13 + labelText1.length) / 2)).padEnd(13);
-  const lbl2 = labelText2.padStart(Math.floor((13 + labelText2.length) / 2)).padEnd(13);
+  const labelText1 = station ? truncate(station.name, 18).toUpperCase() : 'NO TUNE';
+  const labelText2 = station?.codec ? `${station.codec.toUpperCase()} ${station.bitrate ?? ''} KBPS`.slice(0, 18) : 'FM STEREO';
+  const lbl1 = labelText1.padStart(Math.floor((18 + labelText1.length) / 2)).padEnd(18);
+  const lbl2 = labelText2.padStart(Math.floor((18 + labelText2.length) / 2)).padEnd(18);
 
   const rawLines = [
-    `.──────────────────────────────────────────.`,
-    `/    (░${spokeLeft}░)       .─────────────.       (░${spokeRight}░)    \\`,
-    `/      "o"       |${lbl1}|       "o"      \\`,
-    `/                |${lbl2}|                \\`,
-    `;  [A - SIDE]    '─────────────'     [STEREO]   ;`,
-    `|  ===========================================  |`,
-    ` \\           .──────────────────────.           /`,
-    `  '──────────'                       '──────────'`
+    `.------------------------------------------------------------.`,
+    `| A-SIDE  RADIOCLI C-90        HIGH BIAS        NR  TYPE II |`,
+    `|  .--------.      .------------------.      .--------.      |`,
+    `|  |  ${spokeLeft}o${spokeLeft}   |======|${lbl1}|======|   ${spokeRight}o${spokeRight}  |      |`,
+    `|  |  /_\\   |      |${lbl2}|      |   /_\\  |      |`,
+    `|  '--------'      '------------------'      '--------'      |`,
+    `|  o     o        [ PLAY ]  ==== TAPE ====        o     o    |`,
+    `'------------------------------------------------------------'`
   ];
 
   return rawLines.map((content, index) => {
@@ -355,9 +266,9 @@ function buildEqualizer(
   const bandCount = Math.floor((width - 2) / bandWidth);
 
   const levels = Array.from({length: bandCount}, (_, i) => {
-    const low = Math.sin(i * 0.18 + pulse * 0.28);
-    const mid = Math.cos(i * 0.32 - pulse * 0.15);
-    const high = Math.sin(i * 0.45 + pulse * 0.42);
+    const low = Math.sin(i * 0.18 + pulse * 0.46);
+    const mid = Math.cos(i * 0.32 - pulse * 0.28);
+    const high = Math.sin(i * 0.45 + pulse * 0.68);
     const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
     const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
     return Math.round(eased * height);
@@ -367,9 +278,9 @@ function buildEqualizer(
     let maxLvl = 0;
     for (let k = 0; k < 8; k++) {
       const p = (pulse - k + 240) % 240;
-      const low = Math.sin(i * 0.18 + p * 0.28);
-      const mid = Math.cos(i * 0.32 - p * 0.15);
-      const high = Math.sin(i * 0.45 + p * 0.42);
+      const low = Math.sin(i * 0.18 + p * 0.46);
+      const mid = Math.cos(i * 0.32 - p * 0.28);
+      const high = Math.sin(i * 0.45 + p * 0.68);
       const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
       const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
       const lvl = Math.round(eased * height);
@@ -437,7 +348,7 @@ function buildMotionBars(
     }
 
     const position = x / Math.max(1, width - 1);
-    const flicker = 0.9 + 0.1 * Math.sin(pulse * 0.45 + x * 0.77);
+    const flicker = 0.9 + 0.1 * Math.sin(pulse * 0.74 + x * 0.77);
     return clampNumber(motionEnvelope(position, pulse, 0.2) * flicker, 0, 1);
   });
 
@@ -491,7 +402,7 @@ function buildMotionBlob(
       const position = x / Math.max(1, width - 1);
       const fade = 1 - Math.pow(position, 1.35) * 0.56;
       const outer = clampNumber(motionEnvelope(position, pulse, 1.1) * fade, 0, 1);
-      const inner = clampNumber(outer * (0.42 + 0.16 * Math.sin(position * 17 - pulse * 0.16)), 0, 1);
+      const inner = clampNumber(outer * (0.42 + 0.16 * Math.sin(position * 17 - pulse * 0.3)), 0, 1);
 
       if (normalizedY <= inner) {
         return {text: '█', color: position > 0.56 ? '#5ab7ff' : '#a36bff'};
@@ -589,7 +500,7 @@ function buildMotionDots(
 
       const position = x / Math.max(1, width - 1);
       const level = motionEnvelope(position, pulse, 2.8);
-      const texture = Math.sin(x * 1.73 + y * 2.91 + pulse * 0.42);
+      const texture = Math.sin(x * 1.73 + y * 2.91 + pulse * 0.7);
 
       if (normalizedY <= level && texture > -0.62) {
         return {text: '•', color: motionColorAt(position, theme)};
@@ -628,9 +539,9 @@ function buildMotionContour(
       const theta = Math.atan2(ny, nx);
       const boundary =
         0.62 +
-        0.08 * Math.sin(theta * 5 + pulse * 0.1) +
-        0.07 * Math.cos(theta * 8 - pulse * 0.07) +
-        0.04 * Math.sin(theta * 13 + pulse * 0.05);
+        0.08 * Math.sin(theta * 5 + pulse * 0.18) +
+        0.07 * Math.cos(theta * 8 - pulse * 0.13) +
+        0.04 * Math.sin(theta * 13 + pulse * 0.09);
 
       for (let ring = rings; ring >= 1; ring -= 1) {
         const target = boundary * (ring / rings);
@@ -671,11 +582,11 @@ function buildMotionBraid(
       const level = motionEnvelope(position, pulse, 1.7);
       const envelope = clampNumber(0.15 + level * (1 - Math.abs(position - 0.5) * 0.42), 0.12, 0.98);
       const wave =
-        Math.sin(position * Math.PI * 4.5 + pulse * 0.17 + phase) * envelope +
-        Math.sin(position * Math.PI * 10.0 - pulse * 0.08 + phase) * envelope * 0.18;
+        Math.sin(position * Math.PI * 4.5 + pulse * 0.3 + phase) * envelope +
+        Math.sin(position * Math.PI * 10.0 - pulse * 0.16 + phase) * envelope * 0.18;
       const nextWave =
-        Math.sin((position + 0.02) * Math.PI * 4.5 + pulse * 0.17 + phase) * envelope +
-        Math.sin((position + 0.02) * Math.PI * 10.0 - pulse * 0.08 + phase) * envelope * 0.18;
+        Math.sin((position + 0.02) * Math.PI * 4.5 + pulse * 0.3 + phase) * envelope +
+        Math.sin((position + 0.02) * Math.PI * 10.0 - pulse * 0.16 + phase) * envelope * 0.18;
       const y = clampIndex(Math.round(mid + wave * half * 0.82), h);
       const slope = nextWave - wave;
       const glyph = slope > 0.05 ? '╲' : slope < -0.05 ? '╱' : '─';
@@ -864,44 +775,6 @@ function buildLeds(
   return rows;
 }
 
-function buildVinyl(
-  pulse: number,
-  width: number,
-  _height: number
-): VisualLine[] {
-  const spoke = ['\\', '|', '/', '-'][pulse % 4];
-  const rawLines = [
-    `┌────────────────── VINYL ──────────────────┐`,
-    `│    .──────────────────────────────.   \\   │`,
-    `│   /    .──────────────────────.    \\   \\  │`,
-    `│  /    /        .──────.        \\    \\   O │`,
-    `│  |   |       .'   ${spoke} (O)   '.      |   |    │`,
-    `│  \\    \\        '──────'        /    /    │`,
-    `│   \\    '──────────────────────'    /     │`,
-    `│    '──────────────────────────────'      │`
-  ];
-
-  return rawLines.map((content, index) => {
-    const visualLength = content.length;
-    const pad = Math.max(0, Math.floor((width - visualLength) / 2));
-    const text = ' '.repeat(pad) + content + ' '.repeat(Math.max(0, width - visualLength - pad));
-
-    let color = '#d4d8e1';
-    if (index === 0) {
-      color = '#ffb000';
-    } else if (index === 3 || index === 4) {
-      color = '#ff5f87';
-    } else if (index === 1 || index === 7) {
-      color = '#767676';
-    }
-
-    return {
-      text: text.slice(0, width),
-      color
-    };
-  });
-}
-
 function buildStars(
   pulse: number,
   width: number,
@@ -909,21 +782,20 @@ function buildStars(
   theme: ThemeName
 ): VisualLine[] {
   const accent = themeAccent(theme);
-  const amp = 0.5 + 0.4 * Math.sin(pulse * 0.2);
   const rows: VisualLine[] = [];
 
   for (let y = 0; y < height; y++) {
     let rowText = '';
     for (let x = 0; x < width; x++) {
-      const speed = 0.4 + 0.3 * (Math.abs(Math.sin(x * 5.7)) % 1);
-      const scrollY = Math.floor(y + pulse * speed);
-      const hash = Math.abs(Math.sin(x * 12.3 + scrollY * 37.7)) % 1;
-
-      const sway = Math.round(Math.sin(scrollY * 0.15 + pulse * 0.08) * 1.5);
-      const isStar = hash < 0.045 && (x + sway) % 4 === 0;
+      const speed = 0.55 + 0.35 * (Math.abs(Math.sin(x * 5.7 + y * 1.9)) % 1);
+      const scrollX = Math.floor(x - pulse * speed * 1.8);
+      const scrollY = Math.floor(y + pulse * speed * 0.9);
+      const hash = Math.abs(Math.sin(scrollX * 12.3 + scrollY * 37.7)) % 1;
+      const diagonalLane = Math.abs((scrollX + scrollY * 2) % 9);
+      const isStar = hash < 0.14 && diagonalLane <= 2;
 
       if (isStar) {
-        const symbols = amp > 0.65 ? ['★', '✦', '·', '✧'] : ['·', ' '];
+        const symbols = ['/', '*', '+', '.'];
         const sym = symbols[Math.floor(hash * 22) % symbols.length] ?? '·';
         rowText += sym;
       } else {
@@ -936,61 +808,6 @@ function buildStars(
       color = '#ffffff';
     } else if (y < Math.max(2, height * 0.65)) {
       color = accent;
-    }
-
-    rows.push({
-      text: rowText.slice(0, width),
-      color
-    });
-  }
-
-  return rows;
-}
-
-function buildNeon(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const colors = themeContributionColors(theme);
-  const rows: VisualLine[] = [];
-
-  const levels = Array.from({length: width}, (_, i) => {
-    const low = Math.sin(i * 0.1 + pulse * 0.4);
-    const mid = Math.cos(i * 0.2 + pulse * 0.6);
-    const high = Math.sin(i * 0.5 - pulse * 0.3);
-    const val = (low * 0.5 + mid * 0.3 + high * 0.2 + 1) / 2;
-    return val * val;
-  });
-
-  for (let y = 0; y < height; y++) {
-    let rowText = '';
-    const threshold = 1 - (y / height);
-    const nextThreshold = 1 - ((y + 1) / height);
-
-    for (let x = 0; x < width; x++) {
-      const val = levels[x]!;
-      if (val > threshold) {
-        rowText += '█';
-      } else if (val > nextThreshold) {
-        const diff = (val - nextThreshold) / (threshold - nextThreshold);
-        if (diff > 0.75) rowText += '▇';
-        else if (diff > 0.5) rowText += '▆';
-        else if (diff > 0.25) rowText += '▅';
-        else rowText += '▃';
-      } else {
-        rowText += ' ';
-      }
-    }
-
-    let color = colors[1] ?? '#ff00ff';
-    if (y < height * 0.3) {
-      color = colors[4] ?? '#00ffff';
-    } else if (y < height * 0.7) {
-      color = colors[3] ?? '#00ffff';
-    } else {
-      color = colors[2] ?? '#ff00ff';
     }
 
     rows.push({
@@ -1125,226 +942,318 @@ function buildAsciiCube(
 ): VisualLine[] {
   const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
   const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
-  const cx = Math.floor(width * 0.5);
-  const cy = Math.floor((height - 1) * 0.48);
-  const xScale = Math.max(6, Math.min(width * 0.18, height * 1.32));
-  const yScale = Math.max(2, Math.min(height * 0.18, width * 0.035));
-  const detail = Math.max(14, Math.min(34, Math.round(Math.min(width * 0.36, height * 2.45))));
-  const angleY = pulse * 0.065;
-  const angleX = pulse * 0.039 + 0.42;
-  const angleZ = pulse * 0.021 - 0.18;
-  const distance = 5.6;
-  const light = normalize3d({x: -0.35, y: -0.62, z: 0.7});
-  const shadeChars = ['.', ':', ';', '=', '+', '*', '#', '%', '@'];
-  const faces = [
-    {axis: 'x', sign: 1, normal: {x: 1, y: 0, z: 0}},
-    {axis: 'x', sign: -1, normal: {x: -1, y: 0, z: 0}},
-    {axis: 'y', sign: 1, normal: {x: 0, y: 1, z: 0}},
-    {axis: 'y', sign: -1, normal: {x: 0, y: -1, z: 0}},
-    {axis: 'z', sign: 1, normal: {x: 0, y: 0, z: 1}},
-    {axis: 'z', sign: -1, normal: {x: 0, y: 0, z: -1}}
-  ] as const;
+  const angleY = pulse * 0.13;
+  const angleX = 0.62 + Math.sin(pulse * 0.045) * 0.28;
+  const angleZ = Math.sin(pulse * 0.035) * 0.16;
+  const scaleY = Math.max(2, Math.min((height - 3) / 2.35, width / 12));
+  const scaleX = scaleY * 2.18;
 
-  for (const face of faces) {
-    const rotatedNormal = rotate3d(face.normal, angleX, angleY, angleZ);
-    if (rotatedNormal.z < -0.88) {
-      continue;
-    }
+  drawCubeSurfaces(grid, zBuffer, angleX, angleY, angleZ, scaleX, scaleY, width, height);
 
-    const lightLevel = clampNumber(
-      rotatedNormal.x * light.x + rotatedNormal.y * light.y + rotatedNormal.z * light.z,
-      -1,
-      1
-    );
-
-    for (let row = 0; row <= detail; row += 1) {
-      const u = row / detail * 2 - 1;
-      for (let column = 0; column <= detail; column += 1) {
-        const v = column / detail * 2 - 1;
-        const point = cubeFacePoint(face.axis, face.sign, u, v);
-        const rotated = rotate3d(point, angleX, angleY, angleZ);
-        const projected = project3d(rotated, cx, cy, xScale, yScale, distance);
-        const sx = projected.x;
-        const sy = projected.y;
-
-        if (sx < 0 || sx >= width || sy < 0 || sy >= height || rotated.z <= zBuffer[sy]![sx]!) {
-          continue;
-        }
-
-        const edge = Math.max(Math.abs(u), Math.abs(v));
-        const surfaceRipple = Math.sin((u * 5.7 + v * 4.1 + pulse * 0.11) + face.sign) * 0.11;
-        const brightness = clampNumber((lightLevel + 1) * 0.34 + rotated.z * 0.08 + edge * 0.12 + surfaceRipple, 0, 1);
-        const shadeIndex = Math.min(shadeChars.length - 1, Math.max(0, Math.round(brightness * (shadeChars.length - 1))));
-        grid[sy]![sx] = shadeChars[shadeIndex]!;
-        zBuffer[sy]![sx] = rotated.z;
-      }
-    }
-  }
-
-  const vertices = [
-    {x: -1, y: -1, z: -1},
-    {x: 1, y: -1, z: -1},
-    {x: 1, y: 1, z: -1},
-    {x: -1, y: 1, z: -1},
-    {x: -1, y: -1, z: 1},
-    {x: 1, y: -1, z: 1},
-    {x: 1, y: 1, z: 1},
-    {x: -1, y: 1, z: 1}
-  ].map(point => project3d(rotate3d(point, angleX, angleY, angleZ), cx, cy, xScale, yScale, distance));
-  const edges: [number, number][] = [
+  const vertices = cubeVertices().map(point =>
+    projectRotatedCubePoint(rotateCubePoint(point, angleX, angleY, angleZ), scaleX, scaleY, width, height)
+  );
+  const edges: Array<[number, number]> = [
     [0, 1],
-    [1, 2],
-    [2, 3],
-    [3, 0],
+    [1, 3],
+    [3, 2],
+    [2, 0],
     [4, 5],
-    [5, 6],
-    [6, 7],
-    [7, 4],
+    [5, 7],
+    [7, 6],
+    [6, 4],
     [0, 4],
     [1, 5],
     [2, 6],
     [3, 7]
   ];
 
-  for (const [from, to] of edges) {
-    drawAsciiCubeEdge(grid, zBuffer, vertices[from]!, vertices[to]!);
+  const sortedEdges = edges
+    .map(([from, to]) => ({from, to, depth: ((vertices[from]?.z ?? 0) + (vertices[to]?.z ?? 0)) / 2}))
+    .sort((left, right) => left.depth - right.depth);
+
+  for (const edge of sortedEdges) {
+    const from = vertices[edge.from];
+    const to = vertices[edge.to];
+    if (!from || !to) {
+      continue;
+    }
+
+    drawProjectedCubeEdge(grid, from, to, edge.depth);
   }
 
-  addCubeSignalSpecks(grid, pulse);
+  for (const point of [...vertices].sort((left, right) => left.z - right.z)) {
+    writeCubeGlyph(grid, point.x, point.y, cubeCornerGlyph(point.z));
+  }
 
   const accent = themeAccent(theme);
   return grid.map((cells, rowIndex) => {
     const text = cells.join('').slice(0, width);
-    const hasCube = /[.:;=+*#%@]/.test(text);
-    const hasSignal = /[oO]/.test(text);
+    const hasCube = /[.:;=+*#%@/\\|_\-]/.test(text);
     let color = '#ff5f87';
 
-    if (!hasCube && hasSignal) {
-      color = accent;
-    } else if (!hasCube) {
+    if (!hasCube) {
       color = '#767676';
     } else if (rowIndex < height * 0.25) {
       color = '#ff9ab3';
     } else if (rowIndex > height * 0.76) {
       color = '#c06cff';
+    } else if (theme === 'mono') {
+      color = accent;
     }
 
     return {text, color};
   });
 }
 
-function buildSdrSpectrum(
+function buildAsciiFire(
   pulse: number,
   width: number,
-  requestedHeight: number,
-  station: Station | null,
-  playback: PlaybackState
+  height: number,
+  theme: ThemeName
 ): VisualLine[] {
-  const height = Math.max(10, requestedHeight);
-  const labelWidth = 5;
-  const graphWidth = Math.max(18, width - labelWidth);
-  const graphHeight = Math.max(5, height - 5);
-  const center = centerFrequency(station);
-  const seed = hashText(station?.id ?? station?.name ?? 'radiocli');
-  const rows: VisualLine[] = [
-    {
-      text: fitLine(`┌[ radiocli-sdr ]${'─'.repeat(Math.max(0, width - 20))}`, width),
-      color: '#c06cff'
-    },
-    {
-      text: fitLine(`Freq: ${center.toFixed(3)} MHz  |  Rate: 0.20 Msps  |  Gain: Auto`, width),
-      color: '#d4d8e1'
-    },
-    {
-      text: fitLine(`Dyn Range: 80 dB  |  Ref Level: 0 dB  |  FPS: 15  |  ${playback.state.toUpperCase()}`, width),
-      color: '#d4d8e1'
-    },
-    {
-      text: fitLine('-'.repeat(width), width),
-      color: '#7e2dbb'
+  const chars = [' ', '.', ':', '^', '~', '*', 'x', 'X', '#', '@'];
+  const colors = ['#2d1218', '#743127', '#b9482d', '#f26f35', '#ffc857', '#fff1a8'];
+  const rows: VisualLine[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    const positionY = y / Math.max(1, height - 1);
+    const heatBase = Math.pow(positionY, 1.12);
+    const cells: VisualCell[] = [];
+
+    for (let x = 0; x < width; x += 1) {
+      const centerPull = 1 - Math.abs((x / Math.max(1, width - 1)) - 0.5) * 0.38;
+      const upwardTime = pulse * 0.58 + (height - y) * 0.62;
+      const lick =
+        Math.sin(x * 0.18 + upwardTime - y * 0.32) * 0.2 +
+        Math.sin(x * 0.07 - upwardTime * 0.7 + y * 0.46) * 0.15 +
+        Math.cos(x * 0.31 + upwardTime * 0.42) * 0.08;
+      const sparks = hashNoise(x, y, pulse * 2) > 0.968 && positionY < 0.46 ? 0.42 : 0;
+      const heat = clampNumber(heatBase * centerPull + lick + sparks - (1 - positionY) * 0.28, 0, 1);
+      const index = Math.min(chars.length - 1, Math.floor(heat * chars.length));
+      const colorIndex = Math.min(colors.length - 1, Math.floor(heat * colors.length));
+      cells.push({text: chars[index] ?? ' ', color: colors[colorIndex] ?? themeAccent(theme)});
     }
-  ];
 
-  const levels = Array.from({length: graphWidth}, (_, index) => sdrDbAt(index, pulse, graphWidth, seed));
-  for (let rowIndex = 0; rowIndex < graphHeight; rowIndex += 1) {
-    const rowDb = sdrRowDb(rowIndex, graphHeight);
-    const label = String(rowDb).padStart(labelWidth - 1, ' ').padEnd(labelWidth, ' ');
-    const trace = levels
-      .map((db, index) => {
-        const filled = db >= rowDb;
-        if (filled && isCarrier(index, graphWidth)) {
-          return '#';
-        }
-
-        if (filled) {
-          return index % 3 === 0 ? ':' : '|';
-        }
-
-        return index % 12 === 0 ? '·' : ' ';
-      })
-      .join('');
-
-    rows.push({
-      text: `${label}${trace}`.slice(0, width),
-      color: rowIndex < Math.max(1, graphHeight * 0.35) ? '#7e2dbb' : '#ff64d8'
-    });
+    rows.push(lineFromCells(cells, themeAccent(theme)));
   }
 
-  rows.push({
-    text: `${' '.repeat(labelWidth)}${frequencyMarkers(center, graphWidth)}`.slice(0, width),
-    color: '#d4d8e1'
-  });
-
-  return rows.slice(0, height);
+  return rows;
 }
 
-function buildZeroSdrSpectrum(
+function buildAsciiFireworks(
+  pulse: number,
   width: number,
-  requestedHeight: number,
-  station: Station | null,
-  playback: PlaybackState
+  height: number,
+  theme: ThemeName
 ): VisualLine[] {
-  const height = Math.max(10, requestedHeight);
-  const labelWidth = 5;
-  const graphWidth = Math.max(18, width - labelWidth);
-  const graphHeight = Math.max(5, height - 5);
-  const center = centerFrequency(station);
-  const rows: VisualLine[] = [
-    {
-      text: fitLine(`┌[ radiocli-sdr ]${'─'.repeat(Math.max(0, width - 20))}`, width),
-      color: '#c06cff'
-    },
-    {
-      text: fitLine(`Freq: ${center.toFixed(3)} MHz  |  Rate: 0.00 Msps  |  Signal: 0`, width),
-      color: '#d4d8e1'
-    },
-    {
-      text: fitLine(`Dyn Range: 80 dB  |  Ref Level: 0 dB  |  ${playback.state.toUpperCase()}`, width),
-      color: '#d4d8e1'
-    },
-    {
-      text: fitLine('-'.repeat(width), width),
-      color: '#7e2dbb'
+  const grid = emptyMotionGrid(width, height, '#767676');
+  const palette = ['#ff5f87', '#ffd166', '#53a8ff', '#8df084', '#c06cff', '#ffffff'];
+  const bursts = Math.max(3, Math.min(7, Math.floor(width / 26)));
+
+  for (let burst = 0; burst < bursts; burst += 1) {
+    const seed = burst * 97 + 19;
+    const cycle = (pulse * 1.55 + burst * 17) % 44;
+    const radius = cycle * 0.22;
+    const centerX = Math.round(width * (0.18 + ((seed * 37) % 64) / 100));
+    const centerY = Math.round(height * (0.18 + ((seed * 23) % 42) / 100));
+    const color = palette[burst % palette.length] ?? themeAccent(theme);
+    const rays = 14 + (burst % 5) * 4;
+
+    if (cycle < 6) {
+      const launchY = height - 1 - Math.round(cycle * 1.25);
+      setMotionCell(grid, centerX, launchY, '|', color);
+      setMotionCell(grid, centerX, launchY - 1, '.', color);
+      continue;
     }
-  ];
 
-  for (let rowIndex = 0; rowIndex < graphHeight; rowIndex += 1) {
-    const rowDb = sdrRowDb(rowIndex, graphHeight);
-    const label = String(rowDb).padStart(labelWidth - 1, ' ').padEnd(labelWidth, ' ');
-    const trace = rowIndex === graphHeight - 1 ? '▁'.repeat(graphWidth) : ''.padEnd(graphWidth, ' ');
-
-    rows.push({
-      text: `${label}${trace}`.slice(0, width),
-      color: rowIndex === graphHeight - 1 ? '#ff64d8' : '#7e2dbb'
-    });
+    for (let ray = 0; ray < rays; ray += 1) {
+      const angle = (ray / rays) * Math.PI * 2 + burst * 0.33;
+      const x = Math.round(centerX + Math.cos(angle) * radius * (1.7 + (ray % 3) * 0.34));
+      const y = Math.round(centerY + Math.sin(angle) * radius * 0.72);
+      const tailX = Math.round(centerX + Math.cos(angle) * Math.max(0, radius - 1.2) * 1.5);
+      const tailY = Math.round(centerY + Math.sin(angle) * Math.max(0, radius - 1.2) * 0.66);
+      const glyph = cycle < 16 ? ['*', '+', 'x', 'o'][ray % 4]! : ['.', ':', "'", '`'][ray % 4]!;
+      setMotionCell(grid, tailX, tailY, '.', '#767676');
+      setMotionCell(grid, x, y, glyph, color);
+    }
   }
 
-  rows.push({
-    text: `${' '.repeat(labelWidth)}${frequencyMarkers(center, graphWidth)}`.slice(0, width),
-    color: '#d4d8e1'
-  });
+  return grid.map(row => lineFromCells(row, themeAccent(theme)));
+}
 
-  return rows.slice(0, height);
+function buildAsciiPlasma(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const chars = [' ', '.', ':', ';', '-', '=', '+', '*', '#', '%', '@'];
+  const palette = ['#53a8ff', '#6ee7f2', '#8df084', '#ffd166', '#ff5f87', '#c06cff'];
+  const rows: VisualLine[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    const cells: VisualCell[] = [];
+    for (let x = 0; x < width; x += 1) {
+      const nx = x / Math.max(1, width - 1);
+      const ny = y / Math.max(1, height - 1);
+      const value =
+        Math.sin(nx * 14 + pulse * 0.16) +
+        Math.sin((nx * 7 + ny * 9) + pulse * 0.11) +
+        Math.cos(Math.sqrt(Math.pow(nx - 0.5, 2) + Math.pow(ny - 0.5, 2)) * 18 - pulse * 0.22);
+      const normalized = clampNumber((value + 3) / 6, 0, 1);
+      const char = chars[Math.min(chars.length - 1, Math.floor(normalized * chars.length))] ?? ' ';
+      const color = palette[Math.min(palette.length - 1, Math.floor(((normalized + pulse * 0.01) % 1) * palette.length))] ?? themeAccent(theme);
+      cells.push({text: char, color});
+    }
+
+    rows.push(lineFromCells(cells, themeAccent(theme)));
+  }
+
+  return rows;
+}
+
+function buildAsciiRadioWaves(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const grid = emptyMotionGrid(width, height, '#767676');
+  const accent = themeAccent(theme);
+  const cx = Math.floor(width * 0.5);
+  const cy = Math.floor(height * 0.52);
+  const maxRadius = Math.max(width * 0.42, height);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const dx = (x - cx) / Math.max(1, width * 0.018);
+      const dy = (y - cy) / Math.max(1, height * 0.085);
+      const radius = Math.sqrt(dx * dx + dy * dy);
+      const band = (radius - pulse * 0.62 + maxRadius) % 7;
+      if (band > 0.52 && band < 1.16) {
+        const glyph = radius < 6 ? 'o' : radius < 14 ? ')' : radius < 22 ? '}' : '·';
+        setMotionCell(grid, x, y, glyph, radius < 14 ? accent : '#53a8ff');
+      }
+    }
+  }
+
+  setMotionCell(grid, cx, cy, '●', '#ff5f87');
+  setMotionCell(grid, cx - 1, cy, '(', accent);
+  setMotionCell(grid, cx + 1, cy, ')', accent);
+  return grid.map(row => lineFromCells(row, accent));
+}
+
+function buildAsciiRaindrops(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const grid = emptyMotionGrid(width, height, '#1f6f8b');
+  const drops = Math.max(10, Math.min(34, Math.floor(width / 5)));
+
+  for (let drop = 0; drop < drops; drop += 1) {
+    const seed = drop * 53 + 11;
+    const x = Math.round(((seed * 17) % Math.max(1, width - 2)) + 1);
+    const y = Math.round((pulse * (0.28 + (drop % 5) * 0.04) + seed) % Math.max(1, height + 4)) - 2;
+    const rippleAge = (pulse + seed) % 22;
+    const rippleY = Math.round(((seed * 29) % Math.max(1, height - 2)) + 1);
+    const rippleRadius = rippleAge * 0.28;
+
+    setMotionCell(grid, x, y, rippleAge < 5 ? '|' : '.', '#6ee7f2');
+    for (const side of [-1, 1]) {
+      const rippleX = Math.round(x + side * rippleRadius * 2.1);
+      const glyph = rippleAge < 8 ? 'o' : rippleAge < 14 ? 'O' : '.';
+      setMotionCell(grid, rippleX, rippleY, glyph, rippleAge < 12 ? '#53a8ff' : '#767676');
+    }
+  }
+
+  for (let x = 0; x < width; x += 4) {
+    setMotionCell(grid, x, height - 1, '~', themeAccent(theme));
+  }
+
+  return grid.map(row => lineFromCells(row, themeAccent(theme)));
+}
+
+function buildAsciiDonut(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
+  const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
+  const chars = ['.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@'];
+  const angleA = pulse * 0.07;
+  const angleB = pulse * 0.043;
+  const cx = width / 2;
+  const cy = height / 2;
+  const scale = Math.min(width * 0.22, height * 1.15);
+
+  for (let theta = 0; theta < Math.PI * 2; theta += 0.11) {
+    for (let phi = 0; phi < Math.PI * 2; phi += 0.18) {
+      const circleX = 2 + Math.cos(theta);
+      const circleY = Math.sin(theta);
+      const x =
+        circleX * (Math.cos(angleB) * Math.cos(phi) + Math.sin(angleA) * Math.sin(angleB) * Math.sin(phi)) -
+        circleY * Math.cos(angleA) * Math.sin(angleB);
+      const y =
+        circleX * (Math.sin(angleB) * Math.cos(phi) - Math.sin(angleA) * Math.cos(angleB) * Math.sin(phi)) +
+        circleY * Math.cos(angleA) * Math.cos(angleB);
+      const z = Math.cos(angleA) * circleX * Math.sin(phi) + circleY * Math.sin(angleA) + 5;
+      const inverseZ = 1 / z;
+      const screenX = Math.round(cx + scale * inverseZ * x * 2.1);
+      const screenY = Math.round(cy + scale * inverseZ * y * 0.86);
+      const luminance =
+        Math.cos(phi) * Math.cos(theta) * Math.sin(angleB) -
+        Math.cos(angleA) * Math.cos(theta) * Math.sin(phi) -
+        Math.sin(angleA) * Math.sin(theta) +
+        Math.cos(angleB) * (Math.cos(angleA) * Math.sin(theta) - Math.cos(theta) * Math.sin(angleA) * Math.sin(phi));
+
+      if (screenX < 0 || screenX >= width || screenY < 0 || screenY >= height || inverseZ <= zBuffer[screenY]![screenX]!) {
+        continue;
+      }
+
+      const charIndex = Math.max(0, Math.min(chars.length - 1, Math.round((luminance + 1) * 0.5 * (chars.length - 1))));
+      grid[screenY]![screenX] = chars[charIndex]!;
+      zBuffer[screenY]![screenX] = inverseZ;
+    }
+  }
+
+  const colors = themeContributionColors(theme);
+  return grid.map((cells, rowIndex) => ({
+    text: cells.join('').slice(0, width),
+    color: colors[Math.min(colors.length - 1, Math.floor((rowIndex / Math.max(1, height - 1)) * colors.length))] ?? themeAccent(theme)
+  }));
+}
+
+function buildAsciiStarfield(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const grid = emptyMotionGrid(width, height, '#767676');
+  const count = Math.max(45, Math.min(180, Math.floor((width * height) / 10)));
+  const cx = width / 2;
+  const cy = height / 2;
+
+  for (let star = 0; star < count; star += 1) {
+    const seed = star * 9283 + 17;
+    const angle = (hashNoise(seed, 0, 0) * Math.PI * 2);
+    const lane = 0.08 + hashNoise(seed, 9, 0) * 0.92;
+    const speed = 0.2 + hashNoise(seed, 17, 0) * 0.9;
+    const depth = ((pulse * speed + seed) % 90) / 90;
+    const radius = Math.pow(depth, 1.75) * Math.max(width * 0.56, height * 2.6) * lane;
+    const x = Math.round(cx + Math.cos(angle) * radius);
+    const y = Math.round(cy + Math.sin(angle) * radius * 0.34);
+    const glyph = depth > 0.82 ? '@' : depth > 0.64 ? '*' : depth > 0.42 ? '+' : '.';
+    const color = depth > 0.75 ? '#ffffff' : depth > 0.48 ? themeAccent(theme) : '#767676';
+    setMotionCell(grid, x, y, glyph, color);
+  }
+
+  return grid.map(row => lineFromCells(row, themeAccent(theme)));
 }
 
 function buildSpectrum(pulse: number, width: number, requestedHeight: number): string[] {
@@ -1355,9 +1264,9 @@ function buildSpectrum(pulse: number, width: number, requestedHeight: number): s
       return 0;
     }
 
-    const low = Math.sin(index * 0.12 + pulse * 0.35);
-    const mid = Math.sin(index * 0.047 - pulse * 0.22);
-    const high = Math.sin(index * 0.33 + pulse * 0.58);
+    const low = Math.sin(index * 0.12 + pulse * 0.62);
+    const mid = Math.sin(index * 0.047 - pulse * 0.4);
+    const high = Math.sin(index * 0.33 + pulse * 0.9);
     const normalized = (low * 0.45 + mid * 0.35 + high * 0.2 + 1) / 2;
     const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.35);
     return Math.max(1, Math.min(height, Math.round(eased * height)));
@@ -1379,49 +1288,57 @@ function buildSpectrum(pulse: number, width: number, requestedHeight: number): s
 }
 
 function buildScope(pulse: number, width: number, requestedHeight: number): string[] {
-  const height = Math.max(5, requestedHeight);
+  const height = Math.max(7, requestedHeight);
+  const midpoint = Math.floor(height / 2);
   const rows: string[][] = Array.from({length: height}, (_, rowIndex) =>
-    Array.from({length: width}, (_, columnIndex) => (rowIndex === Math.floor(height / 2) && columnIndex % 4 === 0 ? '·' : ' '))
+    Array.from({length: width}, (_, columnIndex) => {
+      if (rowIndex === midpoint) {
+        return columnIndex % 8 === 0 ? '+' : '-';
+      }
+
+      return columnIndex % 16 === 0 && rowIndex % 2 === 0 ? ':' : ' ';
+    })
   );
-  const amplitude = Math.max(1, (height - 2) / 2);
+
+  let previousY = oscilloscopeY(0, pulse, height);
+  for (let x = 1; x < width; x += 1) {
+    const currentY = oscilloscopeY(x, pulse, height);
+    drawScopeSegment(rows, x - 1, previousY, x, currentY);
+    previousY = currentY;
+  }
+
+  return rows.map(row => row.join('')).slice(0, requestedHeight);
+}
+
+function oscilloscopeY(x: number, pulse: number, height: number): number {
   const midpoint = (height - 1) / 2;
-
-  for (let x = 0; x < width; x += 1) {
-    const current = scopeY(x, pulse, midpoint, amplitude);
-    const next = scopeY(x + 1, pulse, midpoint, amplitude);
-    const y = clampIndex(Math.round(current), height);
-    const slope = next - current;
-    rows[y]![x] = slope > 0.18 ? '╲' : slope < -0.18 ? '╱' : '─';
-  }
-
-  return rows.map(row => row.join(''));
+  const amplitude = Math.max(1, (height - 3) / 2);
+  const sweep = x * 0.18 - pulse * 0.72;
+  const carrier = Math.sin(sweep);
+  const harmonic = Math.sin(x * 0.047 + pulse * 0.33) * 0.38;
+  const triggerKick = Math.exp(-Math.pow(((x + pulse * 1.8) % 34) - 17, 2) / 18) * Math.sin(pulse * 0.21) * 0.45;
+  return clampIndex(Math.round(midpoint + (carrier + harmonic + triggerKick) * amplitude * 0.76), height);
 }
 
-function buildSignal(pulse: number, width: number, requestedHeight: number): string[] {
-  const meterWidth = Math.max(10, width - 9);
-  const rows = [
-    `LEFT   ${buildMeter(pulse, meterWidth, 0)}`.slice(0, width),
-    `RIGHT  ${buildMeter(pulse, meterWidth, 2)}`.slice(0, width),
-    `TUNER  ${buildMeter(pulse, meterWidth, 4)}`.slice(0, width)
-  ];
+function drawScopeSegment(rows: string[][], fromX: number, fromY: number, toX: number, toY: number): void {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
 
-  while (rows.length < requestedHeight) {
-    rows.splice(rows.length - 1, 0, ''.padEnd(width, ' '));
-  }
-
-  return rows.slice(0, requestedHeight);
-}
-
-function buildMeter(pulse: number, width: number, offset: number): string {
-  const symbols = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-  return Array.from({length: width}, (_, index) => {
-    if (index % 9 === 8) {
-      return ' ';
+  for (let step = 0; step <= steps; step += 1) {
+    const t = step / steps;
+    const x = Math.round(fromX + dx * t);
+    const y = Math.round(fromY + dy * t);
+    const row = rows[y];
+    if (!row?.[x]) {
+      continue;
     }
 
-    const value = Math.round((Math.sin(index * 0.43 + pulse * 0.55 + offset) + 1) * 3.5);
-    return symbols[value] ?? '▄';
-  }).join('');
+    row[x] = Math.abs(dy) < 0.25 ? '_' : dy > 0 ? '\\' : '/';
+    if (rows[y + 1]?.[x] === ' ') {
+      rows[y + 1]![x] = '.';
+    }
+  }
 }
 
 function lineFromCells(cells: VisualCell[], fallbackColor: string): VisualLine {
@@ -1455,7 +1372,7 @@ function setMotionCell(grid: VisualCell[][], x: number, y: number, text: string,
 }
 
 function motionEnvelope(position: number, pulse: number, variant: number): number {
-  const t = pulse * 0.075 + variant;
+  const t = pulse * 0.13 + variant;
   const centers = [
     0.12 + 0.035 * Math.sin(t * 0.9),
     0.34 + 0.045 * Math.cos(t * 0.55 + variant),
@@ -1503,7 +1420,7 @@ function dimMotionColorAt(position: number, theme: ThemeName): string {
 }
 
 export function visualizerHeight(style: ReceiverStyle, availableRows: number): number {
-  if (style === 'retro' || style === 'cassette' || style === 'vinyl') {
+  if (style === 'cassette') {
     return 8;
   }
 
@@ -1512,9 +1429,7 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number): n
   }
 
   const maxRowsByStyle: Partial<Record<ReceiverStyle, number>> = {
-    sdr: 16,
-    oscilloscope: 9,
-    signal: 6,
+    oscilloscope: 10,
     waterfall: 12,
     equalizer: 12,
     'motion-bars': 12,
@@ -1526,61 +1441,120 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number): n
     blocks: 12,
     leds: 10,
     stars: 12,
-    neon: 12,
     matrix: 14,
     hologram: 12,
-    cube: 14
+    cube: 14,
+    fire: 14,
+    fireworks: 14,
+    plasma: 14,
+    'radio-waves': 14,
+    raindrops: 14,
+    'spinning-donut': 14,
+    starfield: 14
   };
   const maxRows = maxRowsByStyle[style] ?? 8;
-  const minRows = style === 'sdr' ? 6 : style === 'cube' || style === 'motion-contour' ? 8 : style.startsWith('motion-') ? 6 : 3;
+  const minRows =
+    style === 'cube' || style === 'motion-contour' || style === 'spinning-donut'
+      ? 8
+      : style.startsWith('motion-')
+        ? 6
+        : 3;
   return Math.max(minRows, Math.min(maxRows, availableRows));
 }
 
-type Point3d = {
+type CubePoint = {
   x: number;
   y: number;
   z: number;
 };
 
-type ProjectedPoint = {
-  x: number;
-  y: number;
-  z: number;
-};
-
-function cubeFacePoint(axis: 'x' | 'y' | 'z', sign: 1 | -1, u: number, v: number): Point3d {
-  if (axis === 'x') {
-    return {x: sign, y: u, z: v};
-  }
-
-  if (axis === 'y') {
-    return {x: u, y: sign, z: v};
-  }
-
-  return {x: u, y: v, z: sign};
+function cubeVertices(): CubePoint[] {
+  return [
+    {x: -1, y: -1, z: -1},
+    {x: 1, y: -1, z: -1},
+    {x: -1, y: 1, z: -1},
+    {x: 1, y: 1, z: -1},
+    {x: -1, y: -1, z: 1},
+    {x: 1, y: -1, z: 1},
+    {x: -1, y: 1, z: 1},
+    {x: 1, y: 1, z: 1}
+  ];
 }
 
-function rotate3d(point: Point3d, angleX: number, angleY: number, angleZ: number): Point3d {
+type CubeFace = {
+  normal: CubePoint;
+  pointAt: (u: number, v: number) => CubePoint;
+};
+
+function cubeFaces(): CubeFace[] {
+  return [
+    {normal: {x: 0, y: 0, z: 1}, pointAt: (u, v) => ({x: u, y: v, z: 1})},
+    {normal: {x: 0, y: 0, z: -1}, pointAt: (u, v) => ({x: -u, y: v, z: -1})},
+    {normal: {x: 1, y: 0, z: 0}, pointAt: (u, v) => ({x: 1, y: v, z: -u})},
+    {normal: {x: -1, y: 0, z: 0}, pointAt: (u, v) => ({x: -1, y: v, z: u})},
+    {normal: {x: 0, y: 1, z: 0}, pointAt: (u, v) => ({x: u, y: 1, z: -v})},
+    {normal: {x: 0, y: -1, z: 0}, pointAt: (u, v) => ({x: u, y: -1, z: v})}
+  ];
+}
+
+function rotateCubePoint(point: CubePoint, angleX: number, angleY: number, angleZ: number): CubePoint {
   const cosX = Math.cos(angleX);
   const sinX = Math.sin(angleX);
-  const y1 = point.y * cosX - point.z * sinX;
-  const z1 = point.y * sinX + point.z * cosX;
-
   const cosY = Math.cos(angleY);
   const sinY = Math.sin(angleY);
-  const x2 = point.x * cosY + z1 * sinY;
-  const z2 = -point.x * sinY + z1 * cosY;
-
   const cosZ = Math.cos(angleZ);
   const sinZ = Math.sin(angleZ);
+  const yRotatedX = point.y * cosX - point.z * sinX;
+  const zRotatedX = point.y * sinX + point.z * cosX;
+  const xRotatedY = point.x * cosY + zRotatedX * sinY;
+  const zRotatedY = -point.x * sinY + zRotatedX * cosY;
+
   return {
-    x: x2 * cosZ - y1 * sinZ,
-    y: x2 * sinZ + y1 * cosZ,
-    z: z2
+    x: xRotatedY * cosZ - yRotatedX * sinZ,
+    y: xRotatedY * sinZ + yRotatedX * cosZ,
+    z: zRotatedY
   };
 }
 
-function normalize3d(point: Point3d): Point3d {
+function projectRotatedCubePoint(rotated: CubePoint, scaleX: number, scaleY: number, width: number, height: number): CubePoint {
+  const perspective = 4.4 / (4.4 - rotated.z * 0.68);
+
+  return {
+    x: Math.round((width - 1) / 2 + rotated.x * scaleX * perspective),
+    y: Math.round((height - 1) / 2 - rotated.y * scaleY * perspective),
+    z: rotated.z
+  };
+}
+
+function drawCubeSurfaces(
+  grid: string[][],
+  zBuffer: number[][],
+  angleX: number,
+  angleY: number,
+  angleZ: number,
+  scaleX: number,
+  scaleY: number,
+  width: number,
+  height: number
+): void {
+  const light = normalizeCubePoint({x: -0.45, y: 0.7, z: 1});
+
+  for (const face of cubeFaces()) {
+    const normal = rotateCubePoint(face.normal, angleX, angleY, angleZ);
+    const lightLevel = clampNumber(dotCubePoint(normal, light) * 0.72 + 0.48, 0, 1);
+    for (let u = -1; u <= 1.001; u += 0.105) {
+      for (let v = -1; v <= 1.001; v += 0.105) {
+        const rotated = rotateCubePoint(face.pointAt(u, v), angleX, angleY, angleZ);
+        const projected = projectRotatedCubePoint(rotated, scaleX, scaleY, width, height);
+        const texture = 0.08 * Math.sin((u + v) * 14 + rotated.z * 2.5);
+        const shade = cubeSurfaceGlyph(clampNumber(lightLevel + texture, 0, 1));
+        writeCubeSurfaceGlyph(grid, zBuffer, projected.x, projected.y, projected.z, shade);
+      }
+    }
+  }
+}
+
+function normalizeCubePoint(point: CubePoint): CubePoint {
   const length = Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z) || 1;
   return {
     x: point.x / length,
@@ -1589,138 +1563,83 @@ function normalize3d(point: Point3d): Point3d {
   };
 }
 
-function project3d(point: Point3d, cx: number, cy: number, xScale: number, yScale: number, distance: number): ProjectedPoint {
-  const perspective = distance / (distance - point.z);
-  return {
-    x: Math.round(cx + point.x * xScale * perspective),
-    y: Math.round(cy + point.y * yScale * perspective),
-    z: point.z
-  };
+function dotCubePoint(left: CubePoint, right: CubePoint): number {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
 }
 
-function drawAsciiCubeEdge(grid: string[][], zBuffer: number[][], from: ProjectedPoint, to: ProjectedPoint): void {
+function cubeSurfaceGlyph(value: number): string {
+  const chars = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
+  return chars[Math.max(0, Math.min(chars.length - 1, Math.round(value * (chars.length - 1))))] ?? '+';
+}
+
+function writeCubeSurfaceGlyph(grid: string[][], zBuffer: number[][], x: number, y: number, z: number, glyph: string): void {
   const width = grid[0]?.length ?? 0;
   const height = grid.length;
+  if (x < 0 || x >= width || y < 0 || y >= height || z < (zBuffer[y]?.[x] ?? Number.NEGATIVE_INFINITY)) {
+    return;
+  }
+
+  grid[y]![x] = glyph;
+  zBuffer[y]![x] = z;
+}
+
+function drawProjectedCubeEdge(grid: string[][], from: CubePoint, to: CubePoint, depth: number): void {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
 
   for (let step = 0; step <= steps; step += 1) {
     const t = step / steps;
-    const x = Math.round(from.x + dx * t);
-    const y = Math.round(from.y + dy * t);
-    const z = from.z + (to.z - from.z) * t;
-
-    if (x < 0 || x >= width || y < 0 || y >= height || z < zBuffer[y]![x]! - 0.18) {
-      continue;
-    }
-
-    const depthChar = z > 0.75 ? '@' : z > 0.25 ? '#' : z > -0.25 ? '*' : '=';
-    grid[y]![x] = depthChar;
-    zBuffer[y]![x] = Math.max(zBuffer[y]![x]!, z);
+    writeCubeGlyph(grid, Math.round(from.x + dx * t), Math.round(from.y + dy * t), cubeEdgeGlyph(dx, dy, depth, step));
   }
 }
 
-function addCubeSignalSpecks(grid: string[][], pulse: number): void {
-  const height = grid.length;
+function cubeEdgeGlyph(dx: number, dy: number, depth: number, step: number): string {
+  if (Math.abs(dx) > Math.abs(dy) * 2.3) {
+    return depth > 0.62 ? '=' : '-';
+  }
+
+  if (Math.abs(dy) > Math.abs(dx) * 1.45) {
+    return '|';
+  }
+
+  const diagonal = dx * dy > 0 ? '\\' : '/';
+  return depth < -0.7 && step % 4 === 2 ? '.' : diagonal;
+}
+
+function cubeCornerGlyph(depth: number): string {
+  if (depth > 0.78) {
+    return '@';
+  }
+
+  if (depth > 0.28) {
+    return '#';
+  }
+
+  if (depth < -0.78) {
+    return '.';
+  }
+
+  return '+';
+}
+
+function writeCubeGlyph(grid: string[][], x: number, y: number, glyph: string): void {
   const width = grid[0]?.length ?? 0;
-  const specks = Math.max(4, Math.min(10, Math.floor(width / 16)));
-  const chars = ['.', "'", '+', 'o', 'O'];
-
-  for (let index = 0; index < specks; index += 1) {
-    const seed = index * 37.7;
-    const orbit = pulse * (0.018 + index * 0.0009) + seed;
-    const side = index % 3 === 0 ? -1 : 1;
-    const x = Math.round(width * (side < 0 ? 0.28 : 0.72) + Math.sin(orbit) * width * 0.05 + Math.cos(seed) * width * 0.025);
-    const y = Math.round(height * 0.5 + Math.cos(orbit * 1.7) * height * 0.26);
-
-    if (x < 0 || x >= width || y < 0 || y >= height || grid[y]![x] !== ' ') {
-      continue;
-    }
-
-    grid[y]![x] = chars[(index + pulse) % chars.length] ?? '.';
+  const height = grid.length;
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return;
   }
-}
 
-function scopeY(x: number, pulse: number, midpoint: number, amplitude: number): number {
-  const primary = Math.sin(x * 0.13 + pulse * 0.22);
-  const secondary = Math.sin(x * 0.031 - pulse * 0.12) * 0.45;
-  return midpoint + (primary + secondary) * amplitude * 0.68;
+  grid[y]![x] = glyph;
 }
 
 function clampIndex(value: number, length: number): number {
   return Math.max(0, Math.min(length - 1, value));
 }
 
-function sdrDbAt(index: number, pulse: number, width: number, seed: number): number {
-  const position = index / Math.max(1, width - 1);
-  const drift = pulse * 0.18;
-  const noise =
-    Math.sin(index * 0.73 + seed * 0.013 + drift) * 4.5 +
-    Math.sin(index * 0.19 - drift * 0.7) * 3;
-  const floor = -62 + Math.sin(index * 0.045 + seed) * 5;
-  const centerHump = 17 * Math.exp(-Math.pow((position - 0.54) * 2.35, 2));
-  const lowNotch = -9 * Math.exp(-Math.pow((position - 0.13) * 21, 2));
-  const peaks =
-    carrierPeak(position, 0.40, 16) +
-    carrierPeak(position, 0.48, 24) +
-    carrierPeak(position, 0.55, 20) +
-    carrierPeak(position, 0.64, 15);
-
-  return clampNumber(floor + noise + centerHump + lowNotch + peaks, -80, -8);
-}
-
-function sdrRowDb(rowIndex: number, graphHeight: number): number {
-  if (graphHeight <= 8) {
-    const labels = [-10, -20, -30, -40, -50, -60, -70, -80];
-    if (rowIndex === graphHeight - 1) {
-      return -80;
-    }
-
-    return labels[Math.min(rowIndex, labels.length - 1)] ?? -80;
-  }
-
-  return -Math.round(((rowIndex + 1) * 80) / graphHeight / 10) * 10;
-}
-
-function carrierPeak(position: number, center: number, strength: number): number {
-  return strength * Math.exp(-Math.pow((position - center) * 82, 2));
-}
-
-function isCarrier(index: number, width: number): boolean {
-  const position = index / Math.max(1, width - 1);
-  return [0.40, 0.48, 0.55, 0.64].some(center => Math.abs(position - center) < 0.006);
-}
-
-function centerFrequency(station: Station | null): number {
-  const hash = hashText(station?.name ?? station?.id ?? 'radiocli');
-  return 87.7 + (hash % 202) / 10;
-}
-
-function frequencyMarkers(center: number, width: number): string {
-  const labels = [-0.08, -0.04, 0, 0.04, 0.08].map(offset => `${(center + offset).toFixed(2)}MHz`);
-  const row = Array.from({length: width}, () => ' ');
-  for (const [index, label] of labels.entries()) {
-    const anchor = Math.round((index / Math.max(1, labels.length - 1)) * (width - label.length));
-    for (let character = 0; character < label.length && anchor + character < width; character += 1) {
-      row[anchor + character] = label[character]!;
-    }
-  }
-
-  return row.join('');
-}
-
-function hashText(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-
-  return hash;
-}
-
-function fitLine(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width, ' ');
+function hashNoise(x: number, y: number, pulse: number): number {
+  const value = Math.sin(x * 12.9898 + y * 78.233 + pulse * 0.037) * 43758.5453;
+  return value - Math.floor(value);
 }
 
 function clampNumber(value: number, min: number, max: number): number {

@@ -14,6 +14,20 @@ description: Public release history for RadioCLI.
 - Added a Homebrew formula template and release notes for a tap-based
   `brew install ciphore/tap/radiocli` lane that depends on `node` and `mpv`.
 
+### Visualizers
+
+- Rebuilt the cube receiver as a shaded spinning ASCII cube with perspective,
+  surface fill, and edge projection so it reads as a cube in the terminal panel.
+- Added generated ASCII receiver styles for fire, fireworks, plasma, radio
+  waves, raindrops, spinning donut, and starfield displays.
+- Removed the SDR, signal, retro, vinyl, and neon receiver styles from the active
+  style cycle, with old saved settings migrated to the default spectrum style.
+- Tuned receiver motion faster across spectrum, equalizer, audioMotion-inspired
+  styles, fireworks, radio waves, and the shared live pulse cadence.
+- Reworked fire to rise from the bottom, strengthened waterfall trails, made
+  stars travel diagonally, improved cassette detail, and rebuilt the oscilloscope
+  as a denser text-mode trace.
+
 ### Fixed
 
 - Fixed globally linked `radiocli` launches by resolving symlinks before deciding
@@ -21,9 +35,6 @@ description: Public release history for RadioCLI.
 - Now Playing receiver graphics now stop at a true zero-signal frame when playback
   is idle, loading, paused, stopped, errored, or not backend-ready, instead of
   leaving a frozen spectrum waveform on screen.
-- Reduced the ASCII cube receiver footprint so the spinning cube stays centered
-  inside the Now Playing visualizer area instead of crowding or clipping against
-  nearby receiver content.
 
 ## 0.1.0 - 2026-05-25
 
@@ -53,8 +64,8 @@ description: Public release history for RadioCLI.
 
 ### App Surface
 
-- Ink TUI with home, explore, country, search, nearby, world map, now-playing,
-  stats, recent, favorites/imports, and settings screens.
+- Ink TUI with home, playing, library, explore, search, country, nearby,
+  world map, stats, and settings screens.
 - Horizontal top tabs with arrow-key and `Tab` / `Shift+Tab` navigation.
 - Fixed top-tab shell rows so long screens cannot push navigation out of view.
 - Near-black app shell background with darker tab, footer, stats, and receiver
@@ -96,8 +107,10 @@ description: Public release history for RadioCLI.
 
 ### Visualizers And Lists
 
-- Expanded display colors and receiver visualizer styles for Now Playing, with 23
-  selectable styles and an SDR-style spectrum analyzer default.
+- Expanded display colors and receiver visualizer styles for Now Playing, with
+  selectable styles and a spectrum analyzer default.
+- Added teal, violet, and copper display colors for terminal-friendly receiver
+  and stats palettes.
 - Added audioMotion-style bars, blob waves, split-area scopes, dotted amplitude
   fields, contour rings, and braided oscilloscopes to the receiver style set.
 - Added an animated ASCII cube receiver style inspired by terminal 3D demos.

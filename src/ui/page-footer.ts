@@ -27,7 +27,7 @@ export function pageFooterText({
   }
 
   if (screen === 'home') {
-    return '↑/↓ move · Enter open · 1-9/0 jump · : command';
+    return '↑/↓ move · Enter open · number jump · : command';
   }
 
   if (screen === 'search' && editingSearch) {
@@ -43,19 +43,18 @@ export function pageFooterText({
   }
 
   if (screen === 'countries') {
-    return '/ filter · ↑/↓ move · Enter open stations · b home';
+    return '/ filter · ↑/↓ move · Enter open stations · w map · b home';
   }
 
   if (screen === 'map') {
-    return '/ filter · ↑/↓ move · Enter open country · b home';
+    return '/ filter · ↑/↓ move · Enter open country · w list · b home';
   }
 
   if (
     screen === 'nearby' ||
     screen === 'explore' ||
     screen === 'stations' ||
-    screen === 'recent' ||
-    screen === 'favorites'
+    screen === 'library'
   ) {
     return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b home';
   }

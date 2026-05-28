@@ -43,13 +43,12 @@ visually cohesive across different terminal themes.
 
 The Now Playing screen supports multiple visualizer styles so the display can
 feel like a receiver without locking the whole product into one animation. The
-default SDR style borrows from retro spectrum-analyzer tools: dB labels,
-frequency ticks, sampling-rate readouts, and a steady CRT-ish cadence around 10
-frames per second. Alternate styles include spectrum bars, oscilloscope traces,
-signal meters, retro tuner displays, waterfall views, physical-media callbacks,
-audioMotion-style neon bars, blob waves, split-area scopes, dotted amplitude
-fields, contour rings, braided oscilloscopes, ambient matrix/hologram displays,
-and a spinning ASCII cube inspired by terminal 3D demos.
+default spectrum style is fast and direct, while the retained alternates include
+a denser oscilloscope trace, a stronger waterfall, a more physical cassette,
+equalizer and audioMotion-style displays, radar, blocks, LEDs, diagonal stars,
+matrix, hologram, a real spinning ASCII cube, and generated ASCII animation
+styles for fire, fireworks, plasma, radio waves, raindrops, a spinning donut,
+and a starfield.
 
 Receiver motion is tied to playback truth rather than screen presence. Visualizers
 animate only when playback is `playing` and backend-ready; idle, loading, paused,
@@ -70,6 +69,6 @@ session count, current streak, active days, total hours listened, favorite time,
 and longest streak.
 
 The stats graph palette follows the selected display color, including the
-legend. A blue theme should produce blue contribution levels, amber should
-produce amber levels, and so on, so Stats feels like part of the same configured
-receiver surface.
+legend. Blue, amber, teal, violet, copper, and the other display colors should
+produce matching contribution levels, so Stats feels like part of the same
+configured receiver surface.

@@ -10,7 +10,8 @@ import {
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
-  stationContextKeyForScreen
+  stationContextKeyForScreen,
+  topTabs
 } from './app-state.js';
 import type {PlaybackState} from '../types.js';
 
@@ -33,11 +34,27 @@ const playingPlayback: PlaybackState = {
 };
 
 describe('app state helpers', () => {
+  it('orders top tabs around listening first, then library and discovery', () => {
+    expect(topTabs.map(tab => tab.label)).toEqual([
+      'Overview',
+      'Playing',
+      'Library',
+      'Explore',
+      'Search',
+      'Countries',
+      'Nearby',
+      'Stats',
+      'Settings'
+    ]);
+  });
+
   it('keeps station-context screens mapped explicitly', () => {
     expect(stationContextKeyForScreen('explore')).toBe('explore');
     expect(stationContextKeyForScreen('stations')).toBe('stations');
+    expect(stationContextKeyForScreen('library')).toBe('library');
     expect(stationContextKeyForScreen('map')).toBeNull();
-    expect(activeTabForScreen('stations')).toBe('explore');
+    expect(activeTabForScreen('stations')).toBe('countries');
+    expect(activeTabForScreen('map')).toBe('countries');
   });
 
   it('filters station lists consistently with command filters', () => {
@@ -48,6 +65,7 @@ describe('app state helpers', () => {
 
   it('targets favorites based on the active screen', () => {
     const playing = {...station, id: 'playing'};
+    expect(favoriteTarget('library', station, playing)?.id).toBe('station-1');
     expect(favoriteTarget('search', station, playing)?.id).toBe('station-1');
     expect(favoriteTarget('now-playing', station, playing)?.id).toBe('playing');
     expect(favoriteTarget('settings', null, playing)?.id).toBe('playing');

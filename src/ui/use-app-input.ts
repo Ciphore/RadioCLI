@@ -404,6 +404,16 @@ export function useAppInput({
       return;
     }
 
+    if (input === 'w' && screen === 'countries') {
+      go('map');
+      return;
+    }
+
+    if (input === 'w' && screen === 'map') {
+      go('countries');
+      return;
+    }
+
     if (input === 'f') {
       toggleFavorite(favoriteTarget(screen, selectedStation, playingStation));
       return;

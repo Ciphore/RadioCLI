@@ -2,7 +2,7 @@ import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} 
 import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {z} from 'zod';
-import {receiverStyleNames, type AppSettings, type LibraryState, type ListeningSession, type Station} from '../types.js';
+import {receiverStyleNames, themeNames, type AppSettings, type LibraryState, type ListeningSession, type Station} from '../types.js';
 import {backupBadFile} from '../providers/cache.js';
 
 const stationSchema: z.ZodType<Station> = z
@@ -39,10 +39,10 @@ const defaultMediaKeys = {
 };
 
 const settingsSchema: z.ZodType<AppSettings> = z.object({
-  theme: z.enum(['green', 'amber', 'blue', 'ruby', 'ice', 'mono']).default('green'),
+  theme: z.enum(themeNames).default('green'),
   receiverStyle: z.preprocess(
-    value => value === 'scope' ? 'sdr' : value,
-    z.enum(receiverStyleNames).default('sdr')
+    value => (typeof value === 'string' && ['scope', 'sdr', 'signal', 'retro', 'vinyl', 'neon'].includes(value) ? 'spectrum' : value),
+    z.enum(receiverStyleNames).default('spectrum')
   ),
   receiverStyleVersion: z.number().optional(),
   volume: z.number().min(0).max(100).default(70),
@@ -88,7 +88,7 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     .default({sessions: []}),
   settings: settingsSchema.default({
     theme: 'green',
-    receiverStyle: 'sdr',
+    receiverStyle: 'spectrum',
     receiverStyleVersion: 2,
     volume: 70,
     enableRadioGarden: false,
@@ -277,7 +277,7 @@ function defaultState(): LibraryState {
     activity: {sessions: []},
     settings: {
       theme: 'green',
-      receiverStyle: 'sdr',
+      receiverStyle: 'spectrum',
       receiverStyleVersion: 2,
       volume: 70,
       enableRadioGarden: false,
@@ -299,7 +299,7 @@ function migrateLibraryState(state: LibraryState): LibraryState {
     ...state,
     settings: {
       ...state.settings,
-      receiverStyle: 'sdr',
+      receiverStyle: 'spectrum',
       receiverStyleVersion: 2
     }
   };

@@ -3,7 +3,7 @@
 The best demo is a short terminal recording that shows the product loop:
 
 1. Start `radiocli`.
-2. Open World map.
+2. Open Countries and press `w` for the world map.
 3. Search for `tokyo jazz`.
 4. Tune a station.
 5. Open diagnostics.

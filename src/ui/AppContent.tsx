@@ -149,7 +149,7 @@ export function AppContent({
     );
   }
 
-  if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'recent' || screen === 'favorites') {
+  if (screen === 'nearby' || screen === 'explore' || screen === 'stations' || screen === 'library') {
     return (
       <StationScreen
         title={stationContext.title}

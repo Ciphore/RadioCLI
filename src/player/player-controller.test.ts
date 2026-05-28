@@ -124,7 +124,7 @@ describe('PlayerController lifecycle', () => {
 function settings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     theme: 'green',
-    receiverStyle: 'sdr',
+    receiverStyle: 'spectrum',
     receiverStyleVersion: 2,
     volume: 70,
     enableRadioGarden: false,

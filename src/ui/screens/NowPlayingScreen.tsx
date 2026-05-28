@@ -52,7 +52,7 @@ export function NowPlayingScreen({
   const stationName = station ? truncate(station.name, innerWidth) : 'No station tuned';
   const stationPlace = station
     ? truncate(stationLocation(station).toUpperCase(), innerWidth)
-    : 'Choose a station from Explore, Countries, Search, Nearby, Recent, or Favorites.';
+    : 'Choose a station from Library, Explore, Search, Countries, or Nearby.';
   const tech = station
     ? truncate(stationTech(station), innerWidth)
     : diagnostics.availableBackends.length > 0

@@ -7,7 +7,7 @@ export type StationContext = {
   stations: Station[];
 };
 
-export type StationContextKey = 'explore' | 'stations' | 'search' | 'nearby' | 'recent' | 'favorites';
+export type StationContextKey = 'explore' | 'stations' | 'search' | 'nearby' | 'library';
 
 export type SearchFilters = {
   codec: string | null;
@@ -65,28 +65,22 @@ export const initialStationContexts: Record<StationContextKey, StationContext> =
     subtitle: 'Opt-in approximate location for local stations',
     stations: []
   },
-  recent: {
-    title: 'Recent',
-    subtitle: 'Stations played on this machine',
-    stations: []
-  },
-  favorites: {
-    title: 'Favorites and imports',
-    subtitle: 'Saved and imported streams',
+  library: {
+    title: 'Library',
+    subtitle: 'Favorites, recent stations, and imported streams',
     stations: []
   }
 };
 
 export const topTabs: TopTab[] = [
   {screen: 'home', label: 'Overview'},
+  {screen: 'now-playing', label: 'Playing'},
+  {screen: 'library', label: 'Library'},
   {screen: 'explore', label: 'Explore'},
-  {screen: 'countries', label: 'Countries'},
   {screen: 'search', label: 'Search'},
+  {screen: 'countries', label: 'Countries'},
   {screen: 'nearby', label: 'Nearby'},
-  {screen: 'now-playing', label: 'Now Playing'},
   {screen: 'stats', label: 'Stats'},
-  {screen: 'recent', label: 'Recent'},
-  {screen: 'favorites', label: 'Favorites'},
   {screen: 'settings', label: 'Settings'}
 ];
 
@@ -157,7 +151,7 @@ export function favoriteTarget(screen: Screen, selectedStation: Station | null, 
     return playingStation;
   }
 
-  if (screen === 'explore' || screen === 'stations' || screen === 'search' || screen === 'nearby' || screen === 'recent' || screen === 'favorites') {
+  if (screen === 'explore' || screen === 'stations' || screen === 'search' || screen === 'nearby' || screen === 'library') {
     return selectedStation;
   }
 
@@ -165,7 +159,7 @@ export function favoriteTarget(screen: Screen, selectedStation: Station | null, 
 }
 
 export function activeTabForScreen(screen: Screen): Screen {
-  return screen === 'stations' ? 'explore' : screen;
+  return screen === 'stations' || screen === 'map' ? 'countries' : screen;
 }
 
 export function stationContextKeyForScreen(screen: Screen): StationContextKey | null {
@@ -174,8 +168,7 @@ export function stationContextKeyForScreen(screen: Screen): StationContextKey | 
     screen === 'stations' ||
     screen === 'search' ||
     screen === 'nearby' ||
-    screen === 'recent' ||
-    screen === 'favorites'
+    screen === 'library'
   ) {
     return screen;
   }

@@ -8,7 +8,7 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 - Explore public radio from around the world through country lists, global station search, a full-width country-density world map, and opt-in nearby discovery.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
-- Use a receiver-style Now Playing screen with 23 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
+- Use a receiver-style Now Playing screen with 25 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
 - Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
 - Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
@@ -27,26 +27,24 @@ The interactive TUI opens directly into the product, not a marketing screen:
 ```text
 RadioCLI
 
-Overview  Explore  Countries  Search  Nearby  Now Playing  Stats  Recent  Favorites  Settings
+Overview  Playing  Library  Explore  Search  Countries  Nearby  Stats  Settings
 
-  › 1. Explore world · Popular live stations across countries
-    2. World map · Station-density map by country
-    3. Countries · Browse by country list
-    4. Search stations · Find stations by name, genre, language, place
-    5. Nearby · Opt-in approximate location for local stations
-    6. Now playing · Receiver display and controls
+  › 1. Playing · Receiver display and controls
+    2. Library · Favorites, recent stations, imported streams
+    3. Explore · Popular live stations across countries
+    4. Search · Find stations by name, genre, language, place
+    5. Countries · Browse by country list with a world-map toggle
+    6. Nearby · Opt-in approximate location for local stations
     7. Stats · Listening graph, sessions, streaks, hours
-    8. Recent · Stations played on this machine
-    9. Favorites · Saved and imported stations
-    0. Settings · Playback backend, colors, providers
+    8. Settings · Playback backend, colors, providers
 
 3 recent · 2 favorites · 1 imported
 
-↑/↓ move · Enter open · 1-9/0 jump · : command
+↑/↓ move · Enter open · number jump · : command
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
 ```
 
-The Now Playing screen is a framed receiver panel with 23 selectable spectrum/receiver styles. The sample below shows the default SDR analyzer; press `v` to cycle through SDR, spectrum bars, oscilloscope, signal meters, retro tuner, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube styles. Visualizers animate only while playback is actually playing and backend-ready; paused, stopped, idle, loading, and error states render a flat zero-signal display instead of a frozen waveform:
+The Now Playing screen is a framed receiver panel with 25 selectable spectrum/receiver styles. The sample below shows the default fast spectrum bars; press `v` to cycle through spectrum bars, oscilloscope, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, stars, matrix, hologram, a spinning ASCII cube, fire, fireworks, plasma, radio waves, raindrops, spinning donut, and starfield styles. Visualizers animate only while playback is actually playing and backend-ready; paused, stopped, idle, loading, and error states render a flat zero-signal display instead of a frozen waveform:
 
 ```text
 Now playing
@@ -54,14 +52,12 @@ Now playing
 │ FM 128.M      RADIOCLI                                           PLAYING │
 │ KEXP 90.3 FM                                                            │
 │ UNITED STATES · WASHINGTON                                              │
-│ ┌[ radiocli-sdr ]────────────────────────────────────────────────────── │
-│ Freq: 101.900 MHz  |  Rate: 0.20 Msps  |  Gain: Auto                  │
-│ Dyn Range: 80 dB  |  Ref Level: 0 dB  |  FPS: 15  |  PLAYING          │
-│ ---------------------------------------------------------------------- │
-│   -20   ·          :|::|###|:          ·       :|#|:          ·        │
-│   -40   ·     :|::|#######|::|:       ·    :|#######|:       ·        │
-│   -60   · :|::|###############|::|:   · :|#############|::|: ·        │
-│         101.4       101.7       101.9       102.1       102.4 MHz      │
+│      ▌       ▌     ▌       ▌       ▌       ▌       ▌       ▌           │
+│  ▌   ▌   ▌   ▌ ▌   ▌   ▌   ▌   ▌   ▌   ▌   ▌   ▌   ▌   ▌   ▌           │
+│  ▌ ▌ ▌   ▌ ▌ ▌ ▌ ▌ ▌   ▌ ▌ ▌   ▌ ▌ ▌   ▌ ▌ ▌   ▌ ▌ ▌   ▌ ▌ ▌           │
+│  ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌           │
+│  ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌           │
+│  ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌ ▌           │
 │ MP3 · 128 kbps · english                                                │
 │ alternative, indie, seattle                                             │
 │ Waiting for ICY track metadata                                          │
@@ -206,11 +202,11 @@ Page-specific footer controls:
 
 | Screen | Controls |
 | --- | --- |
-| Home | `↑` / `↓` move, `Enter` open, `1`-`9` / `0` jump, `:` command |
+| Home | `↑` / `↓` move, `Enter` open, number jump, `:` command |
 | Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
-| Countries | `/` filter, `↑` / `↓` move, `Enter` open stations, `b` home |
-| World map | `/` filter, `↑` / `↓` move, `Enter` open country, `b` home |
+| Countries | `/` filter, `↑` / `↓` move, `Enter` open stations, `w` map, `b` home |
+| World map | `/` filter, `↑` / `↓` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
 | Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `r` health, `b` home |
@@ -234,7 +230,7 @@ Other active shortcuts:
 - `d`: stream diagnostics on Now Playing.
 - `b`: back home.
 
-When you tune a station from Explore, Countries, Search, Nearby, Recent, or Favorites, that list becomes the playback queue. Previous/next keeps moving through that source list from any screen until you tune from another list.
+When you tune a station from Library, Explore, Search, Countries, or Nearby, that list becomes the playback queue. Previous/next keeps moving through that source list from any screen until you tune from another list.
 
 Hardware media keys depend on the OS and terminal. RadioCLI maximizes compatibility by enabling enhanced keyboard reporting where supported, recognizing common F7/F8/F9 sequences, Kitty consumer/media-key codes, modified-arrow sequences, comma/dot transport fallback, and learned custom bindings. Learn keys from Settings or with `:learn previous`, `:learn play`, and `:learn next`; clear them with `:keys reset`.
 
@@ -260,14 +256,13 @@ Useful command palette entries:
 :learn next
 :keys reset
 :map
+:library
 :stats
-:recent
-:favorites
 :settings
 :stop
 ```
 
-Settings persist display colors and spectrum/receiver styles without editing config files. The six display colors are green, amber, blue, ruby, ice, and mono. The 23 receiver styles are SDR, spectrum, oscilloscope, signal, retro, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, vinyl, stars, neon, matrix, hologram, and ASCII cube. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
+Settings persist display colors and spectrum/receiver styles without editing config files. The nine display colors are green, amber, blue, ruby, ice, teal, violet, copper, and mono. The 25 receiver styles are spectrum, oscilloscope, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, stars, matrix, hologram, ASCII cube, fire, fireworks, plasma, radio waves, raindrops, spinning donut, and starfield. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
 
 ## Architecture
 

@@ -1,4 +1,4 @@
-import {receiverStyleNames, type ReceiverStyle, type ThemeName} from '../types.js';
+import {receiverStyleNames, themeNames, type ReceiverStyle, type ThemeName} from '../types.js';
 
 const receiverStyles: readonly ReceiverStyle[] = receiverStyleNames;
 export const appBackground = '#070a0f';
@@ -20,6 +20,18 @@ export function themeAccent(theme: ThemeName): string {
 
   if (theme === 'ice') {
     return '#b9f6ff';
+  }
+
+  if (theme === 'teal') {
+    return '#5eead4';
+  }
+
+  if (theme === 'violet') {
+    return '#a78bfa';
+  }
+
+  if (theme === 'copper') {
+    return '#d08770';
   }
 
   if (theme === 'mono') {
@@ -46,6 +58,18 @@ export function themeContributionColors(theme: ThemeName): string[] {
     return ['#161b22', '#24474d', '#4a95a0', '#86dce8', '#b9f6ff'];
   }
 
+  if (theme === 'teal') {
+    return ['#161b22', '#123f3c', '#1f766c', '#2dd4bf', '#5eead4'];
+  }
+
+  if (theme === 'violet') {
+    return ['#161b22', '#302047', '#5b3f8f', '#7c5cff', '#a78bfa'];
+  }
+
+  if (theme === 'copper') {
+    return ['#161b22', '#44281f', '#7f4f37', '#b86f52', '#d08770'];
+  }
+
   if (theme === 'mono') {
     return ['#161b22', '#3a3a3a', '#767676', '#b0b0b0', '#d0d0d0'];
   }
@@ -54,12 +78,11 @@ export function themeContributionColors(theme: ThemeName): string[] {
 }
 
 export function nextTheme(theme: ThemeName): ThemeName {
-  const themeNames: readonly ThemeName[] = ['green', 'amber', 'blue', 'ruby', 'ice', 'mono'];
   const index = themeNames.indexOf(theme);
   return themeNames[(index + 1) % themeNames.length] ?? 'green';
 }
 
 export function nextReceiverStyle(style: ReceiverStyle): ReceiverStyle {
   const index = receiverStyles.indexOf(style);
-  return receiverStyles[(index + 1) % receiverStyles.length] ?? 'sdr';
+  return receiverStyles[(index + 1) % receiverStyles.length] ?? 'spectrum';
 }

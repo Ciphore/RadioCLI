@@ -31,7 +31,10 @@ function frameText(rows: ReturnType<typeof buildVisualizer>): string {
   return rows.map(row => row.text).join('\n');
 }
 
-function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegExp): {width: number; minY: number; maxY: number} {
+const cubeGlyph = /[.:;=+*#%@/\\|_\-]/;
+const asciiAnimationStyles = ['fire', 'fireworks', 'plasma', 'radio-waves', 'raindrops', 'spinning-donut', 'starfield'] as const;
+
+function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegExp): {width: number; height: number; minY: number; maxY: number} {
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -52,6 +55,7 @@ function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegEx
 
   return {
     width: Number.isFinite(minX) ? maxX - minX + 1 : 0,
+    height: Number.isFinite(minY) ? maxY - minY + 1 : 0,
     minY: Number.isFinite(minY) ? minY : -1,
     maxY: Number.isFinite(maxY) ? maxY : -1
   };
@@ -86,12 +90,38 @@ describe('receiver visualizers', () => {
   it('keeps the ascii cube centered inside the receiver viewport', () => {
     for (const pulse of [1, 10, 22]) {
       const rows = buildVisualizer('cube', pulse, 120, 12, station, playback, 'ruby');
-      const footprint = glyphFootprint(rows, /[#@*%=;:]/);
+      const footprint = glyphFootprint(rows, cubeGlyph);
 
       expect(footprint.width).toBeGreaterThan(0);
-      expect(footprint.width).toBeLessThanOrEqual(58);
-      expect(footprint.minY).toBeGreaterThan(0);
-      expect(footprint.maxY).toBeLessThan(rows.length - 1);
+      expect(footprint.width).toBeGreaterThanOrEqual(18);
+      expect(footprint.width).toBeLessThanOrEqual(42);
+      expect(footprint.height).toBeGreaterThanOrEqual(8);
+      expect(footprint.minY).toBeGreaterThanOrEqual(0);
+      expect(footprint.maxY).toBeLessThanOrEqual(rows.length - 1);
+    }
+  });
+
+  it('keeps the ascii cube legible on wide receiver panels', () => {
+    const rows = buildVisualizer('cube', 10, 152, 13, station, playback, 'ruby');
+    const footprint = glyphFootprint(rows, cubeGlyph);
+    const text = frameText(rows);
+
+    expect(footprint.width).toBeGreaterThanOrEqual(18);
+    expect(footprint.width).toBeLessThanOrEqual(42);
+    expect(footprint.height).toBeGreaterThanOrEqual(10);
+    expect(text).toMatch(/[\\/]/);
+    expect(text).toMatch(/[=-]/);
+    expect(text).not.toMatch(/[╱╲─│═║]/);
+  });
+
+  it('animates the added ASCII animation receiver styles', () => {
+    for (const style of asciiAnimationStyles) {
+      const height = visualizerHeight(style, 13);
+      const firstFrame = frameText(buildVisualizer(style, 4, 80, height, station, playback, 'ruby'));
+      const laterFrame = frameText(buildVisualizer(style, 16, 80, height, station, playback, 'ruby'));
+
+      expect(firstFrame.trim()).not.toBe('');
+      expect(laterFrame).not.toBe(firstFrame);
     }
   });
 
@@ -121,8 +151,8 @@ describe('receiver visualizers', () => {
     }
   });
 
-  it('renders inactive neon as a flat zero-level baseline', () => {
-    const rows = buildVisualizer('neon', 8, 32, 6, station, inactivePlaybacks[0]!, 'ruby');
+  it('renders inactive spectrum as a flat zero-level baseline', () => {
+    const rows = buildVisualizer('spectrum', 8, 32, 6, station, inactivePlaybacks[0]!, 'ruby');
 
     expect(rows).toHaveLength(6);
     expect(rows.slice(0, -1).every(row => row.text.trim() === '')).toBe(true);

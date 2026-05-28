@@ -46,21 +46,34 @@ type AppProps = {
 };
 
 const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>([
-  'sdr',
+  'spectrum',
+  'oscilloscope',
+  'waterfall',
+  'cassette',
+  'equalizer',
+  'motion-bars',
+  'motion-blob',
+  'motion-area',
+  'motion-dots',
+  'motion-contour',
+  'motion-braid',
   'blocks',
   'leds',
   'stars',
-  'equalizer',
-  'waterfall',
-  'oscilloscope',
   'radar',
-  'neon',
   'matrix',
   'hologram',
-  'cube'
+  'cube',
+  'fire',
+  'fireworks',
+  'plasma',
+  'radio-waves',
+  'raindrops',
+  'spinning-donut',
+  'starfield'
 ]);
-const LIVE_RECEIVER_PULSE_MS = 100;
-const AMBIENT_RECEIVER_PULSE_MS = 180;
+const LIVE_RECEIVER_PULSE_MS = 80;
+const AMBIENT_RECEIVER_PULSE_MS = 140;
 
 export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
   const {exit} = useApp();
@@ -107,7 +120,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const selectedByScreenRef = useRef<Partial<Record<Screen, number>>>({});
   const stationContextsRef = useRef(stationContexts);
   const lastStationContextKeyRef = useRef<StationContextKey>('explore');
-  const lastExploreScreenRef = useRef<Screen>('explore');
   const lastSubmittedSearchRef = useRef('');
 
   const theme = library.settings.theme;
@@ -122,24 +134,35 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
     return countries.filter(country => `${country.name} ${country.code}`.toLowerCase().includes(normalized));
   }, [countries, countryFilter]);
+  const libraryStations = useMemo(() => buildLibraryStations(library), [library.favorites, library.imported, library.recent]);
+  const activeStationContexts = useMemo<Record<StationContextKey, StationContext>>(
+    () => ({
+      ...stationContexts,
+      library: {
+        title: 'Library',
+        subtitle: librarySubtitle(library),
+        stations: libraryStations
+      }
+    }),
+    [library, libraryStations, stationContexts]
+  );
 
   screenRef.current = screen;
   selectedRef.current = selected;
-  stationContextsRef.current = stationContexts;
+  stationContextsRef.current = activeStationContexts;
 
   const renderedStationContextKey = stationContextKeyForScreen(screen);
   const activeStationContextKey = renderedStationContextKey ?? lastStationContextKeyRef.current;
-  const stationContext = stationContexts[activeStationContextKey];
+  const stationContext = activeStationContexts[activeStationContextKey];
   const stationCounts = useMemo<Record<StationContextKey, number>>(
     () => ({
-      explore: applyStationFilters(stationContexts.explore.stations, filters).length,
-      stations: applyStationFilters(stationContexts.stations.stations, filters).length,
-      search: applyStationFilters(stationContexts.search.stations, filters).length,
-      nearby: applyStationFilters(stationContexts.nearby.stations, filters).length,
-      recent: applyStationFilters(stationContexts.recent.stations, filters).length,
-      favorites: applyStationFilters(stationContexts.favorites.stations, filters).length
+      explore: applyStationFilters(activeStationContexts.explore.stations, filters).length,
+      stations: applyStationFilters(activeStationContexts.stations.stations, filters).length,
+      search: applyStationFilters(activeStationContexts.search.stations, filters).length,
+      nearby: applyStationFilters(activeStationContexts.nearby.stations, filters).length,
+      library: applyStationFilters(activeStationContexts.library.stations, filters).length
     }),
-    [filters, stationContexts]
+    [activeStationContexts, filters]
   );
   const itemCountsRef = useRef<Record<Screen, number>>({
     home: homeItems.length,
@@ -150,9 +173,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     nearby: 0,
     map: 0,
     'now-playing': 1,
+    library: 0,
     stats: 1,
-    recent: 0,
-    favorites: 0,
     settings: settingsItems.length
   });
   itemCountsRef.current = {
@@ -164,9 +186,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     nearby: stationCounts.nearby,
     map: filteredCountries.length,
     'now-playing': 1,
+    library: stationCounts.library,
     stats: 1,
-    recent: stationCounts.recent,
-    favorites: stationCounts.favorites,
     settings: settingsItems.length
   };
 
@@ -187,9 +208,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       lastStationContextKeyRef.current = renderedStationContextKey;
     }
 
-    if (screen === 'explore' || screen === 'stations') {
-      lastExploreScreenRef.current = screen;
-    }
   }, [renderedStationContextKey, screen, selected]);
 
   useEffect(() => {
@@ -594,23 +612,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     setSleepUntil(next ? Date.now() + next * 60_000 : null);
   }, [sleepUntil]);
 
-  const loadImported = useCallback(() => {
-    showStationContext({
-      title: 'Favorites and imports',
-      subtitle: `${library.favorites.length} favorites · ${library.imported.length} imported streams`,
-      stations: [...library.favorites, ...library.imported]
-    }, 'favorites', {resetSelection: false});
-  }, [library.favorites, library.imported, showStationContext]);
+  const openLibrary = useCallback(() => {
+    go('library', {resetSelection: false});
+  }, [go]);
 
   const selectedStation = displayStations[selected] ?? null;
 
   const openScreen = useCallback(
     (target: Screen) => {
       if (target === 'explore') {
-        const previousExploreScreen = lastExploreScreenRef.current;
-        if (previousExploreScreen === 'stations' && stationContextsRef.current.stations.stations.length > 0) {
-          go('stations');
-        } else if (stationContextsRef.current.explore.stations.length > 0) {
+        if (stationContextsRef.current.explore.stations.length > 0) {
           go('explore');
         } else {
           void loadPopular();
@@ -624,19 +635,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       } else if (target === 'search') {
         go('search');
         setEditingSearch(true);
-      } else if (target === 'recent') {
-        showStationContext({
-          title: 'Recent',
-          subtitle: 'Stations played on this machine',
-          stations: library.recent.map(item => item.station)
-        }, 'recent', {resetSelection: false});
-      } else if (target === 'favorites') {
-        loadImported();
+      } else if (target === 'library') {
+        openLibrary();
       } else {
         go(target);
       }
     },
-    [go, library.recent, loadImported, loadNearby, loadPopular, showStationContext]
+    [go, loadNearby, loadPopular, openLibrary]
   );
 
   const openAdjacentTab = useCallback(
@@ -656,9 +661,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     beginLearningTransportKey,
     countries,
     go,
-    library,
     loadCountry,
-    loadImported,
+    openLibrary,
     player,
     playingStation,
     providers,
@@ -674,7 +678,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     setSleepUntil,
     setVolume,
     settingsRef,
-    showStationContext,
     store,
     toggleFavorite,
     toggleMute,
@@ -848,4 +851,36 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       </Box>
     </Box>
   );
+}
+
+function buildLibraryStations(library: LibraryState): Station[] {
+  const stations: Station[] = [];
+  const seen = new Set<string>();
+  const addStation = (station: Station) => {
+    const key = stationKey(station);
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    stations.push(station);
+  };
+
+  for (const station of library.favorites) {
+    addStation(station);
+  }
+
+  for (const item of library.recent) {
+    addStation(item.station);
+  }
+
+  for (const station of library.imported) {
+    addStation(station);
+  }
+
+  return stations;
+}
+
+function librarySubtitle(library: LibraryState): string {
+  return `${library.favorites.length} favorites · ${library.recent.length} recent · ${library.imported.length} imported · favorites first`;
 }

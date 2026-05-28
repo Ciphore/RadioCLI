@@ -54,14 +54,15 @@ Tune attempts time out according to `settings.tuneTimeoutSeconds`.
 The TUI is an Ink app with explicit screens:
 
 - Home
-- World map
-- Countries
-- Search
-- Nearby
 - Now Playing
+- Library
+- Explore
+- Search
+- Countries
+- Country station results
+- World map
+- Nearby
 - Stats
-- Recent
-- Favorites/imports
 - Settings
 
 `computeTerminalLayout()` converts terminal dimensions into list sizes, receiver
@@ -70,7 +71,7 @@ of hard-coding visible rows.
 
 Pure screen model helpers, tab definitions, filters, and text-editing helpers
 live in `src/ui/app-state.ts`. The Now Playing screen owns receiver layout while
-the signal visualizer builders live under `src/ui/visualizers`.
+the receiver visualizer builders live under `src/ui/visualizers`.
 
 Receiver animation has a single state boundary: `shouldAnimateReceiver()` allows
 the shared pulse timer to advance only on the Now Playing screen while playback is
