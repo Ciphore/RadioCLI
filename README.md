@@ -6,15 +6,15 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 ## Features
 
-- Explore public radio from around the world through a cosmo-style braille world map beside the station list, backed by a cached geotagged station atlas so the cursor ranks the full available Radio Browser geo set by true distance instead of global popularity. Country lists, global station search, a country-density map, and opt-in nearby discovery round out the discovery surface.
+- Explore public radio from around the world through a cosmo-style braille world map beside the station list, with click-to-place mouse support and WASD keyboard movement backed by a cached geotagged station atlas. Country lists, global station search, a country-density map, and opt-in nearby discovery round out the discovery surface.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
 - Use a receiver-style Now Playing screen with 25 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
-- Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
+- Keep shortcuts in a fixed adaptive footer: a compact live station and track row appears above page-specific and global controls while playback is active.
 - Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
 - Search by station name, place, language, tag, codec, or minimum bitrate.
 - Keep local recents, favorites, imported stations, listening activity, playback settings, learned media keys, and provider cache.
-- Review listening stats with a Tokscale-inspired tab rail, local-calendar contribution graph, favorite station, sessions, streaks, active days, and total hours listened from persisted sessions.
+- Review listening stats with a Tokscale-inspired tab rail, local-calendar contribution graph, favorite station, thresholded stations listened, sessions, streaks, active days, and total hours listened from persisted sessions.
 - Import `.m3u`, `.pls`, and `.xspf` playlists, including nested local playlists.
 - Export favorites and imports as `.m3u`.
 - Survive ordinary internet-radio failure modes with provider mirror fallback, stale cache fallback, corrupt-file backups, tune timeouts, and skip-broken-stream behavior.
@@ -44,7 +44,7 @@ Overview  Playing  Library  Explore  Search  Countries  Nearby  Stats  Settings
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
 ```
 
-The Now Playing screen is a framed receiver panel with 25 selectable spectrum/receiver styles. The sample below shows the default fast spectrum bars; press `v` to cycle through spectrum bars, oscilloscope, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, stars, matrix, hologram, a spinning ASCII cube, fire, fireworks, plasma, radio waves, raindrops, spinning donut, and starfield styles. Visualizers animate only while playback is actually playing and backend-ready; paused, stopped, idle, loading, and error states render a flat zero-signal display instead of a frozen waveform:
+The Now Playing screen is a framed receiver panel with 79 selectable spectrum/receiver styles. The sample below shows the default fast spectrum bars; press `v` to cycle through the core RadioCLI receiver styles plus the full Termflix-inspired animation catalog. Termflix entries that overlap existing RadioCLI names are exposed as termflix-fire, termflix-matrix, termflix-plasma, termflix-starfield, termflix-waterfall, and termflix-radar; the rest of the added catalog includes wave, life, particles, pendulum, rain, fountain, flow, spiral, ocean, aurora, lightning, smoke, ripple, snow, garden, fireflies, DNA, pulse, boids, lava, sandstorm, petals, campfire, eclipse, blackhole, rainforest, crystallize, hackerman, visualizer, cells, atom, automata, globe, dragon, Sierpinski, Mandelbrot, maze, metaballs, nbody, Langton, sort, Tetris, snake, invaders, Pong, Flappy Bird, reaction diffusion, and Voronoi. Visualizers animate only while playback is actually playing and backend-ready; paused, stopped, idle, loading, and error states render a flat zero-signal display instead of a frozen waveform:
 
 ```text
 Now playing
@@ -188,7 +188,7 @@ node dist/cli.js search "lagos talk"
 
 ## TUI Controls
 
-RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active, a live station row sits above the shortcuts with station, metadata, backend, volume, queue, and sleep-timer details. The page shortcut row changes with the current screen, and the global transport row stays global:
+RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active, a compact live row sits above the shortcuts with station, cleaned track metadata, volume or mute state, and an active sleep timer. The page shortcut row changes with the current screen, and the global transport row stays global:
 
 - `←` / `→` or `Tab` / `Shift+Tab`: move across the top screen tabs.
 - `F7` / `F9`, `,` / `.`, or `Shift+←` / `Shift+→`: tune previous or next station from the source list, wherever you are in the TUI.
@@ -205,7 +205,7 @@ Page-specific footer controls:
 | Home | `↑` / `↓` move, `Enter` open, number jump, `:` command |
 | Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
-| Explore | `WASD` fine move, `Shift+WASD` jump, `↑` / `↓` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
+| Explore | click map, `WASD` fine move, `Shift+WASD` jump, `↑` / `↓` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `↑` / `↓` move, `Enter` open stations, `w` map, `b` home |
 | World map | `/` filter, `↑` / `↓` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
@@ -235,6 +235,8 @@ When you tune a station from Library, Explore, Search, Countries, or Nearby, tha
 
 Hardware media keys depend on the OS and terminal. RadioCLI maximizes compatibility by enabling enhanced keyboard reporting where supported, recognizing common F7/F8/F9 sequences, Kitty consumer/media-key codes, modified-arrow sequences, comma/dot transport fallback, and learned custom bindings. Learn keys from Settings or with `:learn previous`, `:learn play`, and `:learn next`; clear them with `:keys reset`.
 
+Explore mouse clicks use terminal mouse reporting while the Explore tab is active. If your terminal or tmux setup does not pass those events through, the WASD cursor controls stay fully available.
+
 Useful command palette entries:
 
 ```text
@@ -263,7 +265,7 @@ Useful command palette entries:
 :stop
 ```
 
-Settings persist display colors and spectrum/receiver styles without editing config files. The nine display colors are green, amber, blue, ruby, ice, teal, violet, copper, and mono. The 25 receiver styles are spectrum, oscilloscope, waterfall, cassette, equalizer, audioMotion-style bars, blob waves, split-area scopes, dotted amplitude fields, contour rings, braided oscilloscopes, radar, blocks, LEDs, stars, matrix, hologram, ASCII cube, fire, fireworks, plasma, radio waves, raindrops, spinning donut, and starfield. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
+Settings persist display colors and spectrum/receiver styles without editing config files. The nine display colors are green, amber, blue, ruby, ice, teal, violet, copper, and mono. The 79 receiver styles include the original spectrum, oscilloscope, waterfall, cassette, equalizer, audioMotion-style, radar, blocks, LEDs, stars, matrix, hologram, ASCII cube, fire, fireworks, plasma, radio waves, raindrops, spinning donut, and starfield displays, plus the added Termflix-inspired catalog entries. The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
 
 ## Architecture
 
@@ -299,7 +301,7 @@ This repo is intentionally small, but it is built like production software:
 - corrupt store/cache backup instead of silent overwrite
 - `mpv` readiness checks before reporting playback as active
 - tune timeout and skip-broken-stream behavior
-- cleaned ICY metadata, including key/value payloads such as `title="..." artist="..."`
+- cleaned ICY metadata, including key/value payloads such as `title="..." artist="..."` and station-specific `text="..."` fields
 - source-list playback queues for previous/next transport
 - enhanced terminal keyboard parsing with learned media-key bindings
 - local-calendar activity bucketing for late-night listening sessions

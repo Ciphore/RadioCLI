@@ -4,6 +4,7 @@ import type {Station, ThemeName} from '../../types.js';
 import type {ExploreCursor} from '../app-state.js';
 import {StationList} from '../components/StationList.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from '../cosmo-world-map.js';
+import {computeExploreMapLayout} from '../explore-map-layout.js';
 import {panelBackground, panelBorder, themeAccent} from '../theme.js';
 
 type ExploreScreenProps = {
@@ -35,16 +36,8 @@ export function ExploreScreen({
   width,
   height
 }: ExploreScreenProps): React.ReactElement {
-  const contentWidth = Math.max(52, width);
-  const headerRows = 3;
-  const bodyRows = Math.max(7, height - headerRows - 1);
-  const split = contentWidth >= 104 && bodyRows >= 10;
-  const listPanelWidth = split ? Math.max(50, Math.min(74, Math.floor(contentWidth * 0.35))) : contentWidth;
-  const mapPanelWidth = split ? Math.max(48, contentWidth - listPanelWidth - 1) : contentWidth;
-  const mapRows = split ? Math.max(8, bodyRows - 2) : Math.max(7, Math.min(14, Math.floor(bodyRows * 0.52)));
-  const mapColumns = Math.max(40, mapPanelWidth - 2);
-  const listRows = split ? bodyRows - 2 : Math.max(1, bodyRows - mapRows - 4);
-  const listPageSize = Math.max(1, Math.min(pageSize, listRows - 3));
+  const {contentWidth, headerRows, bodyRows, split, listPanelWidth, mapPanelWidth, mapRows, mapColumns, listRows, listPageSize} =
+    computeExploreMapLayout(width, height, pageSize);
   const cursorMarker = React.useMemo(
     () => [{lat: cursor.latitude, lon: cursor.longitude, selected: true}],
     [cursor.latitude, cursor.longitude]

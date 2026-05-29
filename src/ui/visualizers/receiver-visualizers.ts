@@ -1,6 +1,7 @@
 import type {PlaybackState, ReceiverStyle, Station, ThemeName} from '../../types.js';
 import {truncate} from '../format.js';
 import {themeAccent, themeContributionColors} from '../theme.js';
+import {buildTermflixVisualizer, isTermflixAdditionalStyle, termflixVisualizerHeight} from './termflix-visualizers.js';
 
 type VisualLine = {
   text: string;
@@ -29,6 +30,10 @@ export function buildVisualizer(
 ): VisualLine[] {
   if (!playbackHasSignal(playback)) {
     return buildZeroSignalVisualizer(style, width, height, station, playback, theme);
+  }
+
+  if (isTermflixAdditionalStyle(style)) {
+    return buildTermflixVisualizer(style, pulse, width, height, theme);
   }
 
   if (style === 'oscilloscope') {
@@ -1420,6 +1425,11 @@ function dimMotionColorAt(position: number, theme: ThemeName): string {
 }
 
 export function visualizerHeight(style: ReceiverStyle, availableRows: number): number {
+  const termflixHeight = termflixVisualizerHeight(style, availableRows);
+  if (termflixHeight !== null) {
+    return termflixHeight;
+  }
+
   if (style === 'cassette') {
     return 8;
   }

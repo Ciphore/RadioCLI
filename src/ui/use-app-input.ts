@@ -14,6 +14,7 @@ import {
   type ExploreMoveDirection,
   type MediaTransportAction
 } from './app-state.js';
+import {parseSgrMouseEvents, primaryMousePress} from './terminal-mouse.js';
 
 type CurrentRef<T> = {
   current: T;
@@ -50,6 +51,7 @@ type AppInputOptions = {
   player: PlayerController;
   playingStation: Station | null;
   moveExploreCursor: (direction: ExploreMoveDirection, fast?: boolean) => void;
+  moveExploreCursorToCell: (x: number, y: number) => void;
   refreshProviderHealth: () => void;
   resetLearnedTransportKeys: () => void;
   runSearch: () => Promise<void>;
@@ -104,6 +106,7 @@ export function useAppInput({
   player,
   playingStation,
   moveExploreCursor,
+  moveExploreCursorToCell,
   refreshProviderHealth,
   resetLearnedTransportKeys,
   runSearch,
@@ -149,6 +152,16 @@ export function useAppInput({
         return;
       }
 
+      const mouseEvents = parseSgrMouseEvents(rawInput);
+      if (mouseEvents.length > 0) {
+        const click = primaryMousePress(mouseEvents);
+        lastRawTransportAtRef.current = Date.now();
+        if (!commandMode && screen === 'explore' && click) {
+          moveExploreCursorToCell(click.x, click.y);
+        }
+        return;
+      }
+
       const action = mediaTransportActionForInput(rawInput, settingsRef.current.mediaKeys);
       if (
         isPlainPrintableInput(rawInput) &&
@@ -181,6 +194,7 @@ export function useAppInput({
     lastRawTransportAtRef,
     playAdjacent,
     player,
+    moveExploreCursorToCell,
     saveLearnedTransportKey,
     screen,
     setCapturingTransportAction,

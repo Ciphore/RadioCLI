@@ -191,6 +191,18 @@ function projectCosmoCoordinate(coordinate: Coordinate, width: number, height: n
   return {col, row};
 }
 
+export function cosmoCoordinateForCell(col: number, row: number, width: number, height: number): Coordinate {
+  const mapWidth = Math.max(1, Math.floor(width));
+  const mapHeight = Math.max(1, Math.floor(height));
+  const boundedCol = Math.max(0, Math.min(mapWidth - 1, Math.floor(col)));
+  const boundedRow = Math.max(0, Math.min(mapHeight - 1, Math.floor(row)));
+
+  return {
+    lat: 90 - ((boundedRow + 0.5) / mapHeight) * 180,
+    lon: -180 + ((boundedCol + 0.5) / mapWidth) * 360
+  };
+}
+
 function stationCoordinate(station: Station): Coordinate | null {
   if (
     typeof station.latitude === 'number' &&

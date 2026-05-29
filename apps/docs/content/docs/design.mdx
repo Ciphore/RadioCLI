@@ -48,7 +48,10 @@ The Now Playing screen supports multiple visualizer styles so the display can
 feel like a receiver without locking the product into one animation. The default
 spectrum style is fast and direct, while the retained alternates include the
 restored spinning ASCII cube plus generated ASCII fire, fireworks, plasma, radio
-waves, raindrops, spinning donut, and starfield displays.
+waves, raindrops, spinning donut, and starfield displays. The extended style
+cycle also includes the Termflix-inspired catalog as deterministic, pure-frame
+terminal animations so they fit Ink rendering and still freeze to a truthful
+zero-signal frame when playback is inactive.
 
 Receiver motion is tied to playback truth rather than screen presence. Visualizers
 animate only when playback is `playing` and backend-ready; idle, loading, paused,
@@ -58,8 +61,10 @@ implies live audio when nothing is playing.
 Explore uses a dense braille world map next to the station list on wide
 terminals. That layout keeps global discovery spatial without forcing the user
 to switch away from the playable list. The map has one movable scan cursor
-instead of many station pins; WASD makes fine nudges, Shift+WASD makes larger
-jumps, and the station list reloads around that coordinate.
+instead of many station pins; clicking the map places it directly, WASD makes
+fine nudges, Shift+WASD makes larger jumps, and the station list reloads around
+that coordinate. Mouse reporting is scoped to Explore so the rest of the terminal
+app keeps ordinary selection behavior.
 
 The Explore list is distance-truthful rather than popularity-first. RadioCLI
 builds a cached atlas from all available Radio Browser stations with coordinates
@@ -76,7 +81,9 @@ active tab and nearby tabs in view.
 
 Listening stats use the same direct, boxed language as the rest of the app. The
 contribution graph shows the last 371 days of local listening activity, while
-the numeric stats report real locally persisted sessions.
+the numeric stats report real locally persisted sessions, including favorite
+station, thresholded stations listened, sessions, streaks, active days, and total
+hours listened.
 
 The stats graph palette follows the selected display color, so Stats feels like
 part of the same configured receiver surface.

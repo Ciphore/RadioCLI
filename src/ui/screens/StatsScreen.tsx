@@ -1,13 +1,12 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import type {LibraryState, PlaybackState, ThemeName} from '../../types.js';
+import type {LibraryState, ThemeName} from '../../types.js';
 import {computeListeningStats, type DailyListening} from '../../activity/stats.js';
 import {panelBackground, panelBorder, themeAccent, themeContributionColors} from '../theme.js';
 import {truncate} from '../format.js';
 
 type StatsScreenProps = {
   library: LibraryState;
-  playback: PlaybackState;
   theme: ThemeName;
   width: number;
   height: number;
@@ -15,7 +14,7 @@ type StatsScreenProps = {
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export function StatsScreen({library, playback, theme, width, height}: StatsScreenProps): React.ReactElement {
+export function StatsScreen({library, theme, width, height}: StatsScreenProps): React.ReactElement {
   const stats = computeListeningStats(library.activity.sessions);
   const contentWidth = Math.max(20, width - 4);
   const graph = buildContributionGraph(stats.days, contentWidth);
@@ -24,7 +23,6 @@ export function StatsScreen({library, playback, theme, width, height}: StatsScre
   const totalHours = stats.totalSeconds / 3600;
   const metricWidth = Math.max(28, Math.floor((contentWidth - 2) / 2));
   const favoriteWidth = Math.max(8, metricWidth - 18);
-  const status = `${playback.backend} / ${playback.state}`;
   const compact = height < 30;
 
   return (
@@ -72,8 +70,8 @@ export function StatsScreen({library, playback, theme, width, height}: StatsScre
         <Box marginTop={compact ? 0 : 1} flexDirection="column" width={contentWidth}>
           {metricPair('Favorite station', truncate(favorite, favoriteWidth), 'Total hours listened', formatHours(totalHours), metricWidth, theme)}
           {metricPair('Sessions', stats.sessions.toLocaleString(), 'Longest streak', formatDays(stats.longestStreak), metricWidth, theme)}
-          {metricPair('Current streak', formatDays(stats.currentStreak), 'Favorite time', formatDuration(stats.favoriteSeconds), metricWidth, theme)}
-          {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Current player', truncate(status, Math.max(8, metricWidth - 16)), metricWidth, theme)}
+          {metricPair('Current streak', formatDays(stats.currentStreak), 'Stations listened', stats.listenedStationCount.toLocaleString(), metricWidth, theme)}
+          {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Station threshold', '>= 120s total', metricWidth, theme)}
         </Box>
         <Box marginTop={1}>
           <Text color="gray">Less · </Text>
@@ -229,16 +227,4 @@ function formatHours(hours: number): string {
   }
 
   return `${Math.round(hours).toLocaleString()}h`;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  if (seconds < 3600) {
-    return `${Math.round(seconds / 60)}m`;
-  }
-
-  return formatHours(seconds / 3600);
 }

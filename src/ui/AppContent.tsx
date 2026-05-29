@@ -209,7 +209,7 @@ export function AppContent({
   }
 
   if (screen === 'stats') {
-    return <StatsScreen library={library} playback={playback} theme={theme} width={frameWidth} height={layout.contentRows} />;
+    return <StatsScreen library={library} theme={theme} width={frameWidth} height={layout.contentRows} />;
   }
 
   if (screen === 'settings') {

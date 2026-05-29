@@ -5,7 +5,7 @@ export const homeItems = [
   {screen: 'search', label: 'Search', detail: 'Find stations by name, genre, language, place'},
   {screen: 'countries', label: 'Countries', detail: 'Browse by country list with a world-map toggle'},
   {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},
-  {screen: 'stats', label: 'Stats', detail: 'Listening graph, sessions, streaks, hours'},
+  {screen: 'stats', label: 'Stats', detail: 'Listening graph, stations, streaks, hours'},
   {screen: 'settings', label: 'Settings', detail: 'Playback backend, colors, providers'}
 ] as const;
 

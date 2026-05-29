@@ -81,6 +81,21 @@ describe('computeListeningStats', () => {
     expect(stats.totalSeconds).toBe(7200);
     expect(stats.activeDays).toBe(0);
   });
+
+  it('counts unique stations listened for at least two cumulative minutes', () => {
+    const secondStation: Station = {...station, id: 'station-2', name: 'Brief FM'};
+    const thirdStation: Station = {...station, id: 'station-3', name: 'Return FM'};
+    const sessions: ListeningSession[] = [
+      session('qualified-a', new Date(2026, 4, 24, 10), 121, station),
+      session('brief', new Date(2026, 4, 24, 11), 12, secondStation),
+      session('return-a', new Date(2026, 4, 24, 12), 70, thirdStation),
+      session('return-b', new Date(2026, 4, 24, 13), 50, thirdStation)
+    ];
+
+    const stats = computeListeningStats(sessions, new Date(2026, 4, 24, 18));
+
+    expect(stats.listenedStationCount).toBe(2);
+  });
 });
 
 function session(id: string, startedAt: Date, listenedSeconds: number, stationValue: Station): ListeningSession {

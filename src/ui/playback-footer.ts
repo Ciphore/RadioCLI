@@ -1,6 +1,6 @@
 import type {IcyNowPlaying, PlaybackState, Station} from '../types.js';
 import type {PlaybackQueue} from './app-state.js';
-import {stationLocation, stationTech, truncate} from './format.js';
+import {truncate} from './format.js';
 
 type PlaybackFooterInput = {
   station: Station | null;
@@ -22,8 +22,6 @@ export function playbackFooterText({
   station,
   playback,
   metadata,
-  queue,
-  favorite,
   sleepLabel,
   width
 }: PlaybackFooterInput): string | null {
@@ -32,26 +30,22 @@ export function playbackFooterText({
   }
 
   const details = [
+    statePrefix(playback.state),
     station.name,
     trackLabel(metadata, station),
-    stationLocation(station),
-    stationTech(station),
-    playback.backend ? `${playback.backend} · ${playback.state}` : playback.state,
     playback.muted ? 'muted' : `vol ${playback.volume}`,
-    favorite ? 'favorite' : undefined,
-    queueLabel(queue, station),
     sleepLabel !== 'Sleep off' ? sleepLabel : undefined
   ].filter(Boolean);
 
-  return truncate(`${stateLabel(playback.state)}: ${details.join(' · ')}`, Math.max(1, width));
+  return truncate(details.join(' · '), Math.max(1, width));
 }
 
-function stateLabel(state: PlaybackState['state']): string {
+function statePrefix(state: PlaybackState['state']): string | undefined {
   if (state === 'paused') {
     return 'Paused';
   }
 
-  return 'Playing';
+  return undefined;
 }
 
 function trackLabel(metadata: IcyNowPlaying | null, station: Station): string | undefined {
@@ -60,18 +54,5 @@ function trackLabel(metadata: IcyNowPlaying | null, station: Station): string | 
     return undefined;
   }
 
-  return `Now: ${title}`;
-}
-
-function queueLabel(queue: PlaybackQueue | null, station: Station): string | undefined {
-  if (!queue || queue.stations.length <= 1) {
-    return undefined;
-  }
-
-  const index = queue.stations.findIndex(item => item.provider === station.provider && item.id === station.id);
-  if (index === -1) {
-    return `${queue.title} queue`;
-  }
-
-  return `${queue.title} ${index + 1}/${queue.stations.length}`;
+  return title;
 }

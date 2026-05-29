@@ -4,8 +4,8 @@ description: Navigation, playback, settings, command palette, and learned media 
 ---
 
 RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active,
-a live station row sits above the shortcuts with station, metadata, backend, volume,
-queue, and sleep-timer details.
+a compact live row sits above the shortcuts with station, cleaned track metadata,
+volume or mute state, and an active sleep timer.
 
 ## Global Controls
 
@@ -15,7 +15,7 @@ queue, and sleep-timer details.
 | `F7` / `F9`, `,` / `.`, or `Shift+Left` / `Shift+Right` | Tune previous or next station from the current source list |
 | `space` / `F8` | Pause or resume |
 | `t` | Cycle display color |
-| `v` | Cycle receiver/spectrum style |
+| `v` | Cycle receiver/spectrum style, including the Termflix-inspired catalog |
 | `+` / `-` | Adjust volume |
 | `q` or `Ctrl+C` | Quit cleanly |
 
@@ -26,13 +26,17 @@ queue, and sleep-timer details.
 | Home | `Up` / `Down` move, `Enter` open, number jump, `:` command |
 | Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
-| Explore | `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
+| Explore | click map, `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `Up` / `Down` move, `Enter` open stations, `w` map, `b` home |
 | World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
 | Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `r` health, `b` home |
 | Stats | `b` home |
+
+Explore mouse clicks use terminal mouse reporting while the Explore tab is
+active. If your terminal or tmux setup does not pass those events through, the
+WASD cursor controls stay fully available.
 
 ## Command Palette
 

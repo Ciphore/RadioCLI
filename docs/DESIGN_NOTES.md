@@ -48,7 +48,10 @@ a denser oscilloscope trace, a stronger waterfall, a more physical cassette,
 equalizer and audioMotion-style displays, radar, blocks, LEDs, diagonal stars,
 matrix, hologram, a real spinning ASCII cube, and generated ASCII animation
 styles for fire, fireworks, plasma, radio waves, raindrops, a spinning donut,
-and a starfield.
+and a starfield. The extended style cycle also includes the Termflix-inspired
+catalog as deterministic, pure-frame terminal animations so they fit Ink
+rendering and still freeze to a truthful zero-signal frame when playback is
+inactive.
 
 Receiver motion is tied to playback truth rather than screen presence. Visualizers
 animate only when playback is `playing` and backend-ready; idle, loading, paused,
@@ -58,8 +61,10 @@ implies live audio when nothing is playing.
 Explore uses a dense braille world map next to the station list on wide
 terminals. That layout keeps global discovery spatial without forcing the user
 to switch away from the playable list. The map has one movable scan cursor
-instead of many station pins; WASD makes fine nudges, Shift+WASD makes larger
-jumps, and the station list reloads around that coordinate.
+instead of many station pins; clicking the map places it directly, WASD makes
+fine nudges, Shift+WASD makes larger jumps, and the station list reloads around
+that coordinate. Mouse reporting is scoped to Explore so the rest of the terminal
+app keeps ordinary selection behavior.
 
 The Explore list is distance-truthful rather than popularity-first. RadioCLI
 builds a cached atlas from all available Radio Browser stations with coordinates
@@ -77,8 +82,8 @@ active tab and nearby tabs in view so navigation does not wrap.
 Listening stats use the same direct, boxed language as the rest of the app. The
 contribution graph shows the last 371 days of local listening activity, while
 the numeric stats report real locally persisted sessions: favorite station,
-session count, current streak, active days, total hours listened, favorite time,
-and longest streak.
+thresholded stations listened, session count, current streak, active days, total
+hours listened, and longest streak.
 
 The stats graph palette follows the selected display color, including the
 legend. Blue, amber, teal, violet, copper, and the other display colors should

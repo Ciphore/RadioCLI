@@ -13,8 +13,17 @@
 - Replaced Explore/Nearby's clickcount-first geo lookup with a cached geotagged
   station atlas that ranks the full available Radio Browser geo set by distance,
   then uses station quality only as a near-identical-coordinate tie-breaker.
+- Added terminal mouse support on Explore so users can click the braille world
+  map to move the scan cursor directly to that part of the world.
 - Changed Explore movement to fine WASD nudges with Shift+WASD jumps so nearby
   station clusters are much harder to skip while crossing the map.
+
+### Visualizers
+
+- Added Termflix-inspired receiver animations for the full local Termflix catalog,
+  expanding the Now Playing style cycle to 79 selectable displays while keeping the
+  existing fire, matrix, plasma, starfield, waterfall, and radar styles intact as
+  separate `termflix-*` variants.
 
 ### Packaging And Install
 
@@ -29,6 +38,20 @@
 
 - Fixed globally linked `radiocli` launches by resolving symlinks before deciding
   whether the CLI module is being run directly.
+- Fixed macOS media overlay titles for stations that publish raw key/value ICY
+  payloads such as `title="..." artist="..."`, by forcing mpv's media title to
+  RadioCLI's cleaned station or track label.
+- Simplified the live playback footer so it shows only station, cleaned track,
+  volume or mute state, and active sleep timer instead of backend, location,
+  codec, queue, and favorite diagnostics.
+- Cleaned additional station metadata payloads where artist text precedes
+  space-separated fields such as `text="..." song_spot="..."`.
+- Synced RadioCLI's playback state from `mpv`'s live pause property so macOS
+  media controls cannot leave the Now Playing visualizer and spacebar toggle
+  inverted from the actual stream.
+- Replaced Stats' ambiguous favorite-time and current-player fields with a
+  `Stations listened` count that only includes stations with at least 120 seconds
+  of cumulative listening.
 - Now Playing receiver graphics now stop at a true zero-signal frame when playback
   is idle, loading, paused, stopped, errored, or not backend-ready, instead of
   leaving a frozen spectrum waveform on screen.
@@ -93,7 +116,7 @@
 
 - Local JSON store for recents, favorites, imports, listening activity, playback settings, learned media keys, and provider cache.
 - Playlist import/export for `.m3u`, `.pls`, and `.xspf`.
-- Listening stats screen with a 52-week contribution graph, favorite station, session count, current and longest streaks, active days, favorite time, and all-time hours listened.
+- Listening stats screen with a 52-week contribution graph, favorite station, thresholded stations listened, session count, current and longest streaks, active days, and all-time hours listened.
 - Stats contribution graph and legend colors now follow the persisted display color.
 - Stats now bucket listening sessions by local calendar day instead of UTC day, so late-night listening correctly appears across consecutive local days.
 

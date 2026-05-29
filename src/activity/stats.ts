@@ -8,7 +8,7 @@ export type DailyListening = {
 
 export type ListeningStats = {
   favoriteStation: Station | null;
-  favoriteSeconds: number;
+  listenedStationCount: number;
   sessions: number;
   currentStreak: number;
   activeDays: number;
@@ -19,6 +19,7 @@ export type ListeningStats = {
 };
 
 const trackedDays = 371;
+const listenedStationThresholdSeconds = 120;
 
 export function computeListeningStats(sessions: ListeningSession[], now = new Date()): ListeningStats {
   const today = startOfLocalDay(now);
@@ -60,7 +61,7 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
 
   return {
     favoriteStation: favorite?.station ?? null,
-    favoriteSeconds: favorite?.seconds ?? 0,
+    listenedStationCount: Array.from(secondsByStation.values()).filter(entry => entry.seconds >= listenedStationThresholdSeconds).length,
     sessions: sessions.length,
     currentStreak: currentStreak(days),
     activeDays,

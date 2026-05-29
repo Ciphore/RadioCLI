@@ -51,7 +51,7 @@ export function pageFooterText({
   }
 
   if (screen === 'explore') {
-    return 'WASD fine move · Shift+WASD jump · ↑/↓ station · Enter tune · f favorite · [/] page · b home';
+    return 'Click map · WASD fine move · Shift+WASD jump · ↑/↓ station · Enter tune · f favorite · b home';
   }
 
   if (

@@ -14,11 +14,13 @@ export class PlayerController {
   private backend: 'mpv' | 'ffplay' | null = null;
   private ipcPath: string | null = null;
   private metadataTimer: NodeJS.Timeout | null = null;
+  private playbackStateTimer: NodeJS.Timeout | null = null;
   private state: PlaybackState = {backend: 'none', state: 'idle', volume: 70, muted: false, ready: false};
   private listeners = new Set<PlayerEvent>();
   private metadataListeners = new Set<MetadataEvent>();
   private availableBackends: string[] | null = null;
   private nextMpvRequestId = 1;
+  private currentMpvMediaTitle: string | null = null;
 
   constructor(private readonly getSettings: () => AppSettings) {}
 
@@ -79,7 +81,7 @@ export class PlayerController {
       streamUrl: url,
       ready: false
     });
-    backend === 'mpv' ? this.playWithMpv(url) : this.playWithFfplay(url);
+    backend === 'mpv' ? this.playWithMpv(url, station.name) : this.playWithFfplay(url);
     await this.waitForReady(backend);
     this.setState({
       backend,
@@ -98,12 +100,16 @@ export class PlayerController {
   }
 
   async togglePause(): Promise<void> {
-    if (!this.process || !this.backend) {
+    if (!this.process || !this.backend || !this.state.ready) {
       return;
     }
 
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['cycle', 'pause']}).catch(() => undefined);
+      const synced = await this.syncMpvPlaybackState();
+      if (synced) {
+        return;
+      }
     } else {
       this.process.stdin.write('p');
     }
@@ -146,7 +152,7 @@ export class PlayerController {
   }
 
   async stop(): Promise<void> {
-    this.stopMetadataPolling();
+    this.stopMpvPolling();
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['quit']}).catch(() => undefined);
     }
@@ -187,14 +193,16 @@ export class PlayerController {
     return null;
   }
 
-  private playWithMpv(url: string): void {
+  private playWithMpv(url: string, initialTitle: string): void {
     this.ipcPath = join(tmpdir(), `radiocli-${process.pid}-${Date.now()}.sock`);
+    this.currentMpvMediaTitle = cleanMediaTitle(initialTitle) ?? 'RadioCLI';
     this.process = spawn(
       'mpv',
       [
         '--no-video',
         '--really-quiet',
         '--force-window=no',
+        `--force-media-title=${this.currentMpvMediaTitle}`,
         `--volume=${this.getSettings().volume}`,
         `--input-ipc-server=${this.ipcPath}`,
         url
@@ -232,7 +240,7 @@ export class PlayerController {
     child.on('exit', code => {
       if (this.process === child) {
         this.process = null;
-        this.stopMetadataPolling();
+        this.stopMpvPolling();
         this.cleanupIpc();
         this.setState({
           ...this.state,
@@ -346,17 +354,26 @@ export class PlayerController {
   }
 
   private startMpvMetadataPolling(): void {
-    this.stopMetadataPolling();
+    this.stopMpvPolling();
     this.metadataTimer = setInterval(() => {
       void this.pollMpvMetadata();
     }, 2500);
+    this.playbackStateTimer = setInterval(() => {
+      void this.syncMpvPlaybackState();
+    }, 500);
     void this.pollMpvMetadata();
+    void this.syncMpvPlaybackState();
   }
 
-  private stopMetadataPolling(): void {
+  private stopMpvPolling(): void {
     if (this.metadataTimer) {
       clearInterval(this.metadataTimer);
       this.metadataTimer = null;
+    }
+
+    if (this.playbackStateTimer) {
+      clearInterval(this.playbackStateTimer);
+      this.playbackStateTimer = null;
     }
   }
 
@@ -373,8 +390,37 @@ export class PlayerController {
 
     const title = extractMpvTitle(metadata);
     if (title) {
+      await this.setMpvMediaTitle(title);
       this.emitMetadata({title, raw: JSON.stringify(metadata), updatedAt: new Date().toISOString()});
     }
+  }
+
+  private async setMpvMediaTitle(title: string): Promise<void> {
+    const cleaned = cleanMediaTitle(title);
+    if (!cleaned || cleaned === this.currentMpvMediaTitle) {
+      return;
+    }
+
+    this.currentMpvMediaTitle = cleaned;
+    await this.sendMpv({command: ['set_property', 'force-media-title', cleaned]}).catch(() => undefined);
+  }
+
+  private async syncMpvPlaybackState(): Promise<boolean> {
+    if (this.backend !== 'mpv' || !this.process || !this.state.ready) {
+      return false;
+    }
+
+    const paused = await this.queryMpv<boolean>({command: ['get_property', 'pause']}).catch(() => null);
+    if (typeof paused !== 'boolean') {
+      return false;
+    }
+
+    const state = paused ? 'paused' : 'playing';
+    if (this.state.state !== state) {
+      this.setState({...this.state, state});
+    }
+
+    return true;
   }
 
   private emitMetadata(metadata: IcyNowPlaying): void {
@@ -393,6 +439,7 @@ export class PlayerController {
     }
 
     this.ipcPath = null;
+    this.currentMpvMediaTitle = null;
   }
 
   private setState(state: PlaybackState): void {
@@ -455,15 +502,15 @@ async function waitForStartupWindow(getProcess: () => ChildProcessWithoutNullStr
 }
 
 function cleanMetadataTitle(value: string | undefined): string | undefined {
-  const normalized = value?.replace(/\s+/g, ' ').trim();
+  const normalized = cleanMediaTitle(value);
   if (!normalized) {
     return undefined;
   }
 
   const fields = parseMetadataFields(normalized);
   if (fields.size > 0) {
-    const title = firstField(fields, ['title', 'streamtitle', 'song', 'track', 'name']);
-    const artist = firstField(fields, ['artist', 'artists', 'performer', 'albumartist']);
+    const title = firstField(fields, ['title', 'streamtitle', 'text', 'song', 'track', 'name']);
+    const artist = firstField(fields, ['artist', 'artists', 'performer', 'albumartist']) ?? leadingMetadataPrefix(normalized);
     const album = firstField(fields, ['album']);
 
     if (artist && title) {
@@ -478,11 +525,12 @@ function cleanMetadataTitle(value: string | undefined): string | undefined {
 
 function parseMetadataFields(value: string): Map<string, string> {
   const fields = new Map<string, string>();
-  const pattern = /(?:^|[;,]\s*)([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;,]*))/g;
-  for (const match of value.matchAll(pattern)) {
+  const normalized = value.replace(/=\s*""([^",;][^,;]*?)"/g, '="$1"');
+  const pattern = /(?:^|[\s,;])([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;,]*?)(?=\s+[A-Za-z][A-Za-z0-9_-]*\s*=|[;,]|$))/g;
+  for (const match of normalized.matchAll(pattern)) {
     const key = normalizeMetadataKey(match[1] ?? '');
     const rawValue = match[2] ?? match[3] ?? match[4] ?? '';
-    const cleanedValue = rawValue.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\s+/g, ' ').trim();
+    const cleanedValue = cleanMediaTitle(rawValue.replace(/\\"/g, '"').replace(/\\'/g, "'"));
     if (key && cleanedValue && !fields.has(key)) {
       fields.set(key, cleanedValue);
     }
@@ -504,6 +552,20 @@ function firstField(fields: Map<string, string>, keys: string[]): string | undef
 
 function normalizeMetadataKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function leadingMetadataPrefix(value: string): string | undefined {
+  const firstFieldIndex = value.search(/[A-Za-z][A-Za-z0-9_-]*\s*=/);
+  if (firstFieldIndex <= 0) {
+    return undefined;
+  }
+
+  return cleanMediaTitle(value.slice(0, firstFieldIndex).replace(/[-–—:;,]\s*$/, ''));
+}
+
+function cleanMediaTitle(value: string | undefined): string | undefined {
+  const cleaned = value?.replace(/\s+/g, ' ').trim().replace(/^"+|"+$/g, '').trim();
+  return cleaned || undefined;
 }
 
 function stripIcyStreamTitleWrapper(value: string): string | undefined {

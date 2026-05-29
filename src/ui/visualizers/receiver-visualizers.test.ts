@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {receiverStyleNames, type PlaybackState, type Station} from '../../types.js';
 import {buildVisualizer, visualizerHeight} from './receiver-visualizers.js';
+import {termflixAdditionalStyleNames} from './termflix-visualizers.js';
 
 const station: Station = {
   id: 'station-1',
@@ -33,6 +34,62 @@ function frameText(rows: ReturnType<typeof buildVisualizer>): string {
 
 const cubeGlyph = /[.:;=+*#%@/\\|_\-]/;
 const asciiAnimationStyles = ['fire', 'fireworks', 'plasma', 'radio-waves', 'raindrops', 'spinning-donut', 'starfield'] as const;
+const termflixCatalogStyles = [
+  'termflix-fire',
+  'termflix-matrix',
+  'termflix-plasma',
+  'termflix-starfield',
+  'wave',
+  'life',
+  'particles',
+  'pendulum',
+  'rain',
+  'fountain',
+  'flow',
+  'spiral',
+  'ocean',
+  'aurora',
+  'lightning',
+  'smoke',
+  'ripple',
+  'snow',
+  'garden',
+  'fireflies',
+  'dna',
+  'pulse',
+  'boids',
+  'lava',
+  'sandstorm',
+  'petals',
+  'campfire',
+  'termflix-waterfall',
+  'eclipse',
+  'blackhole',
+  'termflix-radar',
+  'rainforest',
+  'crystallize',
+  'hackerman',
+  'visualizer',
+  'cells',
+  'atom',
+  'automata',
+  'globe',
+  'dragon',
+  'sierpinski',
+  'mandelbrot',
+  'maze',
+  'metaballs',
+  'nbody',
+  'langton',
+  'sort',
+  'tetris',
+  'snake',
+  'invaders',
+  'pong',
+  'flappy-bird',
+  'reaction-diffusion',
+  'voronoi'
+] as const;
 
 function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegExp): {width: number; height: number; minY: number; maxY: number} {
   let minX = Number.POSITIVE_INFINITY;
@@ -62,6 +119,14 @@ function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegEx
 }
 
 describe('receiver visualizers', () => {
+  it('exposes the full Termflix catalog in the receiver style cycle', () => {
+    const styles = new Set(receiverStyleNames);
+
+    for (const style of termflixCatalogStyles) {
+      expect(styles.has(style)).toBe(true);
+    }
+  });
+
   it('renders every receiver style inside the requested width', () => {
     for (const style of receiverStyleNames) {
       const height = visualizerHeight(style, 12);
@@ -119,6 +184,17 @@ describe('receiver visualizers', () => {
       const height = visualizerHeight(style, 13);
       const firstFrame = frameText(buildVisualizer(style, 4, 80, height, station, playback, 'ruby'));
       const laterFrame = frameText(buildVisualizer(style, 16, 80, height, station, playback, 'ruby'));
+
+      expect(firstFrame.trim()).not.toBe('');
+      expect(laterFrame).not.toBe(firstFrame);
+    }
+  });
+
+  it('animates every Termflix-added receiver style', () => {
+    for (const style of termflixAdditionalStyleNames) {
+      const height = visualizerHeight(style, 14);
+      const firstFrame = frameText(buildVisualizer(style, 4, 86, height, station, playback, 'teal'));
+      const laterFrame = frameText(buildVisualizer(style, 20, 86, height, station, playback, 'teal'));
 
       expect(firstFrame.trim()).not.toBe('');
       expect(laterFrame).not.toBe(firstFrame);

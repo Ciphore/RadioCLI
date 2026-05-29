@@ -33,7 +33,7 @@ describe('playback footer', () => {
     expect(shouldShowPlaybackFooter(null, playback)).toBe(false);
   });
 
-  it('summarizes station, metadata, queue, and playback details', () => {
+  it('keeps active playback footer concise', () => {
     const text = playbackFooterText({
       station,
       playback,
@@ -49,12 +49,11 @@ describe('playback footer', () => {
       width: 240
     });
 
-    expect(text).toContain('Playing: Radio Paradise');
-    expect(text).toContain('Now: Artist - Track');
-    expect(text).toContain('California, The United States Of America');
-    expect(text).toContain('OGG / 192 kbps / english / 150 km');
-    expect(text).toContain('mpv · playing');
-    expect(text).toContain('Nearby 2/3');
+    expect(text).toBe('Radio Paradise · Artist - Track · vol 70 · Sleep 29m');
+    expect(text).not.toContain('Now:');
+    expect(text).not.toContain('California');
+    expect(text).not.toContain('mpv');
+    expect(text).not.toContain('Nearby');
     expect(text).toContain('Sleep 29m');
   });
 
@@ -66,10 +65,10 @@ describe('playback footer', () => {
       queue: null,
       favorite: false,
       sleepLabel: 'Sleep off',
-      width: 24
+      width: 16
     });
 
-    expect(text).toHaveLength(24);
+    expect(text).toHaveLength(16);
     expect(text?.endsWith('…')).toBe(true);
   });
 });

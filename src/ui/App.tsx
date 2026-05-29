@@ -1,10 +1,10 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Box, Text, useApp, useStdin, useWindowSize} from 'ink';
+import {Box, Text, useApp, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController} from '../player/player-controller.js';
 import {playbackBackendInstallHint} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import type {AppSettings, Country, IcyNowPlaying, LibraryState, LocationGuess, PlaybackState, Screen, Station} from '../types.js';
+import {receiverStyleNames, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, themeAccent} from './theme.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
@@ -13,6 +13,7 @@ import {computeTerminalLayout} from './layout.js';
 import {truncate} from './format.js';
 import {playbackFooterText, shouldShowPlaybackFooter} from './playback-footer.js';
 import {pageFooterText} from './page-footer.js';
+import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell} from './terminal-mouse.js';
 import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
 import {
@@ -50,39 +51,14 @@ type AppProps = {
   providers?: ProviderManager;
 };
 
-const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>([
-  'spectrum',
-  'oscilloscope',
-  'waterfall',
-  'cassette',
-  'equalizer',
-  'motion-bars',
-  'motion-blob',
-  'motion-area',
-  'motion-dots',
-  'motion-contour',
-  'motion-braid',
-  'blocks',
-  'leds',
-  'stars',
-  'radar',
-  'matrix',
-  'hologram',
-  'cube',
-  'fire',
-  'fireworks',
-  'plasma',
-  'radio-waves',
-  'raindrops',
-  'spinning-donut',
-  'starfield'
-]);
+const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>(receiverStyleNames);
 const LIVE_RECEIVER_PULSE_MS = 80;
 const AMBIENT_RECEIVER_PULSE_MS = 140;
 
 export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
+  const {stdout} = useStdout();
   const {columns, rows} = useWindowSize();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
@@ -211,6 +187,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   useEffect(() => player.onChange(setPlayback), [player]);
 
   useEffect(() => player.onMetadata(setNowPlaying), [player]);
+
+  useEffect(() => {
+    if (screen !== 'explore' || layout.compact || !stdout.isTTY) {
+      return;
+    }
+
+    stdout.write(enableMouseReporting);
+    return () => {
+      stdout.write(disableMouseReporting);
+    };
+  }, [layout.compact, screen, stdout]);
 
   useEffect(() => {
     selectedByScreenRef.current[screen] = selected;
@@ -437,6 +424,22 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }, 220);
     },
     [loadExploreAt, setStationContextFor]
+  );
+
+  const moveExploreMapCursorToCell = useCallback(
+    (x: number, y: number) => {
+      const next = exploreCursorForMouseCell(x, y, frameWidth, layout);
+      if (!next) {
+        return;
+      }
+
+      if (exploreMoveTimerRef.current) {
+        clearTimeout(exploreMoveTimerRef.current);
+      }
+
+      void loadExploreAt(next, {resetSelection: true, clearMessage: false});
+    },
+    [frameWidth, layout, loadExploreAt]
   );
 
   const loadCountry = useCallback(
@@ -812,6 +815,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     player,
     playingStation,
     moveExploreCursor: moveExploreMapCursor,
+    moveExploreCursorToCell: moveExploreMapCursorToCell,
     refreshProviderHealth,
     resetLearnedTransportKeys,
     runSearch,
