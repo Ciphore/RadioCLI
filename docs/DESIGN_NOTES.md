@@ -58,8 +58,14 @@ implies live audio when nothing is playing.
 Explore uses a dense braille world map next to the station list on wide
 terminals. That layout keeps global discovery spatial without forcing the user
 to switch away from the playable list. The map has one movable scan cursor
-instead of many station pins; WASD moves the cursor and the station list reloads
-around that coordinate.
+instead of many station pins; WASD makes fine nudges, Shift+WASD makes larger
+jumps, and the station list reloads around that coordinate.
+
+The Explore list is distance-truthful rather than popularity-first. RadioCLI
+builds a cached atlas from all available Radio Browser stations with coordinates
+and computes local distance inside the app. The list reports the radius covered
+by the returned stations so the user can tell whether a cursor position is dense,
+sparse, or limited by provider geotag coverage.
 
 ## Tokscale-Inspired Navigation And Stats
 

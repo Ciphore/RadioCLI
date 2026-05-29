@@ -49,11 +49,17 @@ const locationSchema = z
   })
   .passthrough();
 
+const geoAtlasLimit = 100_000;
+const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
+const geoAtlasTimeoutMs = 20_000;
+
 export class RadioBrowserProvider {
   readonly id = 'radio-browser' as const;
   readonly label = 'Radio Browser';
   private readonly baseUrls: string[];
   private activeBaseUrl: string;
+  private geoAtlasPromise: Promise<Station[]> | null = null;
+  private geoAtlasLoadedAt = 0;
 
   constructor(baseUrls = defaultRadioBrowserMirrors(), private readonly cache = new ProviderCache()) {
     this.baseUrls = baseUrls.map(url => url.replace(/\/$/, ''));
@@ -162,25 +168,13 @@ export class RadioBrowserProvider {
   }
 
   async nearby(location: LocationGuess, limit = 80): Promise<Station[]> {
-    const rows = await this.request<unknown[]>(
-      '/json/stations/search',
-      {
-        hidebroken: 'true',
-        has_geo_info: 'true',
-        limit: '1000',
-        order: 'clickcount',
-        reverse: 'true'
-      },
-      {maxAgeMs: 30 * 60 * 1000, timeoutMs: 12000}
-    );
-
-    return this.normalizeStations(rows)
-      .filter(station => typeof station.latitude === 'number' && typeof station.longitude === 'number')
+    const stations = await this.geotaggedAtlas();
+    return stations
       .map(station => ({
         ...station,
         distanceKm: haversineKm(location.latitude, location.longitude, station.latitude!, station.longitude!)
       }))
-      .sort((a, b) => (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY))
+      .sort(compareNearbyStations)
       .slice(0, limit);
   }
 
@@ -265,6 +259,38 @@ export class RadioBrowserProvider {
         hls: row.hls === 1 || row.hls === true,
         lastCheckedOk: row.lastcheckok === 1 || row.lastcheckok === true
       }));
+  }
+
+  private async geotaggedAtlas(): Promise<Station[]> {
+    const atlasExpired = this.geoAtlasLoadedAt > 0 && Date.now() - this.geoAtlasLoadedAt > geoAtlasMaxAgeMs;
+    if (!this.geoAtlasPromise || atlasExpired) {
+      this.geoAtlasPromise = this.loadGeotaggedAtlas()
+        .then(stations => {
+          this.geoAtlasLoadedAt = Date.now();
+          return stations;
+        })
+        .catch(error => {
+          this.geoAtlasPromise = null;
+          throw error;
+        });
+    }
+
+    return this.geoAtlasPromise;
+  }
+
+  private async loadGeotaggedAtlas(): Promise<Station[]> {
+    const rows = await this.request<unknown[]>(
+      '/json/stations/search',
+      {
+        hidebroken: 'true',
+        has_geo_info: 'true',
+        limit: String(geoAtlasLimit),
+        order: 'name'
+      },
+      {maxAgeMs: geoAtlasMaxAgeMs, timeoutMs: geoAtlasTimeoutMs}
+    );
+
+    return dedupeStations(this.normalizeStations(rows)).filter(hasValidCoordinates);
   }
 
   private async request<T>(
@@ -378,6 +404,40 @@ function splitCsv(value?: string | null): string[] {
 function cleanText(value?: string | null): string | undefined {
   const cleaned = value?.replace(/\s+/g, ' ').trim();
   return cleaned ? cleaned : undefined;
+}
+
+function hasValidCoordinates(station: Station): station is Station & {latitude: number; longitude: number} {
+  return (
+    typeof station.latitude === 'number' &&
+    Number.isFinite(station.latitude) &&
+    Math.abs(station.latitude) <= 90 &&
+    typeof station.longitude === 'number' &&
+    Number.isFinite(station.longitude) &&
+    Math.abs(station.longitude) <= 180
+  );
+}
+
+function compareNearbyStations(a: Station, b: Station): number {
+  const distanceDelta = (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY);
+  if (Math.abs(distanceDelta) > 0.01) {
+    return distanceDelta;
+  }
+
+  const qualityDelta = nearbyQualityScore(b) - nearbyQualityScore(a);
+  if (qualityDelta !== 0) {
+    return qualityDelta;
+  }
+
+  return a.name.localeCompare(b.name);
+}
+
+function nearbyQualityScore(station: Station): number {
+  return (
+    (station.lastCheckedOk ? 100 : 0) +
+    Math.log10((station.clickCount ?? 0) + 1) * 12 +
+    Math.log10((station.votes ?? 0) + 1) * 6 +
+    Math.min(station.bitrate ?? 0, 320) / 32
+  );
 }
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

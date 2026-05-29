@@ -8,8 +8,13 @@
   braille Natural Earth world map on the left and the live station list on the
   right.
 - Changed Explore from a static popular-stations list into a movable map-cursor
-  scanner: WASD moves the cursor and the station list reloads around that
-  coordinate.
+  scanner: WASD/Shift+WASD moves the cursor and the station list reloads around
+  that coordinate.
+- Replaced Explore/Nearby's clickcount-first geo lookup with a cached geotagged
+  station atlas that ranks the full available Radio Browser geo set by distance,
+  then uses station quality only as a near-identical-coordinate tie-breaker.
+- Changed Explore movement to fine WASD nudges with Shift+WASD jumps so nearby
+  station clusters are much harder to skip while crossing the map.
 
 ### Packaging And Install
 

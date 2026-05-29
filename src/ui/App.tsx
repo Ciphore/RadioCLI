@@ -378,10 +378,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
     exploreCursorRef.current = cursor;
     setExploreCursor(cursor);
+    const previousExploreStations = stationContextsRef.current.explore.stations;
     setStationContextFor('explore', {
       title: 'Explore world',
-      subtitle: `Scanning near ${formatExploreCursor(cursor)}`,
-      stations: []
+      subtitle: `Scanning all geotagged stations near ${formatExploreCursor(cursor)}`,
+      stations: previousExploreStations
     });
     try {
       const stations = await providers.nearby(exploreCursorLocation(cursor), 90);
@@ -390,7 +391,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
       setStationContextFor('explore', {
         title: 'Explore world',
-        subtitle: `Stations nearest ${formatExploreCursor(cursor)}`,
+        subtitle: formatExploreSubtitle(cursor, stations),
         stations
       });
       selectedByScreenRef.current.explore = 0;
@@ -426,7 +427,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       setStationContextFor('explore', {
         title: 'Explore world',
         subtitle: `Move cursor: ${formatExploreCursor(next)}`,
-        stations: []
+        stations: stationContextsRef.current.explore.stations
       });
       if (exploreMoveTimerRef.current) {
         clearTimeout(exploreMoveTimerRef.current);
@@ -960,6 +961,27 @@ function exploreCursorLocation(cursor: ExploreCursor): LocationGuess {
     longitude: cursor.longitude,
     source: 'explore cursor'
   };
+}
+
+function formatExploreSubtitle(cursor: ExploreCursor, stations: Station[]): string {
+  if (stations.length === 0) {
+    return `No geotagged stations near ${formatExploreCursor(cursor)}`;
+  }
+
+  const farthest = stations.reduce((max, station) => Math.max(max, station.distanceKm ?? 0), 0);
+  return `${stations.length} nearest to ${formatExploreCursor(cursor)} · within ${formatDistanceKm(farthest)}`;
+}
+
+function formatDistanceKm(distanceKm: number): string {
+  if (distanceKm < 1) {
+    return `${Math.round(distanceKm * 1000)} m`;
+  }
+
+  if (distanceKm < 100) {
+    return `${distanceKm.toFixed(1)} km`;
+  }
+
+  return `${Math.round(distanceKm).toLocaleString()} km`;
 }
 
 function librarySubtitle(library: LibraryState): string {

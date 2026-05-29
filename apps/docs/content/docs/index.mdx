@@ -25,7 +25,8 @@ that can grow without turning into terminal spaghetti.
 
 RadioCLI includes:
 
-- a braille Explore world map beside the station list, country lists, global
+- a braille Explore world map beside the station list, backed by a cached
+  geotagged station atlas with true distance ranking, plus country lists, global
   search, a station-density country map, and opt-in nearby discovery
 - `mpv` playback first, `ffplay` fallback when available
 - a receiver-style Now Playing screen with stream diagnostics, cleaned ICY metadata,
@@ -41,6 +42,7 @@ RadioCLI includes:
 The project is intentionally small, but it is built like production software:
 
 - provider adapters instead of UI-coupled fetch calls
+- a cached geotagged station atlas for distance-first Explore and Nearby results
 - schemas at API and persistence boundaries
 - stale-cache fallback for directory outages
 - corrupt store/cache backups instead of silent overwrite

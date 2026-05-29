@@ -37,6 +37,12 @@ Radio Browser calls use mirror fallback and a durable cache. If a live request
 fails and stale cached data exists, the provider returns stale data rather than
 blanking the interface.
 
+Explore and Nearby share the same geospatial path: RadioCLI caches the full
+available Radio Browser geotagged station atlas, filters out invalid coordinates,
+computes haversine distance locally, and sorts by distance first. Popularity,
+votes, bitrate, and last-check status only break near-identical coordinate ties,
+so map exploration is not capped to globally popular stations.
+
 ## Playback Layer
 
 `PlayerController` owns playback process lifecycle.
@@ -72,6 +78,10 @@ of hard-coding visible rows.
 Pure screen model helpers, tab definitions, filters, and text-editing helpers
 live in `src/ui/app-state.ts`. The Now Playing screen owns receiver layout while
 the receiver visualizer builders live under `src/ui/visualizers`.
+
+Explore cursor movement is intentionally split between fine WASD nudges and
+Shift+WASD jumps. Fine movement keeps the map from leaping over local station
+clusters; jump movement preserves fast cross-continent travel.
 
 Receiver animation has a single state boundary: `shouldAnimateReceiver()` allows
 the shared pulse timer to advance only on the Now Playing screen while playback is

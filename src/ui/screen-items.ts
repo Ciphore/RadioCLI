@@ -1,7 +1,7 @@
 export const homeItems = [
   {screen: 'now-playing', label: 'Playing', detail: 'Receiver display and controls'},
   {screen: 'library', label: 'Library', detail: 'Favorites, recent stations, imported streams'},
-  {screen: 'explore', label: 'Explore', detail: 'Move a map cursor to scan local stations'},
+  {screen: 'explore', label: 'Explore', detail: 'Move a map cursor through geotagged stations'},
   {screen: 'search', label: 'Search', detail: 'Find stations by name, genre, language, place'},
   {screen: 'countries', label: 'Countries', detail: 'Browse by country list with a world-map toggle'},
   {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},

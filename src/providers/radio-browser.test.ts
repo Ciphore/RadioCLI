@@ -180,6 +180,60 @@ describe('RadioBrowserProvider', () => {
       streamUrl: 'https://cached.example.com/live.mp3'
     });
   });
+
+  it('ranks nearby stations from the full geotagged atlas instead of a popular subset', async () => {
+    const fetch = mockFetch(url => {
+      expect(url.pathname).toBe('/json/stations/search');
+      expect(url.searchParams.get('hidebroken')).toBe('true');
+      expect(url.searchParams.get('has_geo_info')).toBe('true');
+      expect(url.searchParams.get('limit')).toBe('100000');
+      expect(url.searchParams.get('order')).toBe('name');
+
+      return jsonResponse([
+        {
+          stationuuid: 'tokyo-popular',
+          name: 'Tokyo Popular',
+          country: 'Japan',
+          clickcount: 1_000_000,
+          geo_lat: 35.6762,
+          geo_long: 139.6503
+        },
+        {
+          stationuuid: 'paris-local',
+          name: 'Paris Local',
+          country: 'France',
+          clickcount: 0,
+          geo_lat: 48.8566,
+          geo_long: 2.3522
+        },
+        {
+          stationuuid: 'paris-nearby',
+          name: 'Paris Nearby',
+          country: 'France',
+          clickcount: 2,
+          geo_lat: 48.86,
+          geo_long: 2.35
+        },
+        {
+          stationuuid: 'missing-geo',
+          name: 'Missing Geo',
+          country: 'France',
+          clickcount: 999
+        }
+      ]);
+    });
+
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    const parisStations = await provider.nearby({latitude: 48.8566, longitude: 2.3522, source: 'test'}, 2);
+
+    expect(parisStations.map(station => station.id)).toEqual(['paris-local', 'paris-nearby']);
+    expect(parisStations[0]?.distanceKm).toBeCloseTo(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const tokyoStations = await provider.nearby({latitude: 35.6762, longitude: 139.6503, source: 'test'}, 1);
+    expect(tokyoStations.map(station => station.id)).toEqual(['tokyo-popular']);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 function mockFetch(handler: (url: URL) => Response | Promise<Response>): ReturnType<typeof vi.fn> {

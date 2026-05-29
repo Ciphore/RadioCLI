@@ -6,7 +6,7 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 
 ## Features
 
-- Explore public radio from around the world through a cosmo-style braille world map beside the station list, plus country lists, global station search, a country-density map, and opt-in nearby discovery.
+- Explore public radio from around the world through a cosmo-style braille world map beside the station list, backed by a cached geotagged station atlas so the cursor ranks the full available Radio Browser geo set by true distance instead of global popularity. Country lists, global station search, a country-density map, and opt-in nearby discovery round out the discovery surface.
 - Tune stations with `mpv` first and `ffplay` fallback when available.
 - Use a receiver-style Now Playing screen with 25 selectable spectrum/receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
 - Keep shortcuts in a fixed adaptive footer: live playback details appear above page-specific and global controls while a station is active.
@@ -31,7 +31,7 @@ Overview  Playing  Library  Explore  Search  Countries  Nearby  Stats  Settings
 
   › 1. Playing · Receiver display and controls
     2. Library · Favorites, recent stations, imported streams
-    3. Explore · Move a map cursor to scan local stations
+    3. Explore · Move a map cursor through geotagged stations
     4. Search · Find stations by name, genre, language, place
     5. Countries · Browse by country list with a world-map toggle
     6. Nearby · Opt-in approximate location for local stations
@@ -205,6 +205,7 @@ Page-specific footer controls:
 | Home | `↑` / `↓` move, `Enter` open, number jump, `:` command |
 | Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
+| Explore | `WASD` fine move, `Shift+WASD` jump, `↑` / `↓` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `↑` / `↓` move, `Enter` open stations, `w` map, `b` home |
 | World map | `/` filter, `↑` / `↓` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
@@ -273,7 +274,7 @@ RadioCLI is split around four seams:
 - playback lifecycle and metadata in `src/player`
 - local JSON persistence in `src/storage`
 
-Radio Browser is the primary provider. Its own docs recommend using a speaking user agent, resolving station clicks through `/json/url`, and retrying with other servers when one fails; RadioCLI follows that shape with mirror fallback and durable cache. Radio Garden support is experimental because the useful endpoints are publicly discoverable but unofficial, and they can be blocked or changed independently of this project.
+Radio Browser is the primary provider. Its own docs recommend using a speaking user agent, resolving station clicks through `/json/url`, and retrying with other servers when one fails; RadioCLI follows that shape with mirror fallback and durable cache. Explore and Nearby use a cached geotagged Radio Browser atlas, then compute local distance in the app so map movement is not biased toward the most-clicked stations worldwide. Radio Garden support is experimental because the useful endpoints are publicly discoverable but unofficial, and they can be blocked or changed independently of this project.
 
 Playback prefers `mpv` because it handles real-world streams, redirects, HLS, codecs, and metadata better than a hand-rolled stream client. RadioCLI controls `mpv` through JSON IPC for readiness, pause, mute, volume, and metadata polling.
 
@@ -292,6 +293,7 @@ Read more:
 This repo is intentionally small, but it is built like production software:
 
 - provider boundary instead of UI-coupled fetch calls
+- cached geotagged station atlas for true distance-first Explore and Nearby results
 - Zod schemas at public API and persistence boundaries
 - stale-cache fallback for directory outages
 - corrupt store/cache backup instead of silent overwrite
@@ -308,7 +310,7 @@ This repo is intentionally small, but it is built like production software:
 
 ## Privacy
 
-Nearby station discovery is off by default. If you enable it, RadioCLI requests approximate IP-based location from `ipapi.co` and uses the returned city/region/country/coordinates to sort nearby stations. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
+Nearby station discovery is off by default. If you enable it, RadioCLI requests approximate IP-based location from `ipapi.co` and uses the returned city/region/country/coordinates to sort the local geotagged station atlas. Explore uses only the cursor coordinate you move in the terminal. The app does not require an account, does not store secrets, and does not proxy audio. It stores recents, favorites, imports, settings, and provider cache data locally on your machine.
 
 ## Development
 

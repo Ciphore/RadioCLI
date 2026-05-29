@@ -17,6 +17,8 @@ product requirement.
 
 - Radio Browser mirror fallback
 - durable provider cache with stale fallback
+- cached geotagged station atlas for Explore and Nearby, with local
+  distance-first ranking
 - bounded network calls for provider and location lookups
 - tune timeout
 - skip-to-next on failed tune when enabled
@@ -36,8 +38,9 @@ product requirement.
 - Radio Garden can be blocked by edge protection.
 - Station health is local and opportunistic; there is not yet a long-term health
   score per station.
-- The country-density map is symbolic; Explore uses a Natural Earth braille map
-  with a movable scan cursor, but results depend on provider geotag coverage.
+- The country-density map is symbolic. Explore uses a Natural Earth braille map
+  with a movable scan cursor and true distance ranking, but it can only place
+  stations that providers expose with valid coordinates.
 
 ## Next Reliability Work
 

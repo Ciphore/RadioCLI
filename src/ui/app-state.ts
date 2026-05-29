@@ -58,7 +58,7 @@ export const defaultExploreCursor: ExploreCursor = {
 export const initialStationContexts: Record<StationContextKey, StationContext> = {
   explore: {
     title: 'Explore world',
-    subtitle: `Map cursor near ${formatExploreCursor(defaultExploreCursor)}`,
+    subtitle: `Map cursor near ${formatExploreCursor(defaultExploreCursor)} · scans the full geotagged atlas`,
     stations: []
   },
   stations: {
@@ -147,8 +147,8 @@ export function nextSleepTimerMinutes(currentMinutes: number | null): SleepTimer
 }
 
 export function moveExploreCursor(cursor: ExploreCursor, direction: ExploreMoveDirection, fast = false): ExploreCursor {
-  const latitudeStep = fast ? 12 : 6;
-  const longitudeStep = fast ? 24 : 12;
+  const latitudeStep = fast ? 6 : 1;
+  const longitudeStep = fast ? 12 : 2;
   const latitudeDelta = direction === 'up' ? latitudeStep : direction === 'down' ? -latitudeStep : 0;
   const longitudeDelta = direction === 'right' ? longitudeStep : direction === 'left' ? -longitudeStep : 0;
 

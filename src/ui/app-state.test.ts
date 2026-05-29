@@ -109,8 +109,8 @@ describe('app state helpers', () => {
     expect(formatExploreCursor(defaultExploreCursor)).toBe('48.9N, 2.4E');
     expect(moveExploreCursor({latitude: 83, longitude: 176}, 'up')).toEqual({latitude: 84, longitude: 176});
     expect(moveExploreCursor({latitude: -83, longitude: -176}, 'down')).toEqual({latitude: -84, longitude: -176});
-    expect(moveExploreCursor({latitude: 0, longitude: 176}, 'right')).toEqual({latitude: 0, longitude: -172});
-    expect(moveExploreCursor({latitude: 0, longitude: -176}, 'left', true)).toEqual({latitude: 0, longitude: 160});
+    expect(moveExploreCursor({latitude: 0, longitude: 176}, 'right')).toEqual({latitude: 0, longitude: 178});
+    expect(moveExploreCursor({latitude: 0, longitude: -176}, 'left', true)).toEqual({latitude: 0, longitude: 172});
   });
 
   it('animates the receiver only while playback is actively playing', () => {

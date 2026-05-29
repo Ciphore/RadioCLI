@@ -10,6 +10,7 @@ RadioCLI does not require secrets or accounts.
 - Nearby station discovery is off by default.
 - Location lookup uses approximate IP-based location from `ipapi.co` only when
   enabled.
+- Explore uses only the cursor coordinate you move in the terminal.
 - Recents, favorites, settings, imports, listening activity, and provider cache
   data are stored locally on your machine.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
@@ -20,8 +21,8 @@ RadioCLI does not require secrets or accounts.
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
 RadioCLI requires explicit opt-in through Settings or `:location on`. When it is
 enabled, RadioCLI requests an approximate location from `ipapi.co` and uses the
-returned city, region, country, latitude, and longitude to sort nearby public
-stations.
+returned city, region, country, latitude, and longitude to sort the local
+geotagged station atlas.
 
 ## Reporting Security Issues
 
