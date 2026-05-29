@@ -19,29 +19,29 @@ type TopTabsProps = {
 
 export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps): React.ReactElement {
   const accent = themeAccent(theme);
-  const innerWidth = Math.max(20, width - 4);
-  const brand = 'radiocli';
-  const brandWidth = brand.length + 3;
+  const brand = 'RADIOCLI';
   const rightText = ` ${rightLabel} `;
+  const bodyWidth = Math.max(1, width - 4);
+  const titlePrefixWidth = 2 + brand.length + 1;
+  const titleRuleWidth = Math.max(0, width - titlePrefixWidth - 1);
   const allTabsWidth = tabsWidth(tabs.map(tab => ({type: 'tab' as const, tab})));
-  const canShowRight = innerWidth - brandWidth - allTabsWidth - rightText.length >= 2;
-  const tabsAvailableWidth = Math.max(8, innerWidth - brandWidth - (canShowRight ? rightText.length : 0));
+  const canShowRight = bodyWidth - allTabsWidth - rightText.length >= 1;
+  const tabsAvailableWidth = Math.max(1, bodyWidth - (canShowRight ? rightText.length + 1 : 0));
   const visibleTabs = fitTabs(tabs, active, tabsAvailableWidth);
+  const visibleTabsWidth = tabsWidth(visibleTabs);
+  const tabPaddingWidth = Math.max(0, bodyWidth - visibleTabsWidth - (canShowRight ? rightText.length : 0));
 
   return (
-    <Box
-      borderStyle="single"
-      borderColor={panelBorder}
-      borderBackgroundColor={panelBackground}
-      backgroundColor={panelBackground}
-      width={width}
-      justifyContent="space-between"
-    >
-      <Box>
+    <Box flexDirection="column" backgroundColor={panelBackground} width={width}>
+      <Text backgroundColor={panelBackground}>
+        <Text color={panelBorder}>┌ </Text>
         <Text color={accent} bold>
           {brand}
         </Text>
-        <Text color="gray"> ─ </Text>
+        <Text color={panelBorder}> {'─'.repeat(titleRuleWidth)}┐</Text>
+      </Text>
+      <Text backgroundColor={panelBackground}>
+        <Text color={panelBorder}>│ </Text>
         {visibleTabs.map((item, index) => (
           <Text key={item.type === 'overflow' ? `${item.side}-overflow` : item.tab.screen}>
             {item.type === 'overflow' ? (
@@ -54,8 +54,13 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
             {index < visibleTabs.length - 1 ? <Text color="gray"> │ </Text> : null}
           </Text>
         ))}
-      </Box>
-      {canShowRight ? <Text color="gray">{rightText}</Text> : null}
+        <Text>{' '.repeat(tabPaddingWidth)}</Text>
+        {canShowRight ? <Text color="gray">{rightText}</Text> : null}
+        <Text color={panelBorder}> │</Text>
+      </Text>
+      <Text backgroundColor={panelBackground} color={panelBorder}>
+        └{'─'.repeat(Math.max(0, width - 2))}┘
+      </Text>
     </Box>
   );
 }
