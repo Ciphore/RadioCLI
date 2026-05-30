@@ -152,7 +152,8 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   volume: z.number().min(0).max(100).default(70),
   enableRadioGarden: z.boolean().default(false),
   enableNearbyLocation: z.boolean().default(false),
-  preferredBackend: z.enum(['auto', 'mpv', 'ffplay']).default('auto'),
+  preferredBackend: z.enum(['auto', 'mpv', 'ffplay', 'airplay']).default('auto'),
+  preferredAirPlayDevice: z.string().min(1).optional(),
   tuneTimeoutSeconds: z.number().min(3).max(45).default(12),
   skipBrokenStreams: z.boolean().default(true),
   mediaKeys: z

@@ -140,6 +140,7 @@ Requirements:
 - Homebrew on macOS: installs RadioCLI, Node.js, and `mpv`
 - npm on macOS, Linux, and Windows: Node.js 22 or newer
 - `mpv` for best playback; RadioCLI expects one local playback backend at runtime
+- `ffmpeg` and the optional `node-airtunes2` peer on macOS for the AirPlay backend
 - `ffplay` from FFmpeg as an optional fallback
 
 Recommended macOS install:
@@ -151,6 +152,19 @@ radiocli
 
 The Homebrew formula depends on `node` and `mpv`, so the native playback backend
 comes from the native package manager.
+
+For AirPlay playback on macOS, install FFmpeg and the optional sender peer next
+to your npm/source RadioCLI install:
+
+```bash
+brew install ffmpeg
+npm install node-airtunes2
+```
+
+RadioCLI discovers AirPlay/RAOP receivers with Bonjour, decodes streams with
+`ffmpeg`, and sends audio directly to the selected receiver when the optional
+sender peer is present. Passcode-protected receivers prompt in the TUI; enter the
+code with `:airplay-code 1234`.
 
 Universal npm install:
 
@@ -269,7 +283,7 @@ Page-specific footer controls:
 | World map | `/` filter, `↑` / `↓` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
-| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `r` health, `b` home |
+| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `a` AirPlay, `r` health, `b` home |
 | Stats | `b` home |
 
 Other active shortcuts:
@@ -317,6 +331,7 @@ Useful command palette entries:
 :learn play
 :learn next
 :keys reset
+:airplay-code 1234
 :map
 :library
 :stats
@@ -325,6 +340,11 @@ Useful command palette entries:
 ```
 
 Settings persist display colors and receiver styles without editing config files. The fourteen display colors are green, amber, blue, ruby, ice, teal, violet, copper, cyan, lime, coral, rose, slate, and mono, cycled with `t`. The 50 receiver styles span classic receiver displays, high-resolution braille visuals, and generative motion scenes; cycle them with `v` (see the [Demo](#demo) for the full family breakdown). The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
+
+On macOS, Settings can cycle AirPlay targets discovered through Bonjour when
+`ffmpeg` and the optional sender peer are installed. Select the `airplay` backend
+with `o`, choose a receiver with `a`, then tune a station. If the receiver asks
+for a code, enter it with `:airplay-code 1234`.
 
 ## Architecture
 

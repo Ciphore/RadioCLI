@@ -1,4 +1,4 @@
-import type {MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import type {AirPlayDevice, AppSettings, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import type {TopTab} from './components/TopTabs.js';
 
 export type StationContext = {
@@ -51,6 +51,7 @@ const emptyMediaKeyBindings: MediaKeyBindings = {
 
 const mediaTransportActions = ['previous', 'playPause', 'next'] as const;
 const sleepTimerOptions: SleepTimerMinutes[] = [null, 15, 30, 60];
+const playbackBackendOptions: AppSettings['preferredBackend'][] = ['auto', 'mpv', 'ffplay', 'airplay'];
 export const defaultExploreCursor: ExploreCursor = {
   latitude: 48.8566,
   longitude: 2.3522
@@ -145,6 +146,29 @@ export function nextSleepTimerMinutes(currentMinutes: number | null): SleepTimer
   const currentIndex = sleepTimerOptions.findIndex(option => option === currentMinutes);
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % sleepTimerOptions.length : 0;
   return sleepTimerOptions[nextIndex] ?? null;
+}
+
+export function nextPlaybackBackend(current: AppSettings['preferredBackend']): AppSettings['preferredBackend'] {
+  const index = playbackBackendOptions.indexOf(current);
+  return playbackBackendOptions[(index + 1) % playbackBackendOptions.length] ?? 'auto';
+}
+
+export function nextAirPlayDeviceId(current: string | undefined, devices: AirPlayDevice[]): string | undefined {
+  if (devices.length === 0) {
+    return undefined;
+  }
+
+  const ids = devices.map(device => device.id);
+  if (!current) {
+    return ids[0];
+  }
+
+  const index = ids.indexOf(current);
+  if (index === -1 || index === ids.length - 1) {
+    return undefined;
+  }
+
+  return ids[index + 1];
 }
 
 export function moveExploreCursor(cursor: ExploreCursor, direction: ExploreMoveDirection, fast = false): ExploreCursor {

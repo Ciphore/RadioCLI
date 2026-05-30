@@ -36,7 +36,13 @@ describe('JsonLibraryStore', () => {
     store.finishActiveListeningSession(new Date('2026-05-24T12:05:00.000Z'));
     store.toggleFavorite(station);
     store.addImported([{...station, id: 'custom-1', provider: 'playlist', streamUrl: 'https://example.com/live'}]);
-    store.updateSettings({theme: 'amber', receiverStyle: 'mesh', mediaKeys: {previous: ['prev'], playPause: ['pause'], next: ['next']}});
+    store.updateSettings({
+      theme: 'amber',
+      receiverStyle: 'mesh',
+      preferredBackend: 'airplay',
+      preferredAirPlayDevice: '5CAAFD0046D4@Office',
+      mediaKeys: {previous: ['prev'], playPause: ['pause'], next: ['next']}
+    });
 
     const reloaded = new JsonLibraryStore(file).snapshot();
     expect(reloaded.recent[0]?.station.name).toBe('Test FM');
@@ -46,6 +52,8 @@ describe('JsonLibraryStore', () => {
     expect(reloaded.settings.theme).toBe('amber');
     expect(reloaded.settings.receiverStyle).toBe('mesh');
     expect(reloaded.settings.receiverStyleVersion).toBe(2);
+    expect(reloaded.settings.preferredBackend).toBe('airplay');
+    expect(reloaded.settings.preferredAirPlayDevice).toBe('5CAAFD0046D4@Office');
     expect(reloaded.settings.mediaKeys.next).toEqual(['next']);
   });
 
@@ -95,6 +103,34 @@ describe('JsonLibraryStore', () => {
       expect(state.settings.mediaKeys).toEqual({previous: [], playPause: [], next: []});
     }
   );
+
+  it('defaults missing preferred AirPlay device to undefined', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        recent: [],
+        favorites: [],
+        imported: [],
+        activity: {sessions: []},
+        settings: {
+          theme: 'ruby',
+          receiverStyle: 'mesh',
+          volume: 70,
+          enableRadioGarden: false,
+          enableNearbyLocation: false,
+          preferredBackend: 'auto',
+          tuneTimeoutSeconds: 12,
+          skipBrokenStreams: true
+        }
+      }),
+      'utf8'
+    );
+
+    expect(new JsonLibraryStore(file).snapshot().settings.preferredAirPlayDevice).toBeUndefined();
+  });
 
   it('persists every receiver style exposed by the UI cycle', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));

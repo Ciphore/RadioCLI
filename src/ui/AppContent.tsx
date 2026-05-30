@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {
+  AirPlayDevice,
   Country,
   IcyNowPlaying,
   LibraryState,
@@ -24,6 +25,7 @@ import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
 
 type AppContentProps = {
+  airPlayDevices: AirPlayDevice[];
   backends: string[];
   countryFilter: string;
   diagnostics: PlaybackDiagnostics;
@@ -57,6 +59,7 @@ type AppContentProps = {
 };
 
 export function AppContent({
+  airPlayDevices,
   backends,
   countryFilter,
   diagnostics,
@@ -221,6 +224,7 @@ export function AppContent({
         storePath={storePath}
         playback={playback}
         backends={backends}
+        airPlayDevices={airPlayDevices}
         providerHealth={providerHealth}
         theme={theme}
         diagnostics={diagnostics}

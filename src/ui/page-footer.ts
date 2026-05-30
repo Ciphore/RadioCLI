@@ -67,7 +67,7 @@ export function pageFooterText({
   }
 
   if (screen === 'settings') {
-    return 'Enter change selected · g Radio Garden · l location · x skip · o backend · r health · b home';
+    return 'Enter change selected · g Radio Garden · l location · x skip · o backend · a AirPlay · r health · b home';
   }
 
   if (screen === 'stats') {

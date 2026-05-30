@@ -1,10 +1,35 @@
 import {existsSync, readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {commandExists} from './command.js';
 
-const playbackBackends = ['mpv', 'ffplay'] as const;
+const require = createRequire(import.meta.url);
 
-export function detectPlaybackBackends(): string[] {
-  return playbackBackends.filter(commandExists);
+type PlaybackBackendDetectionOptions = {
+  platform?: NodeJS.Platform;
+  hasCommand?: (command: string) => boolean;
+  hasAirPlaySender?: () => boolean;
+};
+
+export function detectPlaybackBackends({
+  platform = process.platform,
+  hasCommand = commandExists,
+  hasAirPlaySender = hasAirPlaySenderPackage
+}: PlaybackBackendDetectionOptions = {}): string[] {
+  const backends = ['mpv', 'ffplay'].filter(hasCommand);
+  if (platform === 'darwin' && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
+    backends.push('airplay');
+  }
+
+  return backends;
+}
+
+function hasAirPlaySenderPackage(): boolean {
+  try {
+    require.resolve('node-airtunes2');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function playbackBackendInstallHint(
@@ -38,6 +63,14 @@ export function playbackBackendStatusLines(
     return [
       'playback=fallback-only',
       'playback_backend=ffplay',
+      ...lines
+    ];
+  }
+
+  if (backendSet.has('airplay')) {
+    return [
+      'playback=airplay-only',
+      'playback_backend=airplay',
       ...lines
     ];
   }

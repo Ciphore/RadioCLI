@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {mpvInstallCommand, playbackBackendStatusLines} from './backend-install.js';
+import {detectPlaybackBackends, mpvInstallCommand, playbackBackendStatusLines} from './backend-install.js';
 
 describe('playback backend install guidance', () => {
   it('uses Homebrew for macOS mpv guidance', () => {
@@ -46,5 +46,13 @@ describe('playback backend install guidance', () => {
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
+  });
+
+  it('only reports AirPlay when macOS tools and the optional sender package are available', () => {
+    const hasCommand = (command: string): boolean => ['ffmpeg', 'dns-sd'].includes(command);
+
+    expect(detectPlaybackBackends({platform: 'darwin', hasCommand, hasAirPlaySender: () => false})).toEqual([]);
+    expect(detectPlaybackBackends({platform: 'darwin', hasCommand, hasAirPlaySender: () => true})).toEqual(['airplay']);
+    expect(detectPlaybackBackends({platform: 'linux', hasCommand, hasAirPlaySender: () => true})).toEqual([]);
   });
 });
