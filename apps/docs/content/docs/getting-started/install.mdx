@@ -49,11 +49,19 @@ bun add -g @ciphore/radiocli
 The `radiocli` executable still runs on Node.js 22 or newer, even when installed
 with pnpm or Bun.
 
-On macOS with npm, install `mpv` first:
+On macOS with npm, install `mpv` first. Install FFmpeg and the optional sender
+peer too if you want the AirPlay backend:
 
 ```bash
 brew install mpv
+brew install ffmpeg
+npm install node-airtunes2
 ```
+
+RadioCLI discovers AirPlay/RAOP receivers with Bonjour, decodes streams with
+`ffmpeg`, and sends audio directly to the selected receiver when the optional
+sender peer is present. Passcode-protected receivers prompt in the TUI; enter the
+code with `:airplay-code 1234`.
 
 ## Linux
 

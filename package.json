@@ -69,6 +69,14 @@
     "react": "^19.2.6",
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "node-airtunes2": "^2.5.0"
+  },
+  "peerDependenciesMeta": {
+    "node-airtunes2": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",

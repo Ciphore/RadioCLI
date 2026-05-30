@@ -135,6 +135,16 @@ export type MediaKeyBindings = {
   next: string[];
 };
 
+export type AirPlayDevice = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  txt: string[];
+  requiresPassword: boolean;
+  airplay2: boolean;
+};
+
 export type AppSettings = {
   theme: ThemeName;
   receiverStyle: ReceiverStyle;
@@ -142,7 +152,8 @@ export type AppSettings = {
   volume: number;
   enableRadioGarden: boolean;
   enableNearbyLocation: boolean;
-  preferredBackend: 'auto' | 'mpv' | 'ffplay';
+  preferredBackend: 'auto' | 'mpv' | 'ffplay' | 'airplay';
+  preferredAirPlayDevice?: string;
   tuneTimeoutSeconds: number;
   skipBrokenStreams: boolean;
   mediaKeys: MediaKeyBindings;

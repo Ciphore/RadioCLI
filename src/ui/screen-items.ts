@@ -15,6 +15,7 @@ export const settingsItems = [
   'Toggle Radio Garden experimental adapter',
   'Toggle nearby location lookup',
   'Cycle playback backend',
+  'Cycle AirPlay target',
   'Volume up',
   'Volume down',
   'Mute or unmute',

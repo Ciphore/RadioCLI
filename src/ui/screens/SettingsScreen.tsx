@@ -1,6 +1,6 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import type {AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
+import type {AirPlayDevice, AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
@@ -13,6 +13,7 @@ type SettingsScreenProps = {
   storePath: string;
   playback: PlaybackState;
   backends: string[];
+  airPlayDevices: AirPlayDevice[];
   providerHealth: Record<string, string>;
   theme: ThemeName;
   diagnostics: PlaybackDiagnostics;
@@ -25,6 +26,7 @@ export function SettingsScreen({
   storePath,
   playback,
   backends,
+  airPlayDevices,
   providerHealth,
   theme,
   diagnostics,
@@ -48,7 +50,7 @@ export function SettingsScreen({
           selected={selected}
           keyFor={item => item}
           render={(item, _index, active) => {
-            const value = settingValue(item, settings, diagnostics, backends);
+            const value = settingValue(item, settings, diagnostics, backends, airPlayDevices);
             return (
               <Box>
                 <Pointer active={active} />
@@ -88,7 +90,8 @@ function settingValue(
   item: string,
   settings: AppSettings,
   diagnostics: PlaybackDiagnostics,
-  backends: string[]
+  backends: string[],
+  airPlayDevices: AirPlayDevice[]
 ): string | undefined {
   switch (item) {
     case 'Cycle display color':
@@ -101,6 +104,10 @@ function settingValue(
       return settings.enableNearbyLocation ? 'on' : 'off';
     case 'Cycle playback backend':
       return `${settings.preferredBackend} · available ${backends.length ? backends.join(', ') : 'none'}`;
+    case 'Cycle AirPlay target': {
+      const device = airPlayDevices.find(candidate => candidate.id === settings.preferredAirPlayDevice);
+      return `${device?.name ?? settings.preferredAirPlayDevice ?? 'auto'} · ${airPlayDevices.length || 'no'} found`;
+    }
     case 'Mute or unmute':
       return diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`;
     case 'Toggle skip broken streams':

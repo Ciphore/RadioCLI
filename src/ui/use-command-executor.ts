@@ -181,6 +181,16 @@ export function useCommandExecutor({
         return;
       }
 
+      if (name === 'airplay-code' || name === 'airplay-passcode') {
+        if (!value.trim()) {
+          setMessage('Usage: :airplay-code <code>');
+          return;
+        }
+
+        player.submitAirPlayPasscode(value.trim());
+        return;
+      }
+
       if (name === 'sleep') {
         const minutes = Number(value);
         setSleepUntil(Number.isFinite(minutes) && minutes > 0 ? Date.now() + minutes * 60_000 : null);

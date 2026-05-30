@@ -4,7 +4,7 @@ import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController} from '../player/player-controller.js';
 import {playbackBackendInstallHint} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import {receiverStyleNames, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
+import {receiverStyleNames, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, textDim, themeAccent} from './theme.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
@@ -29,6 +29,8 @@ import {
   initialStationContexts,
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
+  nextAirPlayDeviceId,
+  nextPlaybackBackend,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
@@ -71,6 +73,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const player = useMemo(() => new PlayerController(() => settingsRef.current), []);
   const [playback, setPlayback] = useState<PlaybackState>(() => player.getState());
   const [availableBackends, setAvailableBackends] = useState<string[]>(() => player.detectedBackends());
+  const [availableAirPlayDevices, setAvailableAirPlayDevices] = useState<AirPlayDevice[]>(() => player.detectedAirPlayDevices());
   const [screen, setScreen] = useState<Screen>('home');
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -285,6 +288,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
+    void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
@@ -685,11 +689,24 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [updateSettings]);
 
   const cyclePlaybackBackend = useCallback(() => {
-    const current = settingsRef.current.preferredBackend;
-    const preferredBackend = current === 'auto' ? 'mpv' : current === 'mpv' ? 'ffplay' : 'auto';
+    const preferredBackend = nextPlaybackBackend(settingsRef.current.preferredBackend);
     updateSettings({preferredBackend});
     setMessage(`Playback backend: ${preferredBackend}`);
   }, [updateSettings]);
+
+  const cycleAirPlayTarget = useCallback(() => {
+    void player.refreshAirPlayDevices().then(devices => {
+      setAvailableAirPlayDevices(devices);
+      const preferredAirPlayDevice = nextAirPlayDeviceId(settingsRef.current.preferredAirPlayDevice, devices);
+      updateSettings({preferredAirPlayDevice});
+      const selectedAirPlayDevice = devices.find(device => device.id === preferredAirPlayDevice);
+      setMessage(`AirPlay target: ${selectedAirPlayDevice?.name ?? 'auto'}`);
+    }).catch(() => {
+      setAvailableAirPlayDevices([]);
+      updateSettings({preferredAirPlayDevice: undefined});
+      setMessage('No AirPlay receivers found.');
+    });
+  }, [player, updateSettings]);
 
   const toggleSkipBrokenStreams = useCallback(() => {
     const skipBrokenStreams = !settingsRef.current.skipBrokenStreams;
@@ -812,6 +829,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     commandMode,
     commandText,
     currentItemCount,
+    cycleAirPlayTarget,
     cycleDisplayColor,
     cyclePlaybackBackend,
     cycleReceiverStyle,
@@ -900,6 +918,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       ) : null}
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={appBackground}>
         <AppContent
+          airPlayDevices={availableAirPlayDevices}
           backends={availableBackends}
           countryFilter={countryFilter}
           diagnostics={diagnostics}

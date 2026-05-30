@@ -4,8 +4,9 @@ import {existsSync, unlinkSync} from 'node:fs';
 import {createServer, type Server} from 'node:net';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {commandExists} from './command.js';
+import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {createMpvIpcPath, extractMpvTitle, PlayerController} from './player-controller.js';
-import type {AppSettings, Station} from '../types.js';
+import type {AirPlayDevice, AppSettings, Station} from '../types.js';
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn()
@@ -15,8 +16,13 @@ vi.mock('./command.js', () => ({
   commandExists: vi.fn()
 }));
 
+vi.mock('./airplay-discovery.js', () => ({
+  discoverAirPlayDevices: vi.fn()
+}));
+
 const spawnMock = vi.mocked(spawn);
 const commandExistsMock = vi.mocked(commandExists);
+const discoverAirPlayDevicesMock = vi.mocked(discoverAirPlayDevices);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -126,6 +132,27 @@ describe('PlayerController lifecycle', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     expect(controller.getState()).toMatchObject({backend: 'ffplay', state: 'stopped', ready: false});
     unsubscribe();
+  });
+
+  it('starts the AirPlay worker and forwards passcodes', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stdout.emit('data', '{"type":"ready"}\n');
+    await playing;
+
+    expect(spawnMock.mock.calls[0]?.[0]).toBe(process.execPath);
+    expect(spawnMock.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([expect.stringContaining('airplay-worker')]));
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'playing', ready: true});
+
+    controller.submitAirPlayPasscode('1234');
+    expect(child.stdin.write).toHaveBeenCalledWith('{"type":"passcode","code":"1234"}\n');
   });
 
   it('reconciles mpv pause toggles against the backend state', async () => {
@@ -243,17 +270,40 @@ function station(overrides: Partial<Station> = {}): Station {
   };
 }
 
+function airPlayDevice(overrides: Partial<AirPlayDevice> = {}): AirPlayDevice {
+  return {
+    id: '5CAAFD0046D4@Office',
+    name: 'Office',
+    host: 'Sonos-5CAAFD0046D4.local',
+    port: 7000,
+    txt: ['cn=0,1', 'sf=0x4'],
+    requiresPassword: false,
+    airplay2: true,
+    ...overrides
+  };
+}
+
+function setDetectedBackends(controller: PlayerController, backends: string[]): void {
+  (controller as unknown as {availableBackends: string[]}).availableBackends = backends;
+}
+
 function fakeChildProcess(): EventEmitter & {
   stdin: {write: ReturnType<typeof vi.fn>};
+  stdout: EventEmitter;
+  stderr: EventEmitter;
   killed: boolean;
   kill: ReturnType<typeof vi.fn>;
 } {
   const child = new EventEmitter() as EventEmitter & {
     stdin: {write: ReturnType<typeof vi.fn>};
+    stdout: EventEmitter;
+    stderr: EventEmitter;
     killed: boolean;
     kill: ReturnType<typeof vi.fn>;
   };
   child.stdin = {write: vi.fn()};
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
   child.killed = false;
   child.kill = vi.fn(() => {
     child.killed = true;
