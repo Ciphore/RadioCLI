@@ -41,7 +41,7 @@ const defaultMediaKeys = {
 const settingsSchema: z.ZodType<AppSettings> = z.object({
   theme: z.enum(themeNames).default('green'),
   receiverStyle: z.preprocess(
-    value => (typeof value === 'string' && ['scope', 'sdr', 'signal', 'retro', 'vinyl', 'neon'].includes(value) ? 'spectrum' : value),
+    value => (typeof value === 'string' && ['scope', 'sdr', 'signal', 'retro', 'neon'].includes(value) ? 'spectrum' : value),
     z.enum(receiverStyleNames).default('spectrum')
   ),
   receiverStyleVersion: z.number().optional(),
