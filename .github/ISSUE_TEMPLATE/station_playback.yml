@@ -1,0 +1,24 @@
+name: Station playback issue
+description: Report a stream that does not play, plays poorly, or has bad metadata.
+title: "[Station]: "
+labels: ["station", "playback"]
+body:
+  - type: input
+    id: station
+    attributes:
+      label: Station
+      description: Include station name, country, and provider if visible.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior
+      description: Did it time out, fail, play silence, show wrong metadata, or skip?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Include stream URL only if it is public and safe to share.

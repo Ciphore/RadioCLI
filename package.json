@@ -1,0 +1,84 @@
+{
+  "name": "@ciphore/radiocli",
+  "version": "0.1.2",
+  "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ciphore",
+  "homepage": "https://github.com/Ciphore/RadioCLI#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ciphore/RadioCLI.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ciphore/RadioCLI/issues"
+  },
+  "keywords": [
+    "terminal",
+    "tui",
+    "cli",
+    "radio",
+    "internet-radio",
+    "mpv",
+    "ink",
+    "react",
+    "radio-browser",
+    "playlist"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "docs"
+  ],
+  "bin": {
+    "radiocli": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "clean": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/ensure-bin-executable.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "check:unused": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
+    "check:whitespace": "node scripts/whitespace-check.mjs",
+    "check:exports": "knip",
+    "check:package": "publint",
+    "lint": "npm run check:unused && npm run check:whitespace && npm run check:exports",
+    "docs:dev": "npm --prefix apps/docs run dev",
+    "docs:build": "npm --prefix apps/docs run build",
+    "docs:check": "npm --prefix apps/docs run check",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "verify": "npm run check && npm run lint && npm run test && npm run build && npm run smoke:data",
+    "verify:release": "npm run verify && npm run smoke:playback && npm run pack:check && npm run fresh:check && npm run check:package",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check && npm run lint && npm run test && npm run smoke:data && npm run fresh:check && npm run check:package",
+    "pack:check": "npm pack --dry-run",
+    "smoke:data": "tsx src/smoke/data-smoke.ts",
+    "smoke:playback": "tsx src/smoke/playback-smoke.ts",
+    "demo:script": "node scripts/demo-script.mjs",
+    "demo:assets": "node scripts/capture-demo-assets.mjs",
+    "fresh:check": "node scripts/fresh-check.mjs"
+  },
+  "dependencies": {
+    "ink": "^7.0.5",
+    "react": "^19.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "knip": "^6.14.2",
+    "publint": "^0.3.21",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

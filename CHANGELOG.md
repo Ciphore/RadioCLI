@@ -1,0 +1,60 @@
+# Changelog
+
+All notable changes to RadioCLI are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.2] - 2026-05-30
+
+### Fixed
+
+- Ignored Kitty keyboard release events so Ghostty users do not skip multiple
+  tabs from one left/right arrow key press.
+- Ignored Kitty release events for raw media-key transport sequences so learned
+  or native media keys do not double-fire on key release.
+
+## [0.1.1] - 2026-05-30
+
+Initial public release.
+
+### Added
+
+- A square braille spinner now animates to the left of the station name in the
+  live playback footer while a station is buffering.
+- Ink-based terminal UI with overview, now playing, library, explore, search,
+  countries, world map, nearby, stats, and settings screens.
+- Radio Browser provider with mirror fallback, durable cache, and tune
+  resolution, plus an experimental, opt-in Radio Garden provider.
+- `mpv` playback with `ffplay` fallback, readiness checks, ICY metadata polling,
+  volume, pause, mute, sleep timer, tune timeouts, and skip-broken-stream
+  behavior, using Unix sockets on macOS/Linux and named pipes on native Windows.
+- Receiver-style Now Playing screen with 50 selectable visualizers and
+  zero-signal frames whenever playback is idle, paused, stopped, or not
+  backend-ready.
+- Explore map: a braille world map beside the live station list with WASD
+  movement, click-to-place mouse support, and a cached geotagged station atlas
+  ranked by distance.
+- Local-first library: recents, favorites, imports, listening activity,
+  settings, learned media keys, and provider cache stored as JSON on your
+  machine.
+- Playlist import/export for `.m3u`, `.pls`, and `.xspf`.
+- Listening stats with a 52-week local-calendar contribution graph, sessions,
+  streaks, active days, and total hours listened.
+- `radiocli doctor` to report local playback readiness and print OS-specific
+  setup guidance.
+- Published Homebrew tap formula for `brew install ciphore/tap/radiocli`.
+- Documented native Linux and Windows install paths, with `winget` guidance for
+  Node.js, `mpv`, and optional FFmpeg on Windows.
+- Documented pnpm and Bun as optional npm-package install clients.
+
+### Changed
+
+- Tightened the Now Playing panel below the receiver: collapsed the stream
+  tech/tags, track metadata, and backend/volume rows into two compact lines
+  (track + favorite, then a single tech · tags · sleep line), dropping
+  backend/volume that already appear in the header and footer. The reclaimed
+  rows go to the visualizer.
+
+[0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2
+[0.1.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.1

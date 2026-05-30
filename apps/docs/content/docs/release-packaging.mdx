@@ -1,0 +1,127 @@
+---
+title: Release Packaging
+description: How RadioCLI is published through npm and Homebrew.
+---
+
+RadioCLI uses two distribution lanes:
+
+- npm for the scoped Node CLI package: `@ciphore/radiocli`
+- Homebrew for the one-command macOS install path: `ciphore/tap/radiocli`
+
+npm, pnpm, and Bun can install the npm package. The shipped executable still
+runs with Node.js, and package-manager installs should not install system
+packages from lifecycle scripts. Native playback comes from `mpv`, with `ffplay`
+from FFmpeg as an optional fallback. Linux users install `mpv` through their
+distro package manager. Windows users install Node.js and `mpv` through `winget`
+or Scoop, then install RadioCLI through npm.
+
+## NPM Release
+
+Before publishing:
+
+```bash
+npm ci
+npm run verify:release
+npm pack --dry-run
+```
+
+Test the packed tarball locally:
+
+```bash
+VERSION=0.1.2
+npm pack
+npm install -g "./ciphore-radiocli-$VERSION.tgz"
+radiocli --help
+radiocli doctor
+radiocli check
+```
+
+Publish:
+
+```bash
+npm login
+npm publish --access public
+```
+
+After publishing, `npm install -g @ciphore/radiocli` should install the
+executable and all JavaScript dependencies. Users should run `radiocli doctor`
+if playback is not ready.
+
+Optional client smoke checks:
+
+```bash
+pnpm add -g @ciphore/radiocli
+bun add -g @ciphore/radiocli
+radiocli doctor
+```
+
+Cross-platform release smoke checks should cover macOS, Linux, and Windows
+startup paths:
+
+```bash
+npm run fresh:check          # macOS/Linux
+npm run fresh:check          # Windows, from PowerShell
+radiocli doctor
+```
+
+## Homebrew Tap
+
+The public tap is `Ciphore/homebrew-tap`, and users install with:
+
+```bash
+brew install ciphore/tap/radiocli
+```
+
+The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`.
+After each npm publish, fetch the npm tarball URL and SHA:
+
+```bash
+VERSION=0.1.2
+TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
+curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
+shasum -a 256 "/tmp/radiocli-$VERSION.tgz"
+```
+
+Copy the template into a separate `homebrew-tap` repository:
+
+```text
+homebrew-tap/
+  Formula/
+    radiocli.rb
+```
+
+Replace `{{VERSION}}` and `{{SHA256}}`, then verify:
+
+```bash
+brew install --build-from-source ./Formula/radiocli.rb
+brew test radiocli
+radiocli doctor
+```
+
+## Windows And Linux Native Playback
+
+Windows setup uses native Node.js and native `mpv`:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id shinchiro.mpv -e
+npm install -g @ciphore/radiocli
+radiocli doctor
+```
+
+Scoop users can install `mpv` with:
+
+```powershell
+scoop bucket add extras
+scoop install mpv
+```
+
+Linux users should install the distro `mpv` package before the npm package:
+
+```bash
+sudo apt install mpv       # Debian/Ubuntu
+sudo dnf install mpv       # Fedora/RHEL-like
+sudo pacman -S mpv         # Arch/Manjaro
+sudo apk add mpv           # Alpine
+sudo zypper install mpv    # openSUSE/SUSE
+```

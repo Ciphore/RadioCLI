@@ -1,0 +1,164 @@
+---
+title: Install
+description: Requirements and setup paths for running RadioCLI.
+---
+
+## Requirements
+
+RadioCLI needs:
+
+- Homebrew on macOS: installs RadioCLI, Node.js, and `mpv`
+- npm, pnpm, or Bun on macOS, Linux, and Windows: Node.js 22 or newer
+- `mpv` for the best playback experience; RadioCLI expects one local playback
+  backend at runtime
+- `ffplay` from FFmpeg as an optional fallback
+
+## Recommended: macOS With Homebrew
+
+Homebrew is the lowest-friction macOS path. The tap formula installs RadioCLI,
+Node.js, and `mpv` through Homebrew:
+
+```bash
+brew install ciphore/tap/radiocli
+radiocli
+```
+
+Run `radiocli doctor` any time you want to verify local playback readiness.
+
+## Universal npm Install
+
+The npm package is `@ciphore/radiocli`, and the installed executable is
+`radiocli`. npm installs RadioCLI and its JavaScript dependencies only; it does
+not install system playback tools like `mpv` or FFmpeg.
+
+```bash
+npm install -g @ciphore/radiocli
+radiocli doctor
+radiocli
+```
+
+pnpm and Bun can install the same package for users who already use those
+package managers:
+
+```bash
+pnpm add -g @ciphore/radiocli
+# or
+bun add -g @ciphore/radiocli
+```
+
+The `radiocli` executable still runs on Node.js 22 or newer, even when installed
+with pnpm or Bun.
+
+On macOS with npm, install `mpv` first:
+
+```bash
+brew install mpv
+```
+
+## Linux
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt install mpv
+npm install -g @ciphore/radiocli
+radiocli
+```
+
+Other common Linux packages:
+
+```bash
+sudo dnf install mpv       # Fedora/RHEL-like
+sudo pacman -S mpv         # Arch/Manjaro
+sudo apk add mpv           # Alpine
+sudo zypper install mpv    # openSUSE/SUSE
+```
+
+Then install RadioCLI with npm:
+
+```bash
+npm install -g @ciphore/radiocli
+radiocli doctor
+radiocli
+```
+
+## Windows
+
+Use Windows Terminal or PowerShell with Node.js 22 or newer and native `mpv`:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id shinchiro.mpv -e
+npm install -g @ciphore/radiocli
+radiocli doctor
+radiocli
+```
+
+Scoop users can install `mpv` through the extras bucket instead:
+
+```powershell
+scoop bucket add extras
+scoop install mpv
+```
+
+WSL remains supported through the Linux install path, but native Windows is the
+recommended Windows Terminal path.
+
+## Optional ffplay Fallback
+
+Install FFmpeg separately only if you want `ffplay` fallback support:
+
+macOS/Linux:
+
+```bash
+brew install ffmpeg        # macOS
+sudo apt install ffmpeg
+```
+
+Windows:
+
+```powershell
+winget install --id Gyan.FFmpeg -e
+```
+
+CI covers command-mode typecheck, tests, builds, package checks, and fresh
+install smoke checks on Ubuntu, macOS, and Windows.
+
+## Local Checkout
+
+```bash
+git clone https://github.com/Ciphore/RadioCLI.git
+cd RadioCLI
+npm ci
+npm run build
+npm link
+radiocli
+```
+
+If you do not want to link the package globally:
+
+```bash
+npm run dev
+```
+
+## Built Binary
+
+After a local build, the same command-mode actions can be run directly:
+
+```bash
+node dist/cli.js check
+node dist/cli.js search "lagos talk"
+```
+
+## Data Paths And Migration
+
+The npm package is `@ciphore/radiocli`, and the installed executable is
+`radiocli`. Current installs use RadioCLI storage and cache paths such as
+`radiocli.json` and `radiocli-cache.json`.
+
+Existing Radio Atlas data is still discovered when a new RadioCLI store does not
+exist, and legacy `RADIO_ATLAS_HOME` / `RADIO_ATLAS_DISABLE_ANIMATION` environment
+variables remain supported as migration fallbacks. New automation should use
+`RADIOCLI_HOME` and `RADIOCLI_DISABLE_ANIMATION`.
+
+Next: [Use the CLI](./cli.mdx) or [learn the TUI controls](./tui-controls.mdx).

@@ -1,0 +1,86 @@
+---
+title: TUI Controls
+description: Navigation, playback, settings, command palette, and learned media keys.
+---
+
+RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active,
+a compact live row sits above the shortcuts with station, cleaned track metadata,
+volume or mute state, and an active sleep timer.
+
+## Global Controls
+
+| Key | Action |
+| --- | --- |
+| `Left` / `Right` or `Tab` / `Shift+Tab` | Move across top screen tabs |
+| `F7` / `F9`, `,` / `.`, or `Shift+Left` / `Shift+Right` | Tune previous or next station from the current source list |
+| `space` / `F8` | Pause or resume |
+| `t` | Cycle display color |
+| `v` | Cycle receiver style |
+| `+` / `-` | Adjust volume |
+| `q` or `Ctrl+C` | Quit cleanly |
+
+## Screen Controls
+
+| Screen | Controls |
+| --- | --- |
+| Home | `Up` / `Down` move, `Enter` open, number jump, `:` command |
+| Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
+| Search results | `/` edit query, `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
+| Explore | click map, `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
+| Countries | `/` filter, `Up` / `Down` move, `Enter` open stations, `w` map, `b` home |
+| World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
+| Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
+| Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
+| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `r` health, `b` home |
+| Stats | `b` home |
+
+Explore mouse clicks use terminal mouse reporting while the Explore tab is
+active. If your terminal or tmux setup does not pass those events through, the
+WASD cursor controls stay fully available.
+
+## Command Palette
+
+Useful command entries:
+
+```text
+:search lagos jazz
+:country japan
+:codec MP3
+:language spanish
+:bitrate 128
+:clear
+:volume 60
+:mute
+:favorite
+:sleep 15
+:sleep off
+:timeout 15
+:skip off
+:location on
+:learn previous
+:learn play
+:learn next
+:keys reset
+:map
+:library
+:stats
+:settings
+:stop
+```
+
+## Source-List Queues
+
+When you tune a station from Library, Explore, Search, Countries, or Nearby,
+that list becomes the playback queue. Previous/next keeps moving
+through that source list from any screen until you tune from another list.
+
+## Learned Media Keys
+
+Hardware media keys depend on the OS and terminal. RadioCLI recognizes common
+F7/F8/F9 sequences, Kitty media-key codes, modified-arrow sequences, comma/dot
+transport fallback, and learned custom bindings.
+
+Learn keys from Settings or with `:learn previous`, `:learn play`, and
+`:learn next`; clear them with `:keys reset`.
+
+Location behavior is covered in [Privacy and Security](../privacy-security.mdx).
