@@ -64,7 +64,7 @@
     "fresh:check": "node scripts/fresh-check.mjs"
   },
   "dependencies": {
-    "ink": "^7.0.3",
+    "ink": "^7.0.5",
     "react": "^19.2.6",
     "zod": "^4.4.3"
   },
