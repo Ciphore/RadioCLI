@@ -1,0 +1,91 @@
+---
+title: Design
+description: Product rationale for Ink, mpv, provider adapters, opt-in location, and the receiver UI.
+---
+
+RadioCLI is meant to feel like a product, not a terminal proof of concept.
+
+## Why Ink
+
+Ink gives the project React's component model while staying native to terminal
+constraints. That makes it easier to keep the app screen-oriented, testable, and
+incrementally adaptable as the UI grows.
+
+## Why mpv
+
+Radio streams are messy: redirects, playlists, HLS, odd codecs, and flaky
+metadata are normal. `mpv` already handles that complexity well and exposes JSON
+IPC for controls and metadata.
+
+`ffplay` remains as a fallback because it is often already installed with FFmpeg,
+but `mpv` is the intended backend.
+
+## Why Provider Adapters
+
+Public radio directories change, block, rate limit, and disagree. Keeping
+providers behind adapters prevents the UI from depending on one API shape.
+
+Radio Browser is primary because it is public and has broad station metadata.
+Radio Garden stays experimental because its public web experience does not mean
+its API is stable for terminal clients.
+
+## Why Location Is Opt-In
+
+Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
+RadioCLI requires explicit opt-in through Settings or `:location on`.
+
+## Receiver Aesthetic
+
+![RadioCLI Now Playing visualizer demo](/demo/radiocli-now-playing.gif)
+
+The UI borrows from old receiver and car head-unit displays: direct labels,
+compact hierarchy, visible status, and no fake copy. The app should be usable in
+a terminal session, not a landing page rendered in ANSI.
+
+The app shell paints its own near-black background instead of relying on the
+terminal profile color. That keeps the receiver, tabs, stats panels, and footer
+visually cohesive across terminal themes.
+
+The Now Playing screen supports multiple visualizer styles so the display can
+feel like a receiver without locking the product into one animation. The default
+pulse-grid style is fast and direct, while the retained alternates include the
+restored spinning ASCII cube plus generated ASCII fire, fireworks, plasma,
+spinning donut, starfield, high-resolution braille visuals, and generative
+motion scenes. Every retained style is deterministic, pure-frame terminal
+rendering and still freezes to a truthful zero-signal frame when playback is
+inactive.
+
+Receiver motion is tied to playback truth rather than screen presence. Visualizers
+animate only when playback is `playing` and backend-ready; idle, loading, paused,
+stopped, and error states render a flat zero-signal frame so the display never
+implies live audio when nothing is playing.
+
+Explore uses a dense braille world map next to the station list on wide
+terminals. That layout keeps global discovery spatial without forcing the user
+to switch away from the playable list. The map has one movable scan cursor
+instead of many station pins; clicking the map places it directly, WASD makes
+fine nudges, Shift+WASD makes larger jumps, and the station list reloads around
+that coordinate. Mouse reporting is scoped to Explore so the rest of the terminal
+app keeps ordinary selection behavior.
+
+The Explore list is distance-truthful rather than popularity-first. RadioCLI
+builds a cached atlas from all available Radio Browser stations with coordinates
+and computes local distance inside the app. The list reports the radius covered
+by the returned stations so the user can tell whether a cursor position is dense,
+sparse, or limited by provider geotag coverage.
+
+## Navigation And Stats
+
+The horizontal tab rail is intentionally dense: it keeps the app feeling like a
+terminal tool with real surfaces instead of a stack of disconnected menus. On
+wide terminals the full rail is visible; on narrower terminals it keeps the
+active tab and nearby tabs in view.
+
+Listening stats use the same direct, boxed language as the rest of the app. The
+contribution graph shows the last 53 weeks (371 days) of local listening activity, while
+the numeric stats report real locally persisted sessions, including favorite
+station, thresholded stations listened, sessions, streaks, active days, and total
+hours listened.
+
+The stats graph palette follows the selected display color, so Stats feels like
+part of the same configured receiver surface.

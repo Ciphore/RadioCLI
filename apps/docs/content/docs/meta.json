@@ -1,0 +1,16 @@
+{
+  "title": "RadioCLI",
+  "pages": [
+    "index",
+    "getting-started",
+    "demo",
+    "architecture",
+    "design",
+    "reliability",
+    "privacy-security",
+    "contributing",
+    "release-packaging",
+    "changelog",
+    "roadmap"
+  ]
+}

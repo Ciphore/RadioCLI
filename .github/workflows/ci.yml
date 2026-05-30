@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [22.x, 24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package dry run
+        run: npm run pack:check
+
+      - name: Package lint
+        run: npm run check:package
+
+      - name: Data smoke
+        if: github.event_name != 'pull_request'
+        run: npm run smoke:data
+
+      - name: Fresh install smoke
+        if: github.event_name != 'pull_request'
+        run: npm run fresh:check
+
+  playback-smoke:
+    name: Playback Smoke
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install system playback backend
+        run: sudo apt-get update && sudo apt-get install -y mpv ffmpeg
+
+      - name: Install
+        run: npm ci
+
+      - name: Playback smoke
+        run: npm run smoke:playback
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: apps/docs/package-lock.json
+
+      - name: Install
+        working-directory: apps/docs
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: apps/docs
+        run: npm run check
+
+      - name: Build
+        working-directory: apps/docs
+        run: npm run build
