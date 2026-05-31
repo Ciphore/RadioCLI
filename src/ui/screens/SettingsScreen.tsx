@@ -6,7 +6,9 @@ import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 import {settingsItems} from '../screen-items.js';
 import {themeAccent} from '../theme.js';
-import {playbackBackendCapabilities, playbackBackendLabel} from '../../player/backend-install.js';
+import {playbackBackendCapabilities} from '../../player/backend-install.js';
+import {airPlayReceiverSettingValue} from '../airplay-settings.js';
+import {audioOutputLabel, audioOutputSettingValue} from '../audio-output.js';
 
 type SettingsScreenProps = {
   selected: number;
@@ -74,7 +76,8 @@ export function SettingsScreen({
           Status
         </Text>
         <Text color="gray">
-          Player: <Text color={accent}>{playbackBackendLabel(playback.backend)}</Text> / {playback.state} ·{' '}
+          Output: <Text color={accent}>{audioOutputLabel(playback.backend)}</Text> / {playback.state} ·{' '}
+          Selected: <Text color={accent}>{audioOutputLabel(settings.preferredBackend)}</Text> ·{' '}
           {diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`} · tune timeout {settings.tuneTimeoutSeconds}s
         </Text>
         <Text color="gray">
@@ -103,12 +106,10 @@ function settingValue(
       return settings.enableRadioGarden ? 'on' : 'off';
     case 'Toggle nearby location lookup':
       return settings.enableNearbyLocation ? 'on' : 'off';
-    case 'Cycle playback backend':
-      return `${settings.preferredBackend} · available ${backends.length ? backends.map(playbackBackendLabel).join(', ') : 'none'}`;
-    case 'Cycle AirPlay target': {
-      const device = airPlayDevices.find(candidate => candidate.id === settings.preferredAirPlayDevice);
-      return `${device?.name ?? settings.preferredAirPlayDevice ?? 'auto'} · ${airPlayDevices.length || 'no'} found`;
-    }
+    case 'Audio output':
+      return audioOutputSettingValue(settings, diagnostics, backends);
+    case 'AirPlay receiver':
+      return airPlayReceiverSettingValue(settings, airPlayDevices, backends);
     case 'Mute or unmute':
       if (diagnostics.backend === 'ffplay' && !playbackBackendCapabilities(diagnostics.backend).supportsMute) {
         return 'requires mpv';

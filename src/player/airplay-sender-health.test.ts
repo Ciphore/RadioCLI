@@ -12,7 +12,7 @@ describe('AirPlay sender health gate', () => {
     });
   });
 
-  it('blocks node-airtunes2 installs with vulnerable transitive dependencies', () => {
+  it('blocks node-airtunes2 installs with high-risk transitive dependencies', () => {
     const health = airPlaySenderHealth(packageLookup({
       'node-airtunes2': '2.5.0',
       protobufjs: '6.11.6',
@@ -20,7 +20,20 @@ describe('AirPlay sender health gate', () => {
     }));
 
     expect(health.safe).toBe(false);
-    expect(health.vulnerablePackages).toEqual(['protobufjs@6.11.6', 'elliptic@6.6.1']);
+    expect(health.vulnerablePackages).toEqual(['protobufjs@6.11.6']);
+    expect(health.warningPackages).toEqual(['elliptic@6.6.1']);
+  });
+
+  it('allows the bundled sender when only the no-fix low-risk elliptic advisory remains', () => {
+    const health = airPlaySenderHealth(packageLookup({
+      'node-airtunes2': '2.5.0',
+      protobufjs: '7.6.2',
+      elliptic: '6.6.1'
+    }));
+
+    expect(health.safe).toBe(true);
+    expect(health.vulnerablePackages).toEqual([]);
+    expect(health.warningPackages).toEqual(['elliptic@6.6.1']);
   });
 
   it('allows future patched sender installs', () => {
@@ -35,6 +48,7 @@ describe('AirPlay sender health gate', () => {
       safe: true,
       version: '2.5.1'
     });
+    expect(health.warningPackages).toEqual([]);
   });
 });
 

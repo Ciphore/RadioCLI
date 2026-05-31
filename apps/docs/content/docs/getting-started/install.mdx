@@ -7,18 +7,17 @@ description: Requirements and setup paths for running RadioCLI.
 
 RadioCLI needs:
 
-- Homebrew on macOS: installs RadioCLI, Node.js, and `mpv`
+- Homebrew on macOS: installs RadioCLI, Node.js, `mpv`, and FFmpeg
 - npm, pnpm, or Bun on macOS, Linux, and Windows: Node.js 22 or newer
 - `mpv` for playback, pause, mute, volume, media keys, metadata, and readiness
   checks
-- `ffmpeg` plus an audited, compatible sender package on macOS for experimental
-  AirPlay
+- FFmpeg on macOS for experimental AirPlay and optional `ffplay` fallback
 - `ffplay` from FFmpeg as an optional playback-only fallback
 
 ## Recommended: macOS With Homebrew
 
 Homebrew is the lowest-friction macOS path. The tap formula installs RadioCLI,
-Node.js, and `mpv` through Homebrew:
+Node.js, `mpv`, and FFmpeg through Homebrew:
 
 ```bash
 brew install ciphore/tap/radiocli
@@ -51,22 +50,23 @@ bun add -g @ciphore/radiocli
 The `radiocli` executable still runs on Node.js 22 or newer, even when installed
 with pnpm or Bun.
 
-On macOS with npm, install `mpv` first. Install FFmpeg too if you want to test
-the experimental AirPlay backend:
+On macOS with npm, install `mpv` first. Install FFmpeg too if you want AirPlay:
 
 ```bash
 brew install mpv
 brew install ffmpeg
-npm audit --audit-level=low
 ```
 
 RadioCLI discovers AirPlay/RAOP receivers with Bonjour and decodes streams with
-`ffmpeg`, but it only advertises the `airplay` backend when a compatible sender
-package passes its dependency safety gate. Do not install `node-airtunes2`
-blindly: the current public package line is blocked by RadioCLI because its
-transitive dependency tree contains known vulnerable versions. If you supply a
-patched compatible sender, passcode-protected receivers prompt in the TUI; enter
-the code with `:airplay-code 1234`.
+FFmpeg. The sender bridge is bundled with RadioCLI, so users should not install
+extra AirPlay packages manually. Passcode-protected receivers prompt in the TUI;
+enter the code with `:airplay-code 1234` or the AirPlay Code screen. RadioCLI
+requires an explicit AirPlay receiver selection from Settings or `:airplay`
+before it tunes through AirPlay. Changing Audio output while a station is
+playing retunes the station immediately, so users can move between AirPlay and
+this device without restarting RadioCLI. AirPlay is not used as the automatic
+startup fallback; restart launches back into local playback while remembering
+the last receiver for the next manual AirPlay switch.
 
 ## Linux
 

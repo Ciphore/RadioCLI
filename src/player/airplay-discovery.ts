@@ -1,4 +1,6 @@
 import {spawn} from 'node:child_process';
+import {lookup} from 'node:dns/promises';
+import {networkInterfaces} from 'node:os';
 import type {AirPlayDevice} from '../types.js';
 import {commandExists} from './command.js';
 
@@ -33,11 +35,48 @@ export async function discoverAirPlayDevices({
     Math.max(1, lookupConcurrency),
     async instance => {
       const lookupOutput = await runDnsSd(['-L', instance, '_raop._tcp', 'local'], timeoutMs, maxOutputBytes).catch(() => '');
-      return parseRaopLookupOutput(instance, lookupOutput);
+      const device = parseRaopLookupOutput(instance, lookupOutput);
+      return device ? enrichAirPlayDeviceHost(device) : null;
     }
   );
 
   return devices.filter((device): device is AirPlayDevice => Boolean(device));
+}
+
+async function enrichAirPlayDeviceHost(device: AirPlayDevice): Promise<AirPlayDevice> {
+  const addresses = await lookup(device.host, {all: true, family: 4}).catch(() => []);
+  if (addresses.length === 0) {
+    return device;
+  }
+
+  const localAddresses = localIpv4Addresses();
+  const preferred = addresses.find(address => !isLoopbackAddress(address.address)) ?? addresses[0];
+  if (!preferred) {
+    return device;
+  }
+
+  return {
+    ...device,
+    host: preferred.address,
+    local: addresses.some(address => localAddresses.has(address.address))
+  };
+}
+
+function localIpv4Addresses(): Set<string> {
+  const addresses = new Set(['127.0.0.1']);
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4') {
+        addresses.add(entry.address);
+      }
+    }
+  }
+
+  return addresses;
+}
+
+function isLoopbackAddress(address: string): boolean {
+  return address === '127.0.0.1' || address.startsWith('127.');
 }
 
 export function parseRaopBrowseOutput(output: string): string[] {

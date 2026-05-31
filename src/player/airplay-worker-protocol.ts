@@ -17,11 +17,13 @@ export type AirPlayWorkerCommand =
   | {type: 'stop'}
   | {type: 'setVolume'; volume: number}
   | {type: 'setMuted'; muted: boolean}
+  | {type: 'retune'; streamUrl: string; stationName: string}
   | {type: 'passcode'; code: string};
 
 export type AirPlayWorkerEvent =
   | {type: 'ready'}
   | {type: 'playing'}
+  | {type: 'retuned'}
   | {type: 'buffer'; status: string}
   | {type: 'password-required'}
   | {type: 'stopped'}
@@ -65,12 +67,6 @@ function validateWorkerStart(value: unknown): AirPlayWorkerStart {
     throw new Error('Invalid AirPlay worker start payload.');
   }
 
-  const streamUrl = boundedString(value.streamUrl, 'streamUrl', 4096);
-  const parsedUrl = new URL(streamUrl);
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('AirPlay streams must use http or https URLs.');
-  }
-
   const device = value.device;
   const port = Number(device.port);
   const txt = Array.isArray(device.txt)
@@ -78,7 +74,7 @@ function validateWorkerStart(value: unknown): AirPlayWorkerStart {
     : [];
 
   return {
-    streamUrl,
+    streamUrl: boundedHttpUrl(value.streamUrl, 'streamUrl'),
     stationName: boundedText(value.stationName, 'stationName', maxWorkerTextBytes),
     volume: clampVolume(Number(value.volume)),
     muted: typeof value.muted === 'boolean' ? value.muted : false,
@@ -111,6 +107,18 @@ function validateWorkerMessage(value: unknown): AirPlayWorkerCommand | AirPlayWo
     return typeof value.muted === 'boolean' ? {type: 'setMuted', muted: value.muted} : null;
   }
 
+  if (value.type === 'retune') {
+    try {
+      return {
+        type: 'retune',
+        streamUrl: boundedHttpUrl(value.streamUrl, 'streamUrl'),
+        stationName: boundedText(value.stationName, 'stationName', maxWorkerTextBytes)
+      };
+    } catch {
+      return null;
+    }
+  }
+
   if (value.type === 'passcode') {
     if (typeof value.code !== 'string' || Buffer.byteLength(value.code, 'utf8') > maxPasscodeBytes) {
       return null;
@@ -120,7 +128,7 @@ function validateWorkerMessage(value: unknown): AirPlayWorkerCommand | AirPlayWo
     return code ? {type: 'passcode', code} : null;
   }
 
-  if (value.type === 'ready' || value.type === 'playing' || value.type === 'password-required' || value.type === 'stopped') {
+  if (value.type === 'ready' || value.type === 'playing' || value.type === 'retuned' || value.type === 'password-required' || value.type === 'stopped') {
     return {type: value.type};
   }
 
@@ -146,6 +154,16 @@ function boundedString(value: unknown, field: string, maxBytes: number): string 
 
 function boundedText(value: unknown, field: string, maxBytes: number): string {
   return boundedString(value, field, maxBytes);
+}
+
+function boundedHttpUrl(value: unknown, field: string): string {
+  const streamUrl = boundedString(value, field, 4096);
+  const parsedUrl = new URL(streamUrl);
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('AirPlay streams must use http or https URLs.');
+  }
+
+  return streamUrl;
 }
 
 function cleanText(value: unknown, maxBytes: number): string {

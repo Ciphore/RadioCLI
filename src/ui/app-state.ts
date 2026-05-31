@@ -1,4 +1,5 @@
-import type {AirPlayDevice, AppSettings, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import type {AppSettings, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import {isPlaybackOutputError} from '../player/player-controller.js';
 import type {TopTab} from './components/TopTabs.js';
 
 export type StationContext = {
@@ -153,24 +154,6 @@ export function nextPlaybackBackend(current: AppSettings['preferredBackend']): A
   return playbackBackendOptions[(index + 1) % playbackBackendOptions.length] ?? 'auto';
 }
 
-export function nextAirPlayDeviceId(current: string | undefined, devices: AirPlayDevice[]): string | undefined {
-  if (devices.length === 0) {
-    return undefined;
-  }
-
-  const ids = devices.map(device => device.id);
-  if (!current) {
-    return ids[0];
-  }
-
-  const index = ids.indexOf(current);
-  if (index === -1 || index === ids.length - 1) {
-    return undefined;
-  }
-
-  return ids[index + 1];
-}
-
 export function moveExploreCursor(cursor: ExploreCursor, direction: ExploreMoveDirection, fast = false): ExploreCursor {
   const latitudeStep = fast ? 6 : 1;
   const longitudeStep = fast ? 12 : 2;
@@ -227,8 +210,20 @@ export function favoriteTarget(screen: Screen, selectedStation: Station | null, 
   return playingStation;
 }
 
+export function shouldSkipAfterTuneError(error: unknown, skipBrokenStreams: boolean, nextStation: Station | undefined): nextStation is Station {
+  return Boolean(skipBrokenStreams && nextStation && !isPlaybackOutputError(error));
+}
+
 export function activeTabForScreen(screen: Screen): Screen {
-  return screen === 'stations' || screen === 'map' ? 'countries' : screen;
+  if (screen === 'stations' || screen === 'map') {
+    return 'countries';
+  }
+
+  if (screen === 'airplay-settings' || screen === 'airplay-code') {
+    return 'settings';
+  }
+
+  return screen;
 }
 
 export function stationContextKeyForScreen(screen: Screen): StationContextKey | null {

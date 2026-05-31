@@ -16,6 +16,9 @@ import {pageFooterText} from './page-footer.js';
 import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell} from './terminal-mouse.js';
 import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
+import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
+import {isAirPlayBackendAvailable} from './airplay-settings.js';
+import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -29,11 +32,10 @@ import {
   initialStationContexts,
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
-  nextAirPlayDeviceId,
-  nextPlaybackBackend,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
+  shouldSkipAfterTuneError,
   stationApproximateTime,
   stationContextKeyForScreen,
   topTabs,
@@ -94,6 +96,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [commandMode, setCommandMode] = useState(false);
   const [commandText, setCommandText] = useState('');
+  const [airPlayCode, setAirPlayCode] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({codec: null, language: null, minBitrate: null});
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -166,6 +169,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'now-playing': 1,
     library: 0,
     stats: 1,
+    'airplay-settings': 0,
+    'airplay-code': 1,
     settings: settingsItems.length
   });
   itemCountsRef.current = {
@@ -179,6 +184,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'now-playing': 1,
     library: stationCounts.library,
     stats: 1,
+    'airplay-settings': availableAirPlayDevices.length,
+    'airplay-code': 1,
     settings: settingsItems.length
   };
 
@@ -186,6 +193,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   displayStationsRef.current = displayStations;
   const sleepLabel = sleepUntil ? `Sleep ${formatTimeLeft(sleepUntil - Date.now())}` : 'Sleep off';
   const showPlaybackFooter = shouldShowPlaybackFooter(playingStation, playback);
+  const selectedAirPlayDevice = useMemo(
+    () => availableAirPlayDevices.find(device => device.id === library.settings.preferredAirPlayDevice),
+    [availableAirPlayDevices, library.settings.preferredAirPlayDevice]
+  );
+  const canEnterAirPlayCode =
+    isAirPlayCodePromptActive(playback) ||
+    Boolean(isAirPlayBackendAvailable(availableBackends) && selectedAirPlayDevice?.requiresPassword && !selectedAirPlayDevice.local);
   const layout = computeTerminalLayout(columns, rows, showPlaybackFooter ? 3 : 2);
   const frameWidth = Math.max(40, layout.columns - 2);
 
@@ -262,7 +276,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   useEffect(() => {
     setSelected(value => clamp(value, currentItemCount(screen) - 1));
-  }, [displayStations.length, filteredCountries.length, screen]);
+  }, [availableAirPlayDevices.length, displayStations.length, filteredCountries.length, screen]);
 
   useEffect(() => {
     if (!sleepUntil) {
@@ -323,6 +337,21 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [store]
   );
 
+  useEffect(() => {
+    if (!selectedAirPlayDevice?.local || settingsRef.current.preferredBackend !== 'airplay') {
+      return;
+    }
+
+    const preferredBackend = preferredLocalPlaybackBackend(availableBackends);
+    if (!preferredBackend) {
+      setMessage(`${selectedAirPlayDevice.name} is this Mac. Install mpv to use local playback instead of AirPlay.`);
+      return;
+    }
+
+    updateSettings({preferredBackend});
+    setMessage(`${selectedAirPlayDevice.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
+  }, [availableBackends, selectedAirPlayDevice, updateSettings]);
+
   const updateMediaKeys = useCallback(
     (mediaKeys: AppSettings['mediaKeys']) => {
       updateSettings({mediaKeys: normalizeMediaKeyBindings(mediaKeys)});
@@ -361,6 +390,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       setMessage(null);
     }
   }, []);
+
+  const openAirPlayCode = useCallback(() => {
+    setAirPlayCode('');
+    go('airplay-code', {resetSelection: true, clearMessage: false});
+  }, [go]);
+
+  useEffect(() => {
+    if (isAirPlayCodePromptActive(playback) && screenRef.current !== 'airplay-code') {
+      openAirPlayCode();
+    }
+  }, [openAirPlayCode, playback.backend, playback.message]);
 
   const shutdown = useCallback(() => {
     store.finishActiveListeningSession();
@@ -604,7 +644,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setPlayingStation(station);
         playbackQueueRef.current = queue;
         store.startListeningSession(station);
-        setLibrary(store.addRecent(station));
+        const nextLibrary = store.addRecent(station);
+        if (screenRef.current === 'library') {
+          const nextLibraryStations = applyStationFilters(buildLibraryStations(nextLibrary), filters);
+          const nextLibraryIndex = nextLibraryStations.findIndex(item => stationMatches(item, station));
+          if (nextLibraryIndex >= 0) {
+            selectedByScreenRef.current.library = nextLibraryIndex;
+            setSelected(nextLibraryIndex);
+          }
+        }
+
+        setLibrary(nextLibrary);
         if (options.openNowPlaying) {
           go('now-playing');
         }
@@ -615,7 +665,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         const currentList = queue.stations;
         const currentIndex = currentList.findIndex(item => stationKey(item) === stationKey(station));
         const nextStation = currentIndex >= 0 ? currentList[currentIndex + 1] : undefined;
-        if (settingsRef.current.skipBrokenStreams && nextStation) {
+        if (shouldSkipAfterTuneError(error, settingsRef.current.skipBrokenStreams, nextStation)) {
           setMessage(`${message} Skipping to ${nextStation.name}.`);
           rememberQueueSelection(queue, currentIndex + 1);
           setTimeout(() => playStationRef.current(nextStation, {...options, queue}), 250);
@@ -625,7 +675,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setMessage(message);
       }
     },
-    [go, player, providers, queueFromCurrentList, rememberQueueSelection, store]
+    [filters, go, player, providers, queueFromCurrentList, rememberQueueSelection, stationMatches, store]
   );
   playStationRef.current = playStation;
 
@@ -648,6 +698,21 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       setMessage(result.message);
     }
   }, []);
+
+  const submitAirPlayCode = useCallback(
+    (code: string) => {
+      const result = player.submitAirPlayPasscode(code);
+      if (result.ok) {
+        setAirPlayCode('');
+        setMessage(result.message ?? 'AirPlay code sent.');
+        go('now-playing', {clearMessage: false});
+        return;
+      }
+
+      showControlResult(result);
+    },
+    [go, player, showControlResult]
+  );
 
   const setVolume = useCallback(
     (volume: number) => {
@@ -702,25 +767,116 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     setMessage(`Nearby location lookup ${enableNearbyLocation ? 'enabled' : 'disabled'}.`);
   }, [updateSettings]);
 
-  const cyclePlaybackBackend = useCallback(() => {
-    const preferredBackend = nextPlaybackBackend(settingsRef.current.preferredBackend);
-    updateSettings({preferredBackend});
-    setMessage(`Playback backend: ${preferredBackend}`);
-  }, [updateSettings]);
-
-  const cycleAirPlayTarget = useCallback(() => {
-    void player.refreshAirPlayDevices().then(devices => {
+  const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
+    try {
+      const devices = await player.refreshAirPlayDevices();
       setAvailableAirPlayDevices(devices);
-      const preferredAirPlayDevice = nextAirPlayDeviceId(settingsRef.current.preferredAirPlayDevice, devices);
-      updateSettings({preferredAirPlayDevice});
-      const selectedAirPlayDevice = devices.find(device => device.id === preferredAirPlayDevice);
-      setMessage(`AirPlay target: ${selectedAirPlayDevice?.name ?? 'auto'}`);
-    }).catch(() => {
+      const preferredIndex = devices.findIndex(device => device.id === settingsRef.current.preferredAirPlayDevice);
+      if (preferredIndex >= 0) {
+        selectedByScreenRef.current['airplay-settings'] = preferredIndex;
+        if (screenRef.current === 'airplay-settings') {
+          setSelected(clamp(preferredIndex, devices.length - 1));
+        }
+      }
+
+      if (announce) {
+        setMessage(devices.length > 0 ? `AirPlay receivers refreshed: ${devices.length} found.` : 'No AirPlay receivers found.');
+      }
+
+      return devices;
+    } catch {
       setAvailableAirPlayDevices([]);
-      updateSettings({preferredAirPlayDevice: undefined});
-      setMessage('No AirPlay receivers found.');
-    });
-  }, [player, updateSettings]);
+      if (announce) {
+        setMessage('AirPlay receiver refresh failed.');
+      }
+
+      return [];
+    }
+  }, [player]);
+
+  const openAirPlaySettings = useCallback(() => {
+    const preferredIndex = availableAirPlayDevices.findIndex(device => device.id === settingsRef.current.preferredAirPlayDevice);
+    selectedByScreenRef.current['airplay-settings'] = Math.max(0, preferredIndex);
+    go('airplay-settings', {resetSelection: false});
+    void refreshAirPlayTargets(false);
+  }, [availableAirPlayDevices, go, refreshAirPlayTargets]);
+
+  const selectAirPlayDeviceAt = useCallback(
+    (index: number) => {
+      const device = availableAirPlayDevices[index];
+      if (!device) {
+        setMessage('No AirPlay receiver selected.');
+        return;
+      }
+
+      updateSettings({preferredAirPlayDevice: device.id});
+      selectedByScreenRef.current['airplay-settings'] = index;
+      if (device.local) {
+        const preferredBackend = preferredLocalPlaybackBackend(availableBackends);
+        if (!preferredBackend) {
+          setMessage(`${device.name} is this Mac. Install mpv to use local playback instead of AirPlay.`);
+          return;
+        }
+
+        updateSettings({preferredBackend});
+        if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
+          const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
+          setMessage(`${device.name} is this Mac. Switching audio to ${audioOutputLabel(preferredBackend)}...`);
+          void playStation(playingStation, {queue});
+          return;
+        }
+
+        setMessage(`${device.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
+        return;
+      }
+
+      if (!isAirPlayBackendAvailable(availableBackends)) {
+        setMessage(`AirPlay receiver: ${device.name}. AirPlay playback is unavailable; run radiocli doctor.`);
+        return;
+      }
+
+      updateSettings({preferredBackend: 'airplay'});
+      if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
+        const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
+        setMessage(`Switching audio to AirPlay: ${device.name}...`);
+        void playStation(playingStation, {queue});
+        return;
+      }
+
+      setMessage(`AirPlay receiver: ${device.name}. Audio output: AirPlay.`);
+    },
+    [availableAirPlayDevices, availableBackends, playback.state, playStation, playingStation, queueFromCurrentList, updateSettings]
+  );
+
+  const cycleAudioOutput = useCallback(() => {
+    const currentOutput = settingsRef.current.preferredBackend;
+    const activeNeedsSelectedOutput = Boolean(
+      playingStation &&
+      shouldRetuneForAudioOutput(playback.state) &&
+      audioOutputCanApply(currentOutput, settingsRef.current) &&
+      audioOutputNeedsActiveSwitch(currentOutput, playback.backend, availableBackends)
+    );
+    const preferredBackend = activeNeedsSelectedOutput
+      ? currentOutput
+      : nextAvailablePlaybackBackend(currentOutput, availableBackends);
+
+    updateSettings({preferredBackend});
+
+    if (preferredBackend === 'airplay' && !settingsRef.current.preferredAirPlayDevice) {
+      setMessage('Choose an AirPlay receiver first. Your current station will keep playing until you pick one.');
+      openAirPlaySettings();
+      return;
+    }
+
+    if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
+      const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
+      setMessage(`Switching audio to ${audioOutputSwitchLabel(preferredBackend, availableBackends)}...`);
+      void playStation(playingStation, {queue});
+      return;
+    }
+
+    setMessage(`Audio output: ${audioOutputSwitchLabel(preferredBackend, availableBackends)}.`);
+  }, [availableBackends, openAirPlaySettings, playback.backend, playback.state, playStation, playingStation, queueFromCurrentList, updateSettings]);
 
   const toggleSkipBrokenStreams = useCallback(() => {
     const skipBrokenStreams = !settingsRef.current.skipBrokenStreams;
@@ -759,11 +915,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setEditingSearch(true);
       } else if (target === 'library') {
         openLibrary();
+      } else if (target === 'airplay-settings') {
+        openAirPlaySettings();
       } else {
         go(target);
       }
     },
-    [go, loadExplore, loadNearby, openLibrary]
+    [go, loadExplore, loadNearby, openAirPlaySettings, openLibrary]
   );
 
   const openAdjacentTab = useCallback(
@@ -784,6 +942,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     countries,
     go,
     loadCountry,
+    openAirPlaySettings,
     openLibrary,
     player,
     playingStation,
@@ -838,14 +997,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   useAppInput({
     adjustVolume,
+    airPlayCode,
+    canEnterAirPlayCode,
     beginLearningTransportKey,
     capturingTransportAction,
     commandMode,
     commandText,
     currentItemCount,
-    cycleAirPlayTarget,
     cycleDisplayColor,
-    cyclePlaybackBackend,
+    cycleAudioOutput,
     cycleReceiverStyle,
     cycleSleepTimer,
     editingCountryFilter,
@@ -857,6 +1017,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     lastSubmittedSearchRef,
     loadCountry,
     openAdjacentTab,
+    openAirPlayCode,
+    openAirPlaySettings,
     openScreen,
     playAdjacent,
     playStation,
@@ -865,6 +1027,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     moveExploreCursor: moveExploreMapCursor,
     moveExploreCursorToCell: moveExploreMapCursorToCell,
     refreshProviderHealth,
+    refreshAirPlayTargets: () => {
+      void refreshAirPlayTargets();
+    },
     resetLearnedTransportKeys,
     runSearch,
     saveLearnedTransportKey,
@@ -872,16 +1037,19 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     searchQuery,
     selected,
     selectedStation,
+    selectAirPlayDeviceAt,
     setCapturingTransportAction,
     setCommandMode,
     setCommandText,
     setCountryFilter,
+    setAirPlayCode,
     setEditingCountryFilter,
     setEditingSearch,
     setMessage,
     setSearchQuery,
     setSelected,
     setShowDiagnostics,
+    submitAirPlayCode,
     settingsRef,
     shutdown,
     stdin,
@@ -915,6 +1083,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     spinnerFrame
   });
   const pageFooter = pageFooterText({
+    canEnterAirPlayCode,
     capturingTransportAction,
     commandMode,
     commandText,
@@ -940,6 +1109,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={appBackground}>
         <AppContent
           airPlayDevices={availableAirPlayDevices}
+          airPlayCode={airPlayCode}
           backends={availableBackends}
           countryFilter={countryFilter}
           diagnostics={diagnostics}
@@ -1043,6 +1213,59 @@ function formatDistanceKm(distanceKm: number): string {
   }
 
   return `${Math.round(distanceKm).toLocaleString()} km`;
+}
+
+function nextAvailablePlaybackBackend(
+  current: AppSettings['preferredBackend'],
+  backends: string[]
+): AppSettings['preferredBackend'] {
+  const options: AppSettings['preferredBackend'][] = ['auto'];
+  for (const backend of ['mpv', 'ffplay', 'airplay'] as const) {
+    if (backends.includes(backend)) {
+      options.push(backend);
+    }
+  }
+
+  const index = options.indexOf(current);
+  return options[(index + 1) % options.length] ?? 'auto';
+}
+
+function shouldRetuneForAudioOutput(state: PlaybackState['state']): boolean {
+  return state === 'loading' || state === 'playing' || state === 'paused';
+}
+
+function audioOutputNeedsActiveSwitch(
+  selectedOutput: AppSettings['preferredBackend'],
+  activeBackend: string,
+  backends: string[]
+): boolean {
+  const resolved = resolvedAudioOutput(selectedOutput, backends);
+  return Boolean(resolved && activeBackend !== 'none' && activeBackend !== resolved);
+}
+
+function audioOutputCanApply(output: AppSettings['preferredBackend'], settings: AppSettings): boolean {
+  return output !== 'airplay' || Boolean(settings.preferredAirPlayDevice);
+}
+
+function preferredLocalPlaybackBackend(backends: string[]): 'mpv' | 'ffplay' | null {
+  if (backends.includes('mpv')) {
+    return 'mpv';
+  }
+
+  if (backends.includes('ffplay')) {
+    return 'ffplay';
+  }
+
+  return null;
+}
+
+function audioOutputSwitchLabel(output: AppSettings['preferredBackend'], backends: string[]): string {
+  const resolved = resolvedAudioOutput(output, backends);
+  if (output === 'auto' && resolved) {
+    return `${audioOutputLabel(resolved)} (automatic)`;
+  }
+
+  return audioOutputLabel(output);
 }
 
 function librarySubtitle(library: LibraryState): string {

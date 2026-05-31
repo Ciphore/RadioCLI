@@ -21,12 +21,16 @@ import {StationScreen} from './screens/StationScreen.js';
 import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
 import {StatsScreen} from './screens/StatsScreen.js';
 import {SettingsScreen} from './screens/SettingsScreen.js';
+import {AirPlaySettingsScreen} from './screens/AirPlaySettingsScreen.js';
+import {AirPlayCodeScreen} from './screens/AirPlayCodeScreen.js';
+import {selectedAirPlayDevice} from './airplay-settings.js';
 import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
 import {playbackBackendLabel} from '../player/backend-install.js';
 
 type AppContentProps = {
   airPlayDevices: AirPlayDevice[];
+  airPlayCode: string;
   backends: string[];
   countryFilter: string;
   diagnostics: PlaybackDiagnostics;
@@ -61,6 +65,7 @@ type AppContentProps = {
 
 export function AppContent({
   airPlayDevices,
+  airPlayCode,
   backends,
   countryFilter,
   diagnostics,
@@ -229,6 +234,31 @@ export function AppContent({
         providerHealth={providerHealth}
         theme={theme}
         diagnostics={diagnostics}
+        width={frameWidth}
+      />
+    );
+  }
+
+  if (screen === 'airplay-settings') {
+    return (
+      <AirPlaySettingsScreen
+        selected={selected}
+        settings={library.settings}
+        backends={backends}
+        devices={airPlayDevices}
+        theme={theme}
+        width={frameWidth}
+      />
+    );
+  }
+
+  if (screen === 'airplay-code') {
+    return (
+      <AirPlayCodeScreen
+        code={airPlayCode}
+        playback={playback}
+        selectedDevice={selectedAirPlayDevice(library.settings, airPlayDevices)}
+        theme={theme}
         width={frameWidth}
       />
     );

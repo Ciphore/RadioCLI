@@ -98,7 +98,7 @@ export function playbackBackendStatusLines(
 ): string[] {
   const backendSet = new Set(backends);
   const lines = [
-    'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+    'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
     `install_mpv=${mpvInstallCommand(platform, osRelease)}`,
     `optional_ffplay=${ffplayInstallCommand(platform, osRelease)}`
   ];

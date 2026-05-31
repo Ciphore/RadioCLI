@@ -47,10 +47,10 @@ so map exploration is not capped to globally popular stations.
 
 `PlayerController` owns playback process lifecycle.
 
-- Preferred backend: `mpv`
+- Default local output: `mpv`
 - Fallback backend: `ffplay` for playback only
-- Experimental macOS output: AirPlay/RAOP through Bonjour discovery, `ffmpeg`,
-  and a sender package that passes RadioCLI's dependency safety gate
+- Experimental macOS output: AirPlay/RAOP through Bonjour discovery, FFmpeg,
+  and RadioCLI's bundled sender bridge
 - `mpv` is controlled over JSON IPC for pause, mute, volume, readiness checks,
   and metadata polling.
 
@@ -73,9 +73,10 @@ limited instead of updating UI state optimistically.
 
 On macOS, the optional AirPlay backend discovers RAOP receivers with Bonjour and
 streams through a child worker that feeds decoded PCM from `ffmpeg` into a
-compatible sender package. The backend is only advertised when the sender passes
-the dependency safety gate; current vulnerable `node-airtunes2` installs stay
-blocked instead of being loaded opportunistically.
+bundled sender bridge. The player requires an explicit receiver selection from
+Settings before it starts an AirPlay worker. AirPlay is a current-session output
+instead of an automatic startup default, so missing receivers do not trigger
+station-skip fallback.
 
 With `mpv`, RadioCLI waits for the IPC socket to accept commands before marking
 the stream as ready. It then polls playback state every 500ms and ICY metadata

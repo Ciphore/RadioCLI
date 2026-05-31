@@ -36,7 +36,9 @@ available but labels interactive playback controls as limited and shows an
 | World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
-| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `a` AirPlay, `r` health, `b` home |
+| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` audio output, `a` AirPlay, `r` health, `b` home |
+| AirPlay | `Up` / `Down` choose, `Enter` select receiver, `c` code entry, `r` refresh, `b` settings |
+| AirPlay Code | type receiver code, `Backspace` edit, `Enter` submit, `Esc` AirPlay |
 | Stats | `b` home |
 
 Explore mouse clicks use terminal mouse reporting while the Explore tab is
@@ -66,6 +68,7 @@ Useful command entries:
 :learn play
 :learn next
 :keys reset
+:airplay
 :airplay-code 1234
 :map
 :library
@@ -92,7 +95,12 @@ Learn keys from Settings or with `:learn previous`, `:learn play`, and
 
 Location behavior is covered in [Privacy and Security](../privacy-security.mdx).
 
-On macOS, Settings can cycle AirPlay targets discovered through Bonjour when
-`ffmpeg` and a compatible sender package pass RadioCLI's dependency safety gate.
-Select the `airplay` backend with `o`, choose a receiver with `a`, then tune a
-station. If the receiver asks for a code, enter it with `:airplay-code 1234`.
+On macOS, Settings opens a dedicated AirPlay receiver picker for Bonjour
+receivers. Change Audio output to AirPlay with `o`, open AirPlay with `a` or
+`:airplay`, and choose a visible receiver. If a station is already playing,
+RadioCLI moves it to the selected receiver immediately; switch Audio output back
+to `This device (mpv)` to leave AirPlay. RadioCLI does not auto-pick a receiver.
+AirPlay is a current-session output: restarting RadioCLI returns to automatic
+local playback while remembering the last receiver for the next manual switch.
+If the receiver asks for a code, RadioCLI opens the AirPlay Code screen; you can
+also press `c` from AirPlay settings or use `:airplay-code 1234`.

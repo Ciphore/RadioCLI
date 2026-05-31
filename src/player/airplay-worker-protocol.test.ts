@@ -25,6 +25,12 @@ describe('AirPlay worker protocol', () => {
   it('serializes line-delimited command and event messages', () => {
     expect(parseWorkerMessage(serializeWorkerMessage({type: 'setVolume', volume: 20}))).toEqual({type: 'setVolume', volume: 20});
     expect(parseWorkerMessage(serializeWorkerMessage({type: 'setVolume', volume: 220}))).toEqual({type: 'setVolume', volume: 100});
+    expect(parseWorkerMessage(serializeWorkerMessage({type: 'retune', streamUrl: 'https://streams.example.com/next.mp3', stationName: 'Next FM'}))).toEqual({
+      type: 'retune',
+      streamUrl: 'https://streams.example.com/next.mp3',
+      stationName: 'Next FM'
+    });
+    expect(parseWorkerMessage(serializeWorkerMessage({type: 'retuned'}))).toEqual({type: 'retuned'});
     expect(parseWorkerMessage(serializeWorkerMessage({type: 'password-required'}))).toEqual({type: 'password-required'});
     expect(parseWorkerMessage('not json')).toBeNull();
   });
@@ -47,6 +53,7 @@ describe('AirPlay worker protocol', () => {
     };
 
     expect(() => decodeWorkerStart(encodeWorkerStart(unsafeStart))).toThrow('http or https');
+    expect(parseWorkerMessage(serializeWorkerMessage({type: 'retune', streamUrl: 'file:///tmp/local.mp3', stationName: 'Local'}))).toBeNull();
     expect(parseWorkerMessage(`{"type":"passcode","code":"${'1'.repeat(65)}"}`)).toBeNull();
     expect(parseWorkerMessage('x'.repeat(maxWorkerMessageBytes + 1))).toBeNull();
   });

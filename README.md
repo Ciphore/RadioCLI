@@ -70,7 +70,7 @@ Live public radio from around the world
   5 Countries · Browse by country list with a world-map toggle
   6 Nearby · Opt-in approximate location for local stations
   7 Stats · Listening graph, sessions, streaks, hours
-  8 Settings · Playback backend, colors, providers
+  8 Settings · Audio output, colors, providers
 
 3 recent · 2 favorites · 1 imported
 
@@ -137,10 +137,10 @@ Set `NEXT_PUBLIC_SITE_URL` for the canonical public docs URL. Preview builds als
 
 Requirements:
 
-- Homebrew on macOS: installs RadioCLI, Node.js, and `mpv`
+- Homebrew on macOS: installs RadioCLI, Node.js, `mpv`, and FFmpeg
 - npm on macOS, Linux, and Windows: Node.js 22 or newer
 - `mpv` for playback, pause, mute, volume, media keys, metadata, and readiness checks
-- `ffmpeg` plus an audited, compatible sender package on macOS for experimental AirPlay
+- FFmpeg on macOS for experimental AirPlay and optional `ffplay` fallback
 - `ffplay` from FFmpeg as an optional playback-only fallback
 
 Recommended macOS install:
@@ -150,24 +150,12 @@ brew install ciphore/tap/radiocli
 radiocli
 ```
 
-The Homebrew formula depends on `node` and `mpv`, so the native playback backend
-comes from the native package manager.
+The Homebrew formula depends on `node`, `mpv`, and FFmpeg, so the native playback
+and AirPlay prerequisites come from the native package manager.
 
-AirPlay playback on macOS is experimental. RadioCLI discovers AirPlay/RAOP
-receivers with Bonjour and decodes streams with `ffmpeg`, but it only advertises
-the `airplay` backend when a compatible sender package passes its dependency
-safety gate.
-
-```bash
-brew install ffmpeg
-npm audit --audit-level=low
-```
-
-Do not install `node-airtunes2` blindly just to enable this feature: the current
-public package line is blocked by RadioCLI because its transitive dependency tree
-contains known vulnerable versions. If you supply a patched compatible sender,
-passcode-protected receivers prompt in the TUI; enter the code with
-`:airplay-code 1234`.
+AirPlay playback on macOS is experimental, but the sender bridge is bundled with
+RadioCLI. The app discovers AirPlay/RAOP receivers with Bonjour and decodes
+streams with FFmpeg; passcode-protected receivers prompt in the TUI.
 
 Universal npm install:
 
@@ -296,7 +284,9 @@ Page-specific footer controls:
 | World map | `/` filter, `↑` / `↓` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
-| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `a` AirPlay, `r` health, `b` home |
+| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` audio output, `a` AirPlay, `r` health, `b` home |
+| AirPlay | `↑` / `↓` choose, `Enter` select receiver, `c` code entry, `r` refresh, `b` settings |
+| AirPlay Code | type receiver code, `Backspace` edit, `Enter` submit, `Esc` AirPlay |
 | Stats | `b` home |
 
 Other active shortcuts:
@@ -306,7 +296,7 @@ Other active shortcuts:
 - `/`: edit search or country filter on screens that support it.
 - `[` / `]`: page through long station and country lists.
 - `m`: mute.
-- `o`: cycle playback backend.
+- `o`: cycle audio output. If a station is playing, RadioCLI retunes it on the new output immediately.
 - `g`: toggle the experimental Radio Garden adapter.
 - `l`: toggle nearby location lookup.
 - `x`: toggle skip-broken-stream behavior.
@@ -344,6 +334,7 @@ Useful command palette entries:
 :learn play
 :learn next
 :keys reset
+:airplay
 :airplay-code 1234
 :map
 :library
@@ -354,10 +345,15 @@ Useful command palette entries:
 
 Settings persist display colors and receiver styles without editing config files. The fourteen display colors are green, amber, blue, ruby, ice, teal, violet, copper, cyan, lime, coral, rose, slate, and mono, cycled with `t`. The 50 receiver styles span classic receiver displays, high-resolution braille visuals, and generative motion scenes; cycle them with `v` (see the [Demo](#demo) for the full family breakdown). The stats graph and legend follow the selected display color, and the selected Now Playing style is restored on the next launch.
 
-On macOS, Settings can cycle AirPlay targets discovered through Bonjour when
-`ffmpeg` and a compatible sender package pass RadioCLI's dependency safety gate.
-Select the `airplay` backend with `o`, choose a receiver with `a`, then tune a
-station. If the receiver asks for a code, enter it with `:airplay-code 1234`.
+On macOS, Settings opens a dedicated AirPlay receiver picker for Bonjour
+receivers. Change Audio output to AirPlay with `o`, open AirPlay with `a` or
+`:airplay`, and choose a visible receiver. If a station is already playing,
+RadioCLI moves it to the selected receiver immediately; switch Audio output back
+to `This device (mpv)` to leave AirPlay. RadioCLI does not auto-pick a receiver.
+AirPlay is a current-session output: restarting RadioCLI returns to automatic
+local playback while remembering the last receiver for the next manual switch.
+If the receiver asks for a code, RadioCLI opens the AirPlay Code screen; you can
+also press `c` from AirPlay settings or use `:airplay-code 1234`.
 
 ## Architecture
 
@@ -418,7 +414,7 @@ animation cost.
 
 Radio Browser is the primary provider. Its own docs recommend using a speaking user agent, resolving station clicks through `/json/url`, and retrying with other servers when one fails; RadioCLI follows that shape with mirror fallback and durable cache. Explore and Nearby use a cached geotagged Radio Browser atlas, then compute local distance in the app so map movement is not biased toward the most-clicked stations worldwide. Radio Garden support is experimental because the useful endpoints are publicly discoverable but unofficial, and they can be blocked or changed independently of this project.
 
-Playback prefers `mpv` because it handles real-world streams, redirects, HLS, codecs, and metadata better than a hand-rolled stream client. RadioCLI controls `mpv` through JSON IPC for readiness, pause, mute, volume, and metadata polling, using Unix sockets on macOS/Linux and named pipes on Windows. `ffplay` remains a playback-only fallback and is intentionally labeled with limited controls in the UI and doctor output. Experimental AirPlay output is available on macOS only when Bonjour discovery, `ffmpeg`, and a compatible sender package pass RadioCLI's safety gate.
+Playback prefers `mpv` because it handles real-world streams, redirects, HLS, codecs, and metadata better than a hand-rolled stream client. RadioCLI controls `mpv` through JSON IPC for readiness, pause, mute, volume, and metadata polling, using Unix sockets on macOS/Linux and named pipes on Windows. `ffplay` remains a playback-only fallback and is intentionally labeled with limited controls in the UI and doctor output. Experimental AirPlay output is available on macOS when Bonjour discovery and FFmpeg are available.
 
 The npm package is `@ciphore/radiocli`, and the installed executable is `radiocli`. Current installs store data under RadioCLI paths such as `radiocli.json` and `radiocli-cache.json`. Existing Radio Atlas data is still discovered when a new RadioCLI store does not exist, and legacy `RADIO_ATLAS_HOME` / animation environment variables remain supported as migration fallbacks. New automation should use `RADIOCLI_HOME` and `RADIOCLI_DISABLE_ANIMATION`.
 

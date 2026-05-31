@@ -7,6 +7,7 @@ type PageFooterInput = {
   commandText: string;
   editingCountryFilter: boolean;
   editingSearch: boolean;
+  canEnterAirPlayCode?: boolean;
   playbackBackend?: string;
   screen: Screen;
 };
@@ -17,6 +18,7 @@ export function pageFooterText({
   commandText,
   editingCountryFilter,
   editingSearch,
+  canEnterAirPlayCode,
   playbackBackend,
   screen
 }: PageFooterInput): string {
@@ -77,7 +79,17 @@ export function pageFooterText({
   }
 
   if (screen === 'settings') {
-    return 'Enter change selected · g Radio Garden · l location · x skip · o backend · a AirPlay · r health · b home';
+    return 'Enter change selected · g Radio Garden · l location · x skip · o output · a AirPlay · r health · b home';
+  }
+
+  if (screen === 'airplay-settings') {
+    return canEnterAirPlayCode
+      ? '↑/↓ choose · Enter select receiver · c code · r refresh · b settings'
+      : '↑/↓ choose · Enter select receiver · r refresh · b settings';
+  }
+
+  if (screen === 'airplay-code') {
+    return 'Type receiver code · Backspace edit · Enter submit · Esc AirPlay';
   }
 
   if (screen === 'stats') {

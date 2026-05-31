@@ -5,7 +5,7 @@ import {createServer, type Server} from 'node:net';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {commandExists} from './command.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
-import {createMpvIpcPath, extractMpvTitle, PlayerController} from './player-controller.js';
+import {createMpvIpcPath, extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
 import type {AirPlayDevice, AppSettings, Station} from '../types.js';
 
 vi.mock('node:child_process', () => ({
@@ -90,7 +90,17 @@ describe('PlayerController lifecycle', () => {
     const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}));
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
-      'AirPlay backend unavailable. It requires macOS, ffmpeg, dns-sd, and a sender package that passes RadioCLI'
+      'AirPlay is not ready on this install. Run radiocli doctor.'
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('does not use AirPlay as the automatic fallback backend', async () => {
+    const controller = new PlayerController(() => settings({preferredBackend: 'auto'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
+      'No playback backend found. Install mpv for playback'
     );
     expect(spawnMock).not.toHaveBeenCalled();
   });
@@ -162,8 +172,147 @@ describe('PlayerController lifecycle', () => {
     expect(spawnMock.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([expect.stringContaining('airplay-worker')]));
     expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'playing', ready: true, airPlayDeviceName: 'Office'});
 
-    controller.submitAirPlayPasscode('1234');
+    expect(controller.submitAirPlayPasscode('1234')).toMatchObject({ok: true, message: 'AirPlay code sent.'});
     expect(child.stdin.write).toHaveBeenCalledWith('{"type":"passcode","code":"1234"}\n');
+  });
+
+  it('retunes an active AirPlay session without spawning a new worker', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stdout.emit('data', '{"type":"ready"}\n');
+    await playing;
+
+    const retuned = controller.play(station({id: 'next-fm', name: 'Next FM'}), 'https://streams.example.com/next.mp3');
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(discoverAirPlayDevicesMock).toHaveBeenCalledTimes(1);
+    expect(child.stdin.write).toHaveBeenCalledWith('{"type":"retune","streamUrl":"https://streams.example.com/next.mp3","stationName":"Next FM"}\n');
+    expect(controller.getState()).toMatchObject({
+      backend: 'airplay',
+      state: 'loading',
+      ready: false,
+      stationName: 'Next FM',
+      streamUrl: 'https://streams.example.com/next.mp3',
+      airPlayDeviceName: 'Office'
+    });
+
+    child.stdout.emit('data', '{"type":"playing"}\n');
+    expect(controller.getState()).toMatchObject({
+      backend: 'airplay',
+      state: 'loading',
+      ready: false,
+      stationName: 'Next FM',
+      streamUrl: 'https://streams.example.com/next.mp3',
+      airPlayDeviceName: 'Office'
+    });
+
+    child.stdout.emit('data', '{"type":"retuned"}\n');
+    await retuned;
+    expect(controller.getState()).toMatchObject({
+      backend: 'airplay',
+      state: 'playing',
+      ready: true,
+      stationName: 'Next FM',
+      streamUrl: 'https://streams.example.com/next.mp3',
+      airPlayDeviceName: 'Office'
+    });
+  });
+
+  it('reuses a successful AirPlay passcode for later sessions in memory', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const firstChild = fakeChildProcess();
+    const secondChild = fakeChildProcess();
+    spawnMock.mockReturnValueOnce(firstChild as never).mockReturnValueOnce(secondChild as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    const firstPlay = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    firstChild.stdout.emit('data', '{"type":"password-required"}\n');
+    await firstPlay;
+    expect(controller.submitAirPlayPasscode('1234')).toMatchObject({ok: true});
+    firstChild.stdout.emit('data', '{"type":"ready"}\n');
+    await waitUntil(() => controller.getState().state === 'playing');
+    await controller.stop();
+
+    const secondPlay = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 2);
+    secondChild.stdout.emit('data', '{"type":"password-required"}\n');
+
+    expect(secondChild.stdin.write).toHaveBeenCalledWith('{"type":"passcode","code":"1234"}\n');
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'loading', message: 'AirPlay code sent.'});
+
+    secondChild.stdout.emit('data', '{"type":"ready"}\n');
+    await secondPlay;
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'playing', ready: true});
+  });
+
+  it('reports when an AirPlay passcode is submitted without active AirPlay playback', () => {
+    const controller = new PlayerController(() => settings());
+
+    expect(controller.submitAirPlayPasscode('1234')).toMatchObject({
+      ok: false,
+      message: 'No active AirPlay playback is waiting for a code.'
+    });
+  });
+
+  it('requires an explicit AirPlay receiver before spawning the worker', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    await controller.play(station(), 'https://streams.example.com/live.mp3').then(
+      () => {
+        throw new Error('Expected AirPlay receiver selection to fail.');
+      },
+      error => {
+        expect(isPlaybackOutputError(error)).toBe(true);
+        expect(error).toMatchObject({message: 'Choose an AirPlay receiver in Settings before tuning with AirPlay.'});
+      }
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'error', ready: false});
+  });
+
+  it('fails clearly when the saved AirPlay receiver is not visible', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: 'missing'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    await controller.play(station(), 'https://streams.example.com/live.mp3').then(
+      () => {
+        throw new Error('Expected missing AirPlay receiver to fail.');
+      },
+      error => {
+        expect(isPlaybackOutputError(error)).toBe(true);
+        expect(error).toMatchObject({message: 'Selected AirPlay receiver was not found. Refresh AirPlay receivers in Settings.'});
+      }
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'error', ready: false});
+  });
+
+  it('does not try to AirPlay to the same Mac', async () => {
+    commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice({local: true, name: 'Neal’s MacBook Pro'})]);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    setDetectedBackends(controller, ['airplay']);
+
+    await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
+      'Neal’s MacBook Pro is this Mac. Use Audio output: This device instead of AirPlay.'
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'error', ready: false});
   });
 
   it('does not pretend AirPlay playback can pause', async () => {
@@ -171,7 +320,7 @@ describe('PlayerController lifecycle', () => {
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -198,7 +347,7 @@ describe('PlayerController lifecycle', () => {
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', tuneTimeoutSeconds: 0.01}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office', tuneTimeoutSeconds: 0.01}));
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');

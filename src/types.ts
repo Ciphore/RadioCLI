@@ -66,6 +66,8 @@ export type Screen =
   | 'now-playing'
   | 'library'
   | 'stats'
+  | 'airplay-settings'
+  | 'airplay-code'
   | 'settings';
 
 export type ThemeName = (typeof themeNames)[number];
@@ -143,6 +145,7 @@ export type AirPlayDevice = {
   txt: string[];
   requiresPassword: boolean;
   airplay2: boolean;
+  local?: boolean;
 };
 
 export type AppSettings = {

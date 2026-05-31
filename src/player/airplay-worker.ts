@@ -1,6 +1,8 @@
-import {spawn} from 'node:child_process';
+import {spawn, type ChildProcessByStdio} from 'node:child_process';
 import {createRequire} from 'node:module';
+import type {Readable} from 'node:stream';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
+import {installAirPlaySenderPatch} from './airplay-sender-patch.js';
 import {parseWorkerMessage, decodeWorkerStart, maxWorkerMessageBytes, serializeWorkerMessage, type AirPlayWorkerCommand, type AirPlayWorkerEvent} from './airplay-worker-protocol.js';
 
 const require = createRequire(import.meta.url);
@@ -13,6 +15,7 @@ console.log = (...args: unknown[]) => {
 type AirTunesClient = {
   add: (host: string, options: Record<string, unknown>) => {key: string; setPasscode?: (code: string) => void};
   write: (chunk: Buffer) => void;
+  reset: () => void;
   stopAll: (callback?: () => void) => void;
   setVolume: (key: string, volume: number, callback?: () => void) => void;
   on: (event: 'device' | 'buffer' | 'error', listener: (...args: unknown[]) => void) => void;
@@ -29,8 +32,10 @@ const AirTunes = loadAirTunesSender();
 const start = decodeStartPayload(encodedStart);
 const airtunes = new AirTunes();
 let deviceKey = '';
+let ffmpeg: ChildProcessByStdio<null, Readable, Readable> | null = null;
 let muted = start.muted;
 let volume = start.volume;
+let retuning = false;
 let stopping = false;
 
 airtunes.on('device', (key, status) => {
@@ -52,9 +57,11 @@ airtunes.on('device', (key, status) => {
 });
 
 airtunes.on('buffer', status => {
-  emit({type: 'buffer', status: String(status)});
-  if (status === 'playing') {
-    emit({type: 'playing'});
+  const statusText = String(status);
+  emit({type: 'buffer', status: statusText});
+  if (retuning && statusText === 'playing') {
+    retuning = false;
+    emit({type: 'retuned'});
   }
 });
 
@@ -73,42 +80,7 @@ const device = airtunes.add(start.device.host, {
 });
 deviceKey = device.key;
 
-const ffmpeg = spawn('ffmpeg', [
-  '-hide_banner',
-  '-loglevel',
-  'error',
-  '-i',
-  start.streamUrl,
-  '-f',
-  's16le',
-  '-ac',
-  '2',
-  '-ar',
-  '44100',
-  'pipe:1'
-], {
-  stdio: ['ignore', 'pipe', 'pipe']
-});
-
-ffmpeg.stdout.on('data', chunk => {
-  airtunes.write(chunk as Buffer);
-});
-ffmpeg.stderr.on('data', chunk => {
-  process.stderr.write(chunk);
-});
-ffmpeg.once('error', error => {
-  emit({type: 'error', message: error.message});
-  stop(1);
-});
-ffmpeg.once('exit', code => {
-  if (!stopping) {
-    if (code !== 0) {
-      emit({type: 'error', message: `ffmpeg exited with code ${code}`});
-    }
-
-    stop(code ?? 0);
-  }
-});
+startFfmpeg(start.streamUrl);
 
 let stdinBuffer = '';
 process.stdin.on('data', chunk => {
@@ -143,9 +115,80 @@ function handleCommand(command: AirPlayWorkerCommand): void {
   } else if (command.type === 'setMuted') {
     muted = command.muted;
     setAirPlayVolume(muted ? 0 : volume);
+  } else if (command.type === 'retune') {
+    retuning = true;
+    airtunes.reset();
+    startFfmpeg(command.streamUrl);
   } else if (command.type === 'passcode') {
     device.setPasscode?.(command.code);
   }
+}
+
+function startFfmpeg(streamUrl: string): void {
+  const previous = ffmpeg;
+  const child = spawn('ffmpeg', [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    // Recover from transient source drops without tearing down the AirPlay session.
+    // These are input options and must precede -i. -reconnect_streamed is essential for
+    // non-seekable radio; with no retry cap ffmpeg keeps trying until the station returns.
+    '-reconnect',
+    '1',
+    '-reconnect_on_network_error',
+    '1',
+    '-reconnect_streamed',
+    '1',
+    '-reconnect_delay_max',
+    '2',
+    '-i',
+    streamUrl,
+    '-f',
+    's16le',
+    '-ac',
+    '2',
+    '-ar',
+    '44100',
+    'pipe:1'
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  ffmpeg = child;
+
+  if (previous && !previous.killed) {
+    previous.kill('SIGTERM');
+  }
+
+  child.stdout.on('data', chunk => {
+    if (ffmpeg === child && !stopping) {
+      airtunes.write(chunk as Buffer);
+    }
+  });
+  child.stderr.on('data', chunk => {
+    if (ffmpeg === child) {
+      process.stderr.write(chunk);
+    }
+  });
+  child.once('error', error => {
+    if (ffmpeg !== child || stopping) {
+      return;
+    }
+
+    emit({type: 'error', message: error.message});
+    stop(1);
+  });
+  child.once('exit', code => {
+    if (ffmpeg !== child || stopping) {
+      return;
+    }
+
+    ffmpeg = null;
+    if (code !== 0) {
+      emit({type: 'error', message: `ffmpeg exited with code ${code}`});
+    }
+
+    stop(code ?? 0);
+  });
 }
 
 function setAirPlayVolume(nextVolume: number): void {
@@ -165,10 +208,11 @@ function loadAirTunesSender(): new () => AirTunesClient {
     process.exit(1);
   }
 
+  installAirPlaySenderPatch();
   try {
     return require('node-airtunes2') as new () => AirTunesClient;
   } catch {
-    emit({type: 'error', message: 'AirPlay sender package could not be loaded after passing the safety gate.'});
+    emit({type: 'error', message: 'AirPlay sender bridge could not be loaded.'});
     process.exit(1);
   }
 }
@@ -188,9 +232,10 @@ function stop(code: number): void {
   }
 
   stopping = true;
-  if (!ffmpeg.killed) {
+  if (ffmpeg && !ffmpeg.killed) {
     ffmpeg.kill('SIGTERM');
   }
+  ffmpeg = null;
 
   airtunes.stopAll(() => {
     emit({type: 'stopped'});

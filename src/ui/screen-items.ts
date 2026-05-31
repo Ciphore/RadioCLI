@@ -6,7 +6,7 @@ export const homeItems = [
   {screen: 'countries', label: 'Countries', detail: 'Browse by country list with a world-map toggle'},
   {screen: 'nearby', label: 'Nearby', detail: 'Opt-in approximate location for local stations'},
   {screen: 'stats', label: 'Stats', detail: 'Listening graph, stations, streaks, hours'},
-  {screen: 'settings', label: 'Settings', detail: 'Playback backend, colors, providers'}
+  {screen: 'settings', label: 'Settings', detail: 'Audio output, colors, providers'}
 ] as const;
 
 export const settingsItems = [
@@ -14,8 +14,8 @@ export const settingsItems = [
   'Cycle receiver style',
   'Toggle Radio Garden experimental adapter',
   'Toggle nearby location lookup',
-  'Cycle playback backend',
-  'Cycle AirPlay target',
+  'Audio output',
+  'AirPlay receiver',
   'Volume up',
   'Volume down',
   'Mute or unmute',

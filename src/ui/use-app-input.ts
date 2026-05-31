@@ -28,14 +28,15 @@ type InputSource = {
 
 type AppInputOptions = {
   adjustVolume: (delta: number) => void;
+  airPlayCode: string;
+  canEnterAirPlayCode: boolean;
   beginLearningTransportKey: (action: MediaTransportAction) => void;
   capturingTransportAction: MediaTransportAction | null;
   commandMode: boolean;
   commandText: string;
   currentItemCount: (screen: Screen) => number;
-  cycleAirPlayTarget: () => void;
   cycleDisplayColor: () => void;
-  cyclePlaybackBackend: () => void;
+  cycleAudioOutput: () => void;
   cycleReceiverStyle: () => void;
   cycleSleepTimer: () => void;
   editingCountryFilter: boolean;
@@ -47,6 +48,8 @@ type AppInputOptions = {
   lastSubmittedSearchRef: CurrentRef<string>;
   loadCountry: (country: Country) => Promise<void>;
   openAdjacentTab: (direction: 1 | -1) => void;
+  openAirPlayCode: () => void;
+  openAirPlaySettings: () => void;
   openScreen: (screen: Screen) => void;
   playAdjacent: (direction: 1 | -1) => void;
   playStation: (station: Station) => Promise<void>;
@@ -54,6 +57,7 @@ type AppInputOptions = {
   playingStation: Station | null;
   moveExploreCursor: (direction: ExploreMoveDirection, fast?: boolean) => void;
   moveExploreCursorToCell: (x: number, y: number) => void;
+  refreshAirPlayTargets: () => void;
   refreshProviderHealth: () => void;
   resetLearnedTransportKeys: () => void;
   runSearch: () => Promise<void>;
@@ -62,7 +66,9 @@ type AppInputOptions = {
   searchQuery: string;
   selected: number;
   selectedStation: Station | null;
+  selectAirPlayDeviceAt: (index: number) => void;
   setCapturingTransportAction: Dispatch<SetStateAction<MediaTransportAction | null>>;
+  setAirPlayCode: Dispatch<SetStateAction<string>>;
   setCommandMode: Dispatch<SetStateAction<boolean>>;
   setCommandText: Dispatch<SetStateAction<string>>;
   setCountryFilter: Dispatch<SetStateAction<string>>;
@@ -72,6 +78,7 @@ type AppInputOptions = {
   setSearchQuery: Dispatch<SetStateAction<string>>;
   setSelected: Dispatch<SetStateAction<number>>;
   setShowDiagnostics: Dispatch<SetStateAction<boolean>>;
+  submitAirPlayCode: (code: string) => void;
   settingsRef: CurrentRef<AppSettings>;
   shutdown: () => void;
   stdin: InputSource;
@@ -85,14 +92,15 @@ type AppInputOptions = {
 
 export function useAppInput({
   adjustVolume,
+  airPlayCode,
+  canEnterAirPlayCode,
   beginLearningTransportKey,
   capturingTransportAction,
   commandMode,
   commandText,
   currentItemCount,
-  cycleAirPlayTarget,
   cycleDisplayColor,
-  cyclePlaybackBackend,
+  cycleAudioOutput,
   cycleReceiverStyle,
   cycleSleepTimer,
   editingCountryFilter,
@@ -104,6 +112,8 @@ export function useAppInput({
   lastSubmittedSearchRef,
   loadCountry,
   openAdjacentTab,
+  openAirPlayCode,
+  openAirPlaySettings,
   openScreen,
   playAdjacent,
   playStation,
@@ -111,6 +121,7 @@ export function useAppInput({
   playingStation,
   moveExploreCursor,
   moveExploreCursorToCell,
+  refreshAirPlayTargets,
   refreshProviderHealth,
   resetLearnedTransportKeys,
   runSearch,
@@ -119,7 +130,9 @@ export function useAppInput({
   searchQuery,
   selected,
   selectedStation,
+  selectAirPlayDeviceAt,
   setCapturingTransportAction,
+  setAirPlayCode,
   setCommandMode,
   setCommandText,
   setCountryFilter,
@@ -129,6 +142,7 @@ export function useAppInput({
   setSearchQuery,
   setSelected,
   setShowDiagnostics,
+  submitAirPlayCode,
   settingsRef,
   shutdown,
   stdin,
@@ -309,6 +323,25 @@ export function useAppInput({
       return;
     }
 
+    if (screen === 'airplay-code') {
+      if (key.return) {
+        submitAirPlayCode(airPlayCode);
+        return;
+      }
+
+      if (key.escape) {
+        setAirPlayCode('');
+        go('airplay-settings');
+        return;
+      }
+
+      if (isEditableInput(input, key)) {
+        setAirPlayCode(value => applyTextInput(value, input, key).slice(0, 64));
+      }
+
+      return;
+    }
+
     if (screen === 'explore') {
       const exploreMove = exploreMoveForInput(input);
       if (exploreMove) {
@@ -369,12 +402,17 @@ export function useAppInput({
     }
 
     if (input === 'o') {
-      cyclePlaybackBackend();
+      cycleAudioOutput();
       return;
     }
 
     if (input === 'a' && screen === 'settings') {
-      cycleAirPlayTarget();
+      openAirPlaySettings();
+      return;
+    }
+
+    if (input === 'c' && screen === 'airplay-settings' && canEnterAirPlayCode) {
+      openAirPlayCode();
       return;
     }
 
@@ -390,6 +428,11 @@ export function useAppInput({
 
     if (input === 'x') {
       toggleSkipBrokenStreams();
+      return;
+    }
+
+    if (input === 'r' && screen === 'airplay-settings') {
+      refreshAirPlayTargets();
       return;
     }
 
@@ -426,6 +469,11 @@ export function useAppInput({
       if (target) {
         openScreen(target);
       }
+      return;
+    }
+
+    if ((input === 'b' || key.escape) && screen === 'airplay-settings') {
+      go('settings');
       return;
     }
 
@@ -521,10 +569,10 @@ export function useAppInput({
           cycleReceiverStyle();
         } else if (item === 'Toggle nearby location lookup') {
           toggleNearbyLocation();
-        } else if (item === 'Cycle playback backend') {
-          cyclePlaybackBackend();
-        } else if (item === 'Cycle AirPlay target') {
-          cycleAirPlayTarget();
+        } else if (item === 'Audio output') {
+          cycleAudioOutput();
+        } else if (item === 'AirPlay receiver') {
+          openAirPlaySettings();
         } else if (item === 'Volume up') {
           adjustVolume(5);
         } else if (item === 'Volume down') {
@@ -545,6 +593,11 @@ export function useAppInput({
         } else if (item === 'Reset learned media keys') {
           resetLearnedTransportKeys();
         }
+        return;
+      }
+
+      if (screen === 'airplay-settings') {
+        selectAirPlayDeviceAt(selected);
         return;
       }
 

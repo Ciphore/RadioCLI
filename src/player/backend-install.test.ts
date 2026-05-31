@@ -24,7 +24,7 @@ describe('playback backend install guidance', () => {
       'playback_backend=none',
       'controls=missing',
       'controls_hint=install mpv for playback and controls',
-      'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+      'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
@@ -36,7 +36,7 @@ describe('playback backend install guidance', () => {
       'playback_backend=none',
       'controls=missing',
       'controls_hint=install mpv for playback and controls',
-      'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+      'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
       'install_mpv=winget install --id shinchiro.mpv -e',
       'optional_ffplay=winget install --id Gyan.FFmpeg -e'
     ]);
@@ -47,13 +47,13 @@ describe('playback backend install guidance', () => {
       'playback=ready',
       'playback_backend=mpv',
       'controls=full',
-      'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+      'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
   });
 
-  it('only reports AirPlay when macOS tools and the optional sender package are available', () => {
+  it('only reports AirPlay when macOS tools and the bundled sender are available', () => {
     const hasCommand = (command: string): boolean => ['ffmpeg', 'dns-sd'].includes(command);
 
     expect(detectPlaybackBackends({platform: 'darwin', hasCommand, hasAirPlaySender: () => false})).toEqual([]);
@@ -67,7 +67,7 @@ describe('playback backend install guidance', () => {
       'playback_backend=airplay',
       'controls=airplay-limited',
       'controls_hint=AirPlay supports volume and mute; pause is not supported',
-      'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+      'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
@@ -86,7 +86,7 @@ describe('playback backend install guidance', () => {
       'playback_backend=ffplay',
       'controls=limited',
       'controls_hint=install mpv for pause, mute, volume, and media keys',
-      'npm_install=RadioCLI only; native playback comes from mpv, ffplay, or AirPlay prerequisites',
+      'npm_install=RadioCLI includes the AirPlay sender; native playback tools come from mpv and FFmpeg',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);

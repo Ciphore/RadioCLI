@@ -4,7 +4,8 @@ RadioCLI's npm package should stay a normal Node CLI package. Native playback
 belongs to the native package manager.
 
 The Homebrew lane gives macOS users a one-command install that can pull in `mpv`
-alongside RadioCLI:
+and `ffmpeg` alongside RadioCLI, so regular playback and AirPlay prerequisites
+arrive together:
 
 ```bash
 brew install ciphore/tap/radiocli

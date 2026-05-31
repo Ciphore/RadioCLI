@@ -15,6 +15,7 @@ type UseCommandExecutorOptions = {
   countries: Country[];
   go: (next: Screen, options?: NavigationOptions) => void;
   loadCountry: (country: Country) => Promise<void>;
+  openAirPlaySettings: () => void;
   openLibrary: () => void;
   player: PlayerController;
   playingStation: Station | null;
@@ -42,6 +43,7 @@ export function useCommandExecutor({
   countries,
   go,
   loadCountry,
+  openAirPlaySettings,
   openLibrary,
   player,
   playingStation,
@@ -183,11 +185,19 @@ export function useCommandExecutor({
 
       if (name === 'airplay-code' || name === 'airplay-passcode') {
         if (!value.trim()) {
-          setMessage('Usage: :airplay-code <code>');
+          go('airplay-code');
           return;
         }
 
-        player.submitAirPlayPasscode(value.trim());
+        const result = player.submitAirPlayPasscode(value.trim());
+        if (result.message) {
+          setMessage(result.message);
+        }
+        return;
+      }
+
+      if (name === 'airplay' || name === 'airplay-settings') {
+        openAirPlaySettings();
         return;
       }
 
@@ -235,6 +245,7 @@ export function useCommandExecutor({
       countries,
       go,
       loadCountry,
+      openAirPlaySettings,
       openLibrary,
       player,
       playingStation,

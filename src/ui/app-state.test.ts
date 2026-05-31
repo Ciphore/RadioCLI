@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import type {Station} from '../types.js';
+import {PlaybackOutputError} from '../player/player-controller.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -10,12 +11,12 @@ import {
   formatExploreCursor,
   mediaTransportActionForInput,
   moveExploreCursor,
-  nextAirPlayDeviceId,
   nextPlaybackBackend,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldHandleKeyboardEvent,
   shouldAnimateReceiver,
+  shouldSkipAfterTuneError,
   stationContextKeyForScreen,
   topTabs
 } from './app-state.js';
@@ -61,6 +62,8 @@ describe('app state helpers', () => {
     expect(stationContextKeyForScreen('map')).toBeNull();
     expect(activeTabForScreen('stations')).toBe('countries');
     expect(activeTabForScreen('map')).toBe('countries');
+    expect(activeTabForScreen('airplay-settings')).toBe('settings');
+    expect(activeTabForScreen('airplay-code')).toBe('settings');
   });
 
   it('filters station lists consistently with command filters', () => {
@@ -75,6 +78,13 @@ describe('app state helpers', () => {
     expect(favoriteTarget('search', station, playing)?.id).toBe('station-1');
     expect(favoriteTarget('now-playing', station, playing)?.id).toBe('playing');
     expect(favoriteTarget('settings', null, playing)?.id).toBe('playing');
+  });
+
+  it('skips broken station streams but not playback output failures', () => {
+    expect(shouldSkipAfterTuneError(new Error('Stream timed out'), true, station)).toBe(true);
+    expect(shouldSkipAfterTuneError(new PlaybackOutputError('Selected AirPlay receiver was not found.'), true, station)).toBe(false);
+    expect(shouldSkipAfterTuneError(new Error('Stream timed out'), false, station)).toBe(false);
+    expect(shouldSkipAfterTuneError(new Error('Stream timed out'), true, undefined)).toBe(false);
   });
 
   it('applies terminal text editing without control-key leakage', () => {
@@ -123,19 +133,6 @@ describe('app state helpers', () => {
     expect(nextPlaybackBackend('mpv')).toBe('ffplay');
     expect(nextPlaybackBackend('ffplay')).toBe('airplay');
     expect(nextPlaybackBackend('airplay')).toBe('auto');
-  });
-
-  it('cycles AirPlay targets through discovered receivers', () => {
-    const devices = [
-      {id: 'living@Living Room', name: 'Living Room', host: 'living.local', port: 7000, txt: [], requiresPassword: true, airplay2: true},
-      {id: 'office@Office', name: 'Office', host: 'office.local', port: 7000, txt: [], requiresPassword: false, airplay2: true}
-    ];
-
-    expect(nextAirPlayDeviceId(undefined, devices)).toBe('living@Living Room');
-    expect(nextAirPlayDeviceId('living@Living Room', devices)).toBe('office@Office');
-    expect(nextAirPlayDeviceId('office@Office', devices)).toBeUndefined();
-    expect(nextAirPlayDeviceId('missing', devices)).toBeUndefined();
-    expect(nextAirPlayDeviceId(undefined, [])).toBeUndefined();
   });
 
   it('moves the explore cursor around the globe and wraps longitude', () => {

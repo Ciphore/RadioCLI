@@ -21,6 +21,7 @@ export type AirPlaySenderHealth = {
   version?: string;
   message: string;
   vulnerablePackages: string[];
+  warningPackages: string[];
 };
 
 export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstalledPackage): AirPlaySenderHealth {
@@ -30,12 +31,14 @@ export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstall
       available: false,
       safe: false,
       packageName: airPlaySenderPackageName,
-      message: 'AirPlay sender package not installed. Install an audited node-airtunes2-compatible sender next to RadioCLI.',
-      vulnerablePackages: []
+      message: 'AirPlay sender package is not installed.',
+      vulnerablePackages: [],
+      warningPackages: []
     };
   }
 
-  const vulnerablePackages = vulnerableAirPlaySenderPackages(sender, lookupPackage);
+  const vulnerablePackages = blockingAirPlaySenderPackages(sender, lookupPackage);
+  const warningPackages = warningAirPlaySenderPackages(sender, lookupPackage);
   if (vulnerablePackages.length > 0) {
     return {
       available: true,
@@ -43,7 +46,8 @@ export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstall
       packageName: sender.name,
       version: sender.version,
       message: `Installed AirPlay sender ${sender.name}@${sender.version} is blocked because vulnerable transitive dependencies were found: ${vulnerablePackages.join(', ')}.`,
-      vulnerablePackages
+      vulnerablePackages,
+      warningPackages
     };
   }
 
@@ -52,20 +56,30 @@ export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstall
     safe: true,
     packageName: sender.name,
     version: sender.version,
-    message: `AirPlay sender ${sender.name}@${sender.version} passed the dependency safety gate.`,
-    vulnerablePackages: []
+    message: warningPackages.length > 0
+      ? `Bundled AirPlay sender ${sender.name}@${sender.version} is available with warnings: ${warningPackages.join(', ')}.`
+      : `AirPlay sender ${sender.name}@${sender.version} passed the dependency safety gate.`,
+    vulnerablePackages: [],
+    warningPackages
   };
 }
 
-function vulnerableAirPlaySenderPackages(sender: PackageVersion, lookupPackage: PackageLookup): string[] {
+function blockingAirPlaySenderPackages(sender: PackageVersion, lookupPackage: PackageLookup): string[] {
   const packagePaths = [sender.root];
   const vulnerable: string[] = [];
   const protobuf = lookupPackage('protobufjs', packagePaths);
-  const elliptic = lookupPackage('elliptic', packagePaths);
 
   if (protobuf && compareSemver(protobuf.version, '7.5.8') < 0) {
     vulnerable.push(`protobufjs@${protobuf.version}`);
   }
+
+  return vulnerable;
+}
+
+function warningAirPlaySenderPackages(sender: PackageVersion, lookupPackage: PackageLookup): string[] {
+  const packagePaths = [sender.root];
+  const vulnerable: string[] = [];
+  const elliptic = lookupPackage('elliptic', packagePaths);
 
   if (elliptic && compareSemver(elliptic.version, '6.6.2') < 0) {
     vulnerable.push(`elliptic@${elliptic.version}`);

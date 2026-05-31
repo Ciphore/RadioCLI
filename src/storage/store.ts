@@ -336,7 +336,7 @@ export class JsonLibraryStore {
 
   private write(): void {
     mkdirSync(dirname(this.filePath), {recursive: true});
-    writeJsonAtomically(this.filePath, this.state);
+    writeJsonAtomically(this.filePath, libraryStateForDisk(this.state));
   }
 }
 
@@ -396,18 +396,27 @@ function defaultState(): LibraryState {
 }
 
 function migrateLibraryState(state: LibraryState): LibraryState {
-  if (state.settings.receiverStyleVersion === 2) {
-    return state;
-  }
-
   return {
     ...state,
     settings: {
       ...state.settings,
-      receiverStyle: defaultReceiverStyle,
+      preferredBackend: state.settings.preferredBackend === 'airplay' ? 'auto' : state.settings.preferredBackend,
+      receiverStyle: state.settings.receiverStyleVersion === 2 ? state.settings.receiverStyle : defaultReceiverStyle,
       receiverStyleVersion: 2
     }
   };
+}
+
+function libraryStateForDisk(state: LibraryState): LibraryState {
+  return state.settings.preferredBackend === 'airplay'
+    ? {
+        ...state,
+        settings: {
+          ...state.settings,
+          preferredBackend: 'auto'
+        }
+      }
+    : state;
 }
 
 function writeJsonAtomically(filePath: string, value: unknown): void {
