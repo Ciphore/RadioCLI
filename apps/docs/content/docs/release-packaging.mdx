@@ -29,7 +29,7 @@ npm pack --dry-run
 Test the packed tarball locally:
 
 ```bash
-VERSION=0.1.4
+VERSION=0.1.5
 npm pack
 npm install -g "./ciphore-radiocli-$VERSION.tgz"
 radiocli --help
@@ -77,7 +77,7 @@ The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`
 After each npm publish, fetch the npm tarball URL and SHA:
 
 ```bash
-VERSION=0.1.4
+VERSION=0.1.5
 TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
 curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
 shasum -a 256 "/tmp/radiocli-$VERSION.tgz"

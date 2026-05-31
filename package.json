@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",
@@ -66,7 +66,6 @@
   },
   "dependencies": {
     "ink": "^7.0.5",
-    "node-airtunes2": "2.5.0",
     "react": "^19.2.6",
     "zod": "^4.4.3"
   },
@@ -84,5 +83,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "optionalDependencies": {
+    "node-airtunes2": "2.5.0"
   }
 }
