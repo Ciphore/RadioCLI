@@ -14,7 +14,9 @@ RadioCLI does not require secrets or accounts.
 - Recents, favorites, settings, imports, listening activity, and provider cache
   data are stored locally on your machine.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
-  to `mpv` or `ffplay`.
+  to `mpv`, `ffplay`, or the experimental macOS AirPlay worker.
+- AirPlay discovery uses Bonjour on your local network and is only enabled when
+  the local prerequisites and sender dependency safety gate pass.
 
 ## Location Lookup
 

@@ -1,11 +1,12 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import type {AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
+import type {AirPlayDevice, AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 import {settingsItems} from '../screen-items.js';
 import {themeAccent} from '../theme.js';
+import {playbackBackendCapabilities, playbackBackendLabel} from '../../player/backend-install.js';
 
 type SettingsScreenProps = {
   selected: number;
@@ -13,6 +14,7 @@ type SettingsScreenProps = {
   storePath: string;
   playback: PlaybackState;
   backends: string[];
+  airPlayDevices: AirPlayDevice[];
   providerHealth: Record<string, string>;
   theme: ThemeName;
   diagnostics: PlaybackDiagnostics;
@@ -25,6 +27,7 @@ export function SettingsScreen({
   storePath,
   playback,
   backends,
+  airPlayDevices,
   providerHealth,
   theme,
   diagnostics,
@@ -48,7 +51,7 @@ export function SettingsScreen({
           selected={selected}
           keyFor={item => item}
           render={(item, _index, active) => {
-            const value = settingValue(item, settings, diagnostics, backends);
+            const value = settingValue(item, settings, diagnostics, backends, airPlayDevices);
             return (
               <Box>
                 <Pointer active={active} />
@@ -71,7 +74,7 @@ export function SettingsScreen({
           Status
         </Text>
         <Text color="gray">
-          Player: <Text color={accent}>{playback.backend || 'none'}</Text> / {playback.state} ·{' '}
+          Player: <Text color={accent}>{playbackBackendLabel(playback.backend)}</Text> / {playback.state} ·{' '}
           {diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`} · tune timeout {settings.tuneTimeoutSeconds}s
         </Text>
         <Text color="gray">
@@ -88,7 +91,8 @@ function settingValue(
   item: string,
   settings: AppSettings,
   diagnostics: PlaybackDiagnostics,
-  backends: string[]
+  backends: string[],
+  airPlayDevices: AirPlayDevice[]
 ): string | undefined {
   switch (item) {
     case 'Cycle display color':
@@ -100,8 +104,15 @@ function settingValue(
     case 'Toggle nearby location lookup':
       return settings.enableNearbyLocation ? 'on' : 'off';
     case 'Cycle playback backend':
-      return `${settings.preferredBackend} · available ${backends.length ? backends.join(', ') : 'none'}`;
+      return `${settings.preferredBackend} · available ${backends.length ? backends.map(playbackBackendLabel).join(', ') : 'none'}`;
+    case 'Cycle AirPlay target': {
+      const device = airPlayDevices.find(candidate => candidate.id === settings.preferredAirPlayDevice);
+      return `${device?.name ?? settings.preferredAirPlayDevice ?? 'auto'} · ${airPlayDevices.length || 'no'} found`;
+    }
     case 'Mute or unmute':
+      if (diagnostics.backend === 'ffplay' && !playbackBackendCapabilities(diagnostics.backend).supportsMute) {
+        return 'requires mpv';
+      }
       return diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`;
     case 'Toggle skip broken streams':
       return settings.skipBrokenStreams ? 'on' : 'off';

@@ -91,6 +91,34 @@ describe('playback footer', () => {
     expect(text).toContain('Sleep 29m');
   });
 
+  it('shows the active AirPlay receiver before volume', () => {
+    const text = playbackFooterText({
+      station,
+      playback: {...playback, backend: 'airplay', airPlayDeviceName: 'Office'},
+      metadata: {title: 'Artist - Track', updatedAt: '2026-05-24T09:00:00.000Z'},
+      queue: null,
+      favorite: false,
+      sleepLabel: 'Sleep off',
+      width: 240
+    });
+
+    expect(text).toBe('Radio Paradise · Artist - Track · AirPlay Office · vol 70');
+  });
+
+  it('falls back to an AirPlay output label when the receiver name is not known', () => {
+    const text = playbackFooterText({
+      station,
+      playback: {...playback, backend: 'airplay'},
+      metadata: null,
+      queue: null,
+      favorite: false,
+      sleepLabel: 'Sleep off',
+      width: 240
+    });
+
+    expect(text).toBe('Radio Paradise · AirPlay · vol 70');
+  });
+
   it('truncates to the available footer width', () => {
     const text = playbackFooterText({
       station,

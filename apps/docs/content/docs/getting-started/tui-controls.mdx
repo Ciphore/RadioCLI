@@ -19,6 +19,11 @@ volume or mute state, and an active sleep timer.
 | `+` / `-` | Adjust volume |
 | `q` or `Ctrl+C` | Quit cleanly |
 
+Pause, mute, volume, and play/pause media-key control require the `mpv` backend.
+When only `ffplay` is active, RadioCLI keeps playback and station skipping
+available but labels interactive playback controls as limited and shows an
+`Install mpv` warning instead of pretending the control worked.
+
 ## Screen Controls
 
 | Screen | Controls |
@@ -31,7 +36,7 @@ volume or mute state, and an active sleep timer.
 | World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
-| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `r` health, `b` home |
+| Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` backend, `a` AirPlay, `r` health, `b` home |
 | Stats | `b` home |
 
 Explore mouse clicks use terminal mouse reporting while the Explore tab is
@@ -61,6 +66,7 @@ Useful command entries:
 :learn play
 :learn next
 :keys reset
+:airplay-code 1234
 :map
 :library
 :stats
@@ -78,9 +84,15 @@ through that source list from any screen until you tune from another list.
 
 Hardware media keys depend on the OS and terminal. RadioCLI recognizes common
 F7/F8/F9 sequences, Kitty media-key codes, modified-arrow sequences, comma/dot
-transport fallback, and learned custom bindings.
+transport fallback, and learned custom bindings. Previous/next media actions are
+app-level; play/pause requires `mpv`.
 
 Learn keys from Settings or with `:learn previous`, `:learn play`, and
 `:learn next`; clear them with `:keys reset`.
 
 Location behavior is covered in [Privacy and Security](../privacy-security.mdx).
+
+On macOS, Settings can cycle AirPlay targets discovered through Bonjour when
+`ffmpeg` and a compatible sender package pass RadioCLI's dependency safety gate.
+Select the `airplay` backend with `o`, choose a receiver with `a`, then tune a
+station. If the receiver asks for a code, enter it with `:airplay-code 1234`.

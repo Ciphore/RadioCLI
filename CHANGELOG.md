@@ -5,6 +5,29 @@ All notable changes to RadioCLI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-30
+
+### Added
+
+- Experimental macOS AirPlay playback backend with Bonjour receiver discovery,
+  Settings target selection, `:airplay-code` passcode entry, worker-based stream
+  forwarding, and active receiver labels in the playback footer.
+
+### Changed
+
+- `ffplay` is now treated as a playback-only fallback: the UI labels it as
+  `ffplay fallback`, `radiocli doctor` reports limited controls, and unsupported
+  pause, mute, volume, and media-key actions explain that `mpv` is required.
+
+### Security
+
+- AirPlay sender support is disabled unless a compatible sender package passes
+  RadioCLI's dependency safety gate; the current public `node-airtunes2` package
+  line remains blocked because of vulnerable transitive dependencies.
+- Hardened AirPlay discovery and worker messaging with bounded payloads,
+  sanitized receiver data, passcode validation, and worker shutdown on startup
+  timeout.
+
 ## [0.1.2] - 2026-05-30
 
 ### Fixed
@@ -26,9 +49,10 @@ Initial public release.
   countries, world map, nearby, stats, and settings screens.
 - Radio Browser provider with mirror fallback, durable cache, and tune
   resolution, plus an experimental, opt-in Radio Garden provider.
-- `mpv` playback with `ffplay` fallback, readiness checks, ICY metadata polling,
-  volume, pause, mute, sleep timer, tune timeouts, and skip-broken-stream
-  behavior, using Unix sockets on macOS/Linux and named pipes on native Windows.
+- `mpv` playback controls for readiness checks, ICY metadata polling, volume,
+  pause, and mute, with `ffplay` playback fallback, sleep timer, tune timeouts,
+  and skip-broken-stream behavior, using Unix sockets on macOS/Linux and named
+  pipes on native Windows.
 - Receiver-style Now Playing screen with 50 selectable visualizers and
   zero-signal frames whenever playback is idle, paused, stopped, or not
   backend-ready.
@@ -56,5 +80,6 @@ Initial public release.
   backend/volume that already appear in the header and footer. The reclaimed
   rows go to the visualizer.
 
+[0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.1

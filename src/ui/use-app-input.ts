@@ -33,6 +33,7 @@ type AppInputOptions = {
   commandMode: boolean;
   commandText: string;
   currentItemCount: (screen: Screen) => number;
+  cycleAirPlayTarget: () => void;
   cycleDisplayColor: () => void;
   cyclePlaybackBackend: () => void;
   cycleReceiverStyle: () => void;
@@ -76,6 +77,7 @@ type AppInputOptions = {
   stdin: InputSource;
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
+  togglePause: () => void;
   toggleNearbyLocation: () => void;
   toggleRadioGarden: () => void;
   toggleSkipBrokenStreams: () => void;
@@ -88,6 +90,7 @@ export function useAppInput({
   commandMode,
   commandText,
   currentItemCount,
+  cycleAirPlayTarget,
   cycleDisplayColor,
   cyclePlaybackBackend,
   cycleReceiverStyle,
@@ -131,6 +134,7 @@ export function useAppInput({
   stdin,
   toggleFavorite,
   toggleMute,
+  togglePause,
   toggleNearbyLocation,
   toggleRadioGarden,
   toggleSkipBrokenStreams
@@ -179,7 +183,7 @@ export function useAppInput({
         playAdjacent(1);
       } else if (action === 'playPause') {
         lastRawTransportAtRef.current = Date.now();
-        void player.togglePause();
+        togglePause();
       }
     };
 
@@ -201,7 +205,8 @@ export function useAppInput({
     setCapturingTransportAction,
     setMessage,
     settingsRef,
-    stdin
+    stdin,
+    togglePause
   ]);
 
   useInput((input, key) => {
@@ -368,6 +373,11 @@ export function useAppInput({
       return;
     }
 
+    if (input === 'a' && screen === 'settings') {
+      cycleAirPlayTarget();
+      return;
+    }
+
     if (input === 'g') {
       toggleRadioGarden();
       return;
@@ -450,7 +460,7 @@ export function useAppInput({
     }
 
     if (input === ' ') {
-      void player.togglePause();
+      togglePause();
       return;
     }
 
@@ -513,6 +523,8 @@ export function useAppInput({
           toggleNearbyLocation();
         } else if (item === 'Cycle playback backend') {
           cyclePlaybackBackend();
+        } else if (item === 'Cycle AirPlay target') {
+          cycleAirPlayTarget();
         } else if (item === 'Volume up') {
           adjustVolume(5);
         } else if (item === 'Volume down') {

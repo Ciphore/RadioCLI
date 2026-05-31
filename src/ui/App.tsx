@@ -1,10 +1,10 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Text, useApp, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
-import {PlayerController} from '../player/player-controller.js';
-import {playbackBackendInstallHint} from '../player/backend-install.js';
+import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
+import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import {receiverStyleNames, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
+import {receiverStyleNames, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {appBackground, nextReceiverStyle, nextTheme, panelBackground, textDim, themeAccent} from './theme.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
@@ -29,6 +29,8 @@ import {
   initialStationContexts,
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
+  nextAirPlayDeviceId,
+  nextPlaybackBackend,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
@@ -71,6 +73,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const player = useMemo(() => new PlayerController(() => settingsRef.current), []);
   const [playback, setPlayback] = useState<PlaybackState>(() => player.getState());
   const [availableBackends, setAvailableBackends] = useState<string[]>(() => player.detectedBackends());
+  const [availableAirPlayDevices, setAvailableAirPlayDevices] = useState<AirPlayDevice[]>(() => player.detectedAirPlayDevices());
   const [screen, setScreen] = useState<Screen>('home');
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -285,6 +288,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
+    void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
@@ -639,13 +643,23 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [store]
   );
 
+  const showControlResult = useCallback((result: PlaybackControlResult) => {
+    if (!result.ok && result.message) {
+      setMessage(result.message);
+    }
+  }, []);
+
   const setVolume = useCallback(
     (volume: number) => {
       const clamped = clampVolume(volume);
-      updateSettings({volume: clamped});
-      void player.setVolume(clamped);
+      void player.setVolume(clamped).then(result => {
+        if (result.ok) {
+          updateSettings({volume: clamped});
+        }
+        showControlResult(result);
+      });
     },
-    [player, updateSettings]
+    [player, showControlResult, updateSettings]
   );
 
   const adjustVolume = useCallback(
@@ -656,8 +670,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   );
 
   const toggleMute = useCallback(() => {
-    void player.toggleMute();
-  }, [player]);
+    void player.toggleMute().then(showControlResult);
+  }, [player, showControlResult]);
+
+  const togglePause = useCallback(() => {
+    void player.togglePause().then(showControlResult);
+  }, [player, showControlResult]);
 
   const cycleDisplayColor = useCallback(() => {
     const theme = nextTheme(settingsRef.current.theme);
@@ -685,11 +703,24 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [updateSettings]);
 
   const cyclePlaybackBackend = useCallback(() => {
-    const current = settingsRef.current.preferredBackend;
-    const preferredBackend = current === 'auto' ? 'mpv' : current === 'mpv' ? 'ffplay' : 'auto';
+    const preferredBackend = nextPlaybackBackend(settingsRef.current.preferredBackend);
     updateSettings({preferredBackend});
     setMessage(`Playback backend: ${preferredBackend}`);
   }, [updateSettings]);
+
+  const cycleAirPlayTarget = useCallback(() => {
+    void player.refreshAirPlayDevices().then(devices => {
+      setAvailableAirPlayDevices(devices);
+      const preferredAirPlayDevice = nextAirPlayDeviceId(settingsRef.current.preferredAirPlayDevice, devices);
+      updateSettings({preferredAirPlayDevice});
+      const selectedAirPlayDevice = devices.find(device => device.id === preferredAirPlayDevice);
+      setMessage(`AirPlay target: ${selectedAirPlayDevice?.name ?? 'auto'}`);
+    }).catch(() => {
+      setAvailableAirPlayDevices([]);
+      updateSettings({preferredAirPlayDevice: undefined});
+      setMessage('No AirPlay receivers found.');
+    });
+  }, [player, updateSettings]);
 
   const toggleSkipBrokenStreams = useCallback(() => {
     const skipBrokenStreams = !settingsRef.current.skipBrokenStreams;
@@ -812,6 +843,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     commandMode,
     commandText,
     currentItemCount,
+    cycleAirPlayTarget,
     cycleDisplayColor,
     cyclePlaybackBackend,
     cycleReceiverStyle,
@@ -855,6 +887,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     stdin,
     toggleFavorite,
     toggleMute,
+    togglePause,
     toggleNearbyLocation,
     toggleRadioGarden,
     toggleSkipBrokenStreams
@@ -865,7 +898,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }
 
   const hasTopTabs = !layout.compact;
-  const globalFooter = '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
+  const globalFooter =
+    playback.backend === 'ffplay'
+      ? '←/→ tabs · F7/F9 or ,/. station · ffplay fallback: limited controls · t/v display · q quit'
+      : playback.backend === 'airplay'
+        ? '←/→ tabs · F7/F9 or ,/. station · AirPlay: +/- volume, m mute · t/v display · q quit'
+      : '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
   const playbackFooter = playbackFooterText({
     station: playingStation,
     playback,
@@ -882,6 +920,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     commandText,
     editingCountryFilter,
     editingSearch,
+    playbackBackend: playback.backend,
     screen
   });
 
@@ -894,12 +933,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
             active={activeTabForScreen(screen)}
             theme={theme}
             width={frameWidth}
-            rightLabel={`${playback.backend || 'no backend'} · ${playback.state}`}
+            rightLabel={`${playbackBackendLabel(playback.backend)} · ${playback.state}`}
           />
         </Box>
       ) : null}
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={appBackground}>
         <AppContent
+          airPlayDevices={availableAirPlayDevices}
           backends={availableBackends}
           countryFilter={countryFilter}
           diagnostics={diagnostics}

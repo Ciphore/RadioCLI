@@ -56,6 +56,7 @@ export function playbackFooterText({
     statePrefix(playback.state),
     nameLabel,
     loading ? 'buffering…' : trackLabel(metadata, stationName),
+    outputLabel(playback),
     playback.muted ? 'muted' : `vol ${playback.volume}`,
     sleepLabel !== 'Sleep off' ? sleepLabel : undefined
   ].filter(Boolean);
@@ -69,6 +70,14 @@ function statePrefix(state: PlaybackState['state']): string | undefined {
   }
 
   return undefined;
+}
+
+function outputLabel(playback: PlaybackState): string | undefined {
+  if (playback.backend !== 'airplay') {
+    return undefined;
+  }
+
+  return playback.airPlayDeviceName ? `AirPlay ${playback.airPlayDeviceName}` : 'AirPlay';
 }
 
 function trackLabel(metadata: IcyNowPlaying | null, stationName: string): string | undefined {

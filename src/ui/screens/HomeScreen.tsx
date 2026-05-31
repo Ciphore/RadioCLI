@@ -5,6 +5,7 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {themeAccent} from '../theme.js';
 import {homeItems} from '../screen-items.js';
 import type {LibraryState, PlaybackState, ThemeName} from '../../types.js';
+import {playbackBackendLabel} from '../../player/backend-install.js';
 
 type HomeProps = {
   selected: number;
@@ -20,7 +21,7 @@ export function HomeScreen({selected, theme, library, playback}: HomeProps): Rea
       <Text>
         Receiver:{' '}
         <Text color={themeAccent(theme)}>{playback.state === 'playing' ? playback.message ?? 'playing' : playback.state}</Text>
-        <Text color="gray"> · {playback.backend}</Text>
+        <Text color="gray"> · {playbackBackendLabel(playback.backend)}</Text>
       </Text>
       <Box marginTop={1} flexDirection="column">
         <Menu

@@ -26,6 +26,10 @@ requirement.
 - tune timeout
 - skip-to-next on failed tune when enabled
 - `mpv` IPC readiness check
+- explicit limited-control state when only `ffplay` fallback playback is
+  available
+- AirPlay sender dependency safety gate, bounded Bonjour discovery, bounded
+  worker messages, passcode validation, and worker shutdown on startup timeout
 - playback-gated receiver animation and zero-signal visualizer frames for inactive
   playback states
 - metadata polling through `mpv`, avoiding a second stream listener
@@ -39,6 +43,8 @@ requirement.
 
 - Some stations play silence while still looking technically connected.
 - Radio Garden can be blocked by edge protection.
+- AirPlay support is experimental and macOS-only; it depends on the local
+  network, Bonjour discovery, `ffmpeg`, and a compatible sender package.
 - Station health is local and opportunistic; there is not yet a long-term health
   score per station.
 - The country-density map is symbolic. Explore uses a Natural Earth braille map

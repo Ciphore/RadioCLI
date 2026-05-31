@@ -48,7 +48,9 @@ so map exploration is not capped to globally popular stations.
 `PlayerController` owns playback process lifecycle.
 
 - Preferred backend: `mpv`
-- Fallback backend: `ffplay`
+- Fallback backend: `ffplay` for playback only
+- Experimental macOS output: AirPlay/RAOP through Bonjour discovery, `ffmpeg`,
+  and a sender package that passes RadioCLI's dependency safety gate
 - `mpv` is controlled over JSON IPC for pause, mute, volume, readiness checks,
   and metadata polling.
 
@@ -64,8 +66,16 @@ other non-Radio-Browser stations use their exposed stream URL.
 Once a URL is resolved, `PlayerController` starts `mpv` with `--no-video`,
 `--force-window=no`, a local JSON IPC endpoint, a forced media title, and the
 configured volume. That endpoint is a Unix socket on macOS/Linux and a named
-pipe on native Windows. `ffplay` is available as a fallback backend, but it has
-less control surface, so most runtime state sync comes from `mpv`.
+pipe on native Windows. `ffplay` is available as a playback-only fallback, but it
+does not provide a reliable IPC surface for pause, mute, volume, play/pause
+media-key handling, metadata, or readiness checks. RadioCLI labels that mode as
+limited instead of updating UI state optimistically.
+
+On macOS, the optional AirPlay backend discovers RAOP receivers with Bonjour and
+streams through a child worker that feeds decoded PCM from `ffmpeg` into a
+compatible sender package. The backend is only advertised when the sender passes
+the dependency safety gate; current vulnerable `node-airtunes2` installs stay
+blocked instead of being loaded opportunistically.
 
 With `mpv`, RadioCLI waits for the IPC socket to accept commands before marking
 the stream as ready. It then polls playback state every 500ms and ICY metadata

@@ -12,7 +12,8 @@ npm run build
 npm run test
 ```
 
-Install `mpv` for the best playback experience:
+Install `mpv` for playback controls, metadata polling, and the best playback
+experience:
 
 ```bash
 brew install mpv
@@ -57,4 +58,6 @@ checks.
 ## Issue Triage
 
 Playback issues should include station name, country, backend, and
-`radiocli check` output when possible.
+`radiocli check` or `radiocli doctor` output when possible. If the backend is
+`ffplay`, pause, mute, volume, and play/pause media-key behavior are expected to
+be limited until `mpv` is installed.

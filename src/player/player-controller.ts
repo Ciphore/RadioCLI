@@ -1,17 +1,25 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {existsSync, unlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {Socket} from 'node:net';
-import type {AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
-import {detectPlaybackBackends, playbackBackendInstallHint} from './backend-install.js';
+import type {AirPlayDevice, AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
+import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint} from './backend-install.js';
+import {discoverAirPlayDevices} from './airplay-discovery.js';
+import {airPlaySenderHealth} from './airplay-sender-health.js';
+import {encodeWorkerStart, parseWorkerMessage, serializeWorkerMessage, type AirPlayWorkerCommand, type AirPlayWorkerEvent} from './airplay-worker-protocol.js';
 
 export type PlayerEvent = (state: PlaybackState) => void;
 export type MetadataEvent = (metadata: IcyNowPlaying) => void;
+export type PlaybackControlResult = {
+  ok: boolean;
+  message?: string;
+};
 
 export class PlayerController {
   private process: ChildProcessWithoutNullStreams | null = null;
-  private backend: 'mpv' | 'ffplay' | null = null;
+  private backend: 'mpv' | 'ffplay' | 'airplay' | null = null;
   private ipcPath: string | null = null;
   private metadataTimer: NodeJS.Timeout | null = null;
   private playbackStateTimer: NodeJS.Timeout | null = null;
@@ -19,6 +27,9 @@ export class PlayerController {
   private listeners = new Set<PlayerEvent>();
   private metadataListeners = new Set<MetadataEvent>();
   private availableBackends: string[] | null = null;
+  private availableAirPlayDevices: AirPlayDevice[] = [];
+  private airPlayReadyResolver: ((result: 'ready' | 'password-required') => void) | null = null;
+  private airPlayReadyRejecter: ((error: Error) => void) | null = null;
   private nextMpvRequestId = 1;
   private currentMpvMediaTitle: string | null = null;
 
@@ -67,10 +78,11 @@ export class PlayerController {
     await this.stop();
     const backend = this.selectBackend();
     if (!backend) {
-      throw new Error(`No playback backend found. ${playbackBackendInstallHint()}`);
+      throw new Error(this.playbackUnavailableMessage());
     }
 
     this.backend = backend;
+    let airPlayDeviceName: string | undefined;
     this.setState({
       backend,
       state: 'loading',
@@ -81,8 +93,29 @@ export class PlayerController {
       streamUrl: url,
       ready: false
     });
-    backend === 'mpv' ? this.playWithMpv(url, station.name) : this.playWithFfplay(url);
-    await this.waitForReady(backend);
+    if (backend === 'mpv') {
+      this.playWithMpv(url, station.name);
+      await this.waitForReady(backend);
+    } else if (backend === 'ffplay') {
+      this.playWithFfplay(url);
+      await this.waitForReady(backend);
+    } else {
+      const device = await this.resolveAirPlayDevice();
+      airPlayDeviceName = device.name;
+      this.setState({...this.state, airPlayDeviceName});
+      const result = await this.playWithAirPlay(url, station.name, device);
+      if (result === 'password-required') {
+        this.setState({
+          ...this.state,
+          backend,
+          state: 'loading',
+          message: 'AirPlay code required. Use :airplay-code 1234.',
+          ready: false
+        });
+        return;
+      }
+    }
+
     this.setState({
       backend,
       state: 'playing',
@@ -90,6 +123,7 @@ export class PlayerController {
       volume: this.getSettings().volume,
       muted: false,
       stationName: station.name,
+      airPlayDeviceName,
       streamUrl: url,
       startedAt: new Date().toISOString(),
       ready: true
@@ -99,62 +133,79 @@ export class PlayerController {
     }
   }
 
-  async togglePause(): Promise<void> {
+  async togglePause(): Promise<PlaybackControlResult> {
     if (!this.process || !this.backend || !this.state.ready) {
-      return;
+      return {ok: false};
+    }
+
+    const unsupported = this.unsupportedFfplayControl();
+    if (unsupported) {
+      return unsupported;
     }
 
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['cycle', 'pause']}).catch(() => undefined);
       const synced = await this.syncMpvPlaybackState();
       if (synced) {
-        return;
+        return {ok: true};
       }
-    } else {
-      this.process.stdin.write('p');
+    } else if (this.backend === 'airplay') {
+      this.setState({...this.state, message: 'AirPlay pause is not supported. Use :stop to end playback.'});
+      return {ok: false, message: 'AirPlay pause is not supported. Use :stop to end playback.'};
     }
 
     this.setState({
       ...this.state,
       state: this.state.state === 'paused' ? 'playing' : 'paused'
     });
+    return {ok: true};
   }
 
-  async setVolume(volume: number): Promise<void> {
+  async setVolume(volume: number): Promise<PlaybackControlResult> {
     const clamped = clampVolume(volume);
+    const unsupported = this.unsupportedFfplayControl();
+    if (unsupported) {
+      return unsupported;
+    }
+
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['set_property', 'volume', clamped]}).catch(() => undefined);
-    } else if (this.backend === 'ffplay' && this.process) {
-      const delta = clamped - this.state.volume;
-      const key = delta > 0 ? '0' : '9';
-      const steps = Math.min(10, Math.ceil(Math.abs(delta) / 5));
-      for (let index = 0; index < steps; index += 1) {
-        this.process.stdin.write(key);
-      }
+    } else if (this.backend === 'airplay') {
+      this.sendAirPlayCommand({type: 'setVolume', volume: clamped});
     }
 
     this.setState({...this.state, volume: clamped});
+    return {ok: true};
   }
 
-  async adjustVolume(delta: number): Promise<void> {
-    await this.setVolume(this.state.volume + delta);
+  async adjustVolume(delta: number): Promise<PlaybackControlResult> {
+    return this.setVolume(this.state.volume + delta);
   }
 
-  async toggleMute(): Promise<void> {
+  async toggleMute(): Promise<PlaybackControlResult> {
     const muted = !this.state.muted;
+    const unsupported = this.unsupportedFfplayControl();
+    if (unsupported) {
+      return unsupported;
+    }
+
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['set_property', 'mute', muted]}).catch(() => undefined);
-    } else if (this.backend === 'ffplay' && this.process) {
-      this.process.stdin.write('m');
+    } else if (this.backend === 'airplay') {
+      this.sendAirPlayCommand({type: 'setMuted', muted});
     }
 
     this.setState({...this.state, muted});
+    return {ok: true};
   }
 
   async stop(): Promise<void> {
     this.stopMpvPolling();
+    this.rejectPendingAirPlayReady(new Error('AirPlay playback stopped.'));
     if (this.backend === 'mpv') {
       await this.sendMpv({command: ['quit']}).catch(() => undefined);
+    } else if (this.backend === 'airplay') {
+      this.sendAirPlayCommand({type: 'stop'});
     }
 
     if (this.process && !this.process.killed) {
@@ -171,7 +222,31 @@ export class PlayerController {
     });
   }
 
-  private selectBackend(): 'mpv' | 'ffplay' | null {
+  submitAirPlayPasscode(code: string): void {
+    if (this.backend !== 'airplay') {
+      return;
+    }
+
+    const trimmed = code.trim();
+    if (!trimmed || Buffer.byteLength(trimmed, 'utf8') > 64 || /[\u0000-\u001F\u007F-\u009F]/.test(trimmed)) {
+      this.setState({...this.state, message: 'AirPlay code must be 1-64 printable characters.'});
+      return;
+    }
+
+    this.sendAirPlayCommand({type: 'passcode', code: trimmed});
+    this.setState({...this.state, message: 'AirPlay code sent.'});
+  }
+
+  async refreshAirPlayDevices(): Promise<AirPlayDevice[]> {
+    this.availableAirPlayDevices = await discoverAirPlayDevices();
+    return [...this.availableAirPlayDevices];
+  }
+
+  detectedAirPlayDevices(): AirPlayDevice[] {
+    return [...this.availableAirPlayDevices];
+  }
+
+  private selectBackend(): 'mpv' | 'ffplay' | 'airplay' | null {
     const preferred = this.getSettings().preferredBackend;
     const backends = this.availableBackends ?? this.refreshDetectedBackends();
     if (preferred === 'mpv') {
@@ -182,6 +257,10 @@ export class PlayerController {
       return backends.includes('ffplay') ? 'ffplay' : null;
     }
 
+    if (preferred === 'airplay') {
+      return backends.includes('airplay') ? 'airplay' : null;
+    }
+
     if (backends.includes('mpv')) {
       return 'mpv';
     }
@@ -190,7 +269,24 @@ export class PlayerController {
       return 'ffplay';
     }
 
+    if (backends.includes('airplay')) {
+      return 'airplay';
+    }
+
     return null;
+  }
+
+  private playbackUnavailableMessage(): string {
+    const preferred = this.getSettings().preferredBackend;
+    if (preferred === 'airplay') {
+      return `AirPlay backend unavailable. It requires macOS, ffmpeg, dns-sd, and a sender package that passes RadioCLI's dependency safety gate. ${airPlaySenderHealth().message}`;
+    }
+
+    if (preferred === 'mpv' || preferred === 'ffplay') {
+      return `Preferred playback backend ${preferred} is unavailable. ${playbackBackendInstallHint()}`;
+    }
+
+    return `No playback backend found. ${playbackBackendInstallHint()}`;
   }
 
   private playWithMpv(url: string, initialTitle: string): void {
@@ -219,6 +315,103 @@ export class PlayerController {
       stdio: ['pipe', 'pipe', 'pipe']
     });
     this.wireProcess();
+  }
+
+  private async resolveAirPlayDevice(): Promise<AirPlayDevice> {
+    const devices = await this.refreshAirPlayDevices();
+    const preferred = this.getSettings().preferredAirPlayDevice;
+    const device = devices.find(candidate => candidate.id === preferred) ?? devices[0];
+    if (!device) {
+      throw new Error('No AirPlay receiver found. Make sure the receiver is on the same network.');
+    }
+
+    return device;
+  }
+
+  private playWithAirPlay(url: string, stationName: string, device: AirPlayDevice): Promise<'ready' | 'password-required'> {
+    const workerPath = airPlayWorkerPath();
+    const workerArgs = airPlayWorkerArgs(workerPath, encodeWorkerStart({
+      streamUrl: url,
+      stationName,
+      volume: this.getSettings().volume,
+      muted: false,
+      device
+    }));
+    this.process = spawn(process.execPath, workerArgs, {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    this.wireAirPlayProcess();
+    this.wireProcess();
+    const child = this.process;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.airPlayReadyResolver = null;
+        this.airPlayReadyRejecter = null;
+        const error = new Error(`Timed out while opening AirPlay stream after ${this.getSettings().tuneTimeoutSeconds}s.`);
+        this.stopAirPlayProcess(child);
+        this.setState({...this.state, backend: 'airplay', state: 'error', ready: false, message: error.message});
+        reject(error);
+      }, this.getSettings().tuneTimeoutSeconds * 1000);
+      this.airPlayReadyResolver = result => {
+        clearTimeout(timeout);
+        this.airPlayReadyResolver = null;
+        this.airPlayReadyRejecter = null;
+        resolve(result);
+      };
+      this.airPlayReadyRejecter = error => {
+        clearTimeout(timeout);
+        this.airPlayReadyResolver = null;
+        this.airPlayReadyRejecter = null;
+        reject(error);
+      };
+    });
+  }
+
+  private wireAirPlayProcess(): void {
+    const child = this.process;
+    if (!child) {
+      return;
+    }
+
+    let buffer = '';
+    child.stdout.on('data', chunk => {
+      buffer += chunk.toString('utf8');
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+        const event = parseWorkerMessage<AirPlayWorkerEvent>(line);
+        if (event) {
+          this.handleAirPlayEvent(event);
+        }
+      }
+    });
+  }
+
+  private handleAirPlayEvent(event: AirPlayWorkerEvent): void {
+    if (event.type === 'ready' || event.type === 'playing') {
+      this.airPlayReadyResolver?.('ready');
+      if (this.backend === 'airplay') {
+        this.setState({...this.state, backend: 'airplay', state: 'playing', ready: true, message: this.state.stationName});
+      }
+    } else if (event.type === 'password-required') {
+      this.airPlayReadyResolver?.('password-required');
+      this.setState({...this.state, backend: 'airplay', state: 'loading', ready: false, message: 'AirPlay code required. Use :airplay-code 1234.'});
+    } else if (event.type === 'error') {
+      const error = new Error(event.message);
+      this.airPlayReadyRejecter?.(error);
+      this.setState({...this.state, backend: 'airplay', state: 'error', ready: false, message: event.message});
+    }
+  }
+
+  private unsupportedFfplayControl(): PlaybackControlResult | null {
+    if (this.backend === 'ffplay' && this.process) {
+      return {ok: false, message: ffplayLimitedControlsMessage};
+    }
+
+    return null;
   }
 
   private wireProcess(): void {
@@ -255,6 +448,39 @@ export class PlayerController {
 
   private sendMpv(payload: unknown): Promise<void> {
     return this.queryMpv(payload).then(() => undefined);
+  }
+
+  private sendAirPlayCommand(command: AirPlayWorkerCommand): void {
+    if (this.backend === 'airplay' && this.process && !this.process.killed) {
+      this.process.stdin.write(serializeWorkerMessage(command));
+    }
+  }
+
+  private stopAirPlayProcess(child: ChildProcessWithoutNullStreams | null): void {
+    if (!child) {
+      return;
+    }
+
+    if (!child.killed) {
+      try {
+        child.stdin.write(serializeWorkerMessage({type: 'stop'}));
+      } catch {
+        // The worker may already be exiting.
+      }
+
+      child.kill('SIGTERM');
+    }
+
+    if (this.process === child) {
+      this.process = null;
+    }
+  }
+
+  private rejectPendingAirPlayReady(error: Error): void {
+    const rejecter = this.airPlayReadyRejecter;
+    this.airPlayReadyResolver = null;
+    this.airPlayReadyRejecter = null;
+    rejecter?.(error);
   }
 
   private queryMpv<T = unknown>(payload: unknown): Promise<T | null> {
@@ -460,6 +686,20 @@ export function createMpvIpcPath(
   }
 
   return join(tmpdir(), `radiocli-${pid}-${timestamp}.sock`);
+}
+
+function airPlayWorkerPath(): string {
+  const currentPath = fileURLToPath(import.meta.url);
+  const extension = currentPath.endsWith('.ts') || currentPath.endsWith('.tsx') ? '.ts' : '.js';
+  return join(dirname(currentPath), `airplay-worker${extension}`);
+}
+
+function airPlayWorkerArgs(workerPath: string, encodedStart: string): string[] {
+  if (workerPath.endsWith('.ts')) {
+    return ['--import', 'tsx', workerPath, encodedStart];
+  }
+
+  return [workerPath, encodedStart];
 }
 
 function isWindowsNamedPipePath(path: string): boolean {

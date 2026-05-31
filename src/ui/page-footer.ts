@@ -7,6 +7,7 @@ type PageFooterInput = {
   commandText: string;
   editingCountryFilter: boolean;
   editingSearch: boolean;
+  playbackBackend?: string;
   screen: Screen;
 };
 
@@ -16,6 +17,7 @@ export function pageFooterText({
   commandText,
   editingCountryFilter,
   editingSearch,
+  playbackBackend,
   screen
 }: PageFooterInput): string {
   if (capturingTransportAction) {
@@ -63,11 +65,19 @@ export function pageFooterText({
   }
 
   if (screen === 'now-playing') {
+    if (playbackBackend === 'ffplay') {
+      return 'ffplay fallback: install mpv for pause/mute/media keys · f favorite · s sleep · d diagnostics · b home';
+    }
+
+    if (playbackBackend === 'airplay') {
+      return 'AirPlay: +/- volume · m mute · f favorite · s sleep · d diagnostics · b home';
+    }
+
     return 'space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home';
   }
 
   if (screen === 'settings') {
-    return 'Enter change selected · g Radio Garden · l location · x skip · o backend · r health · b home';
+    return 'Enter change selected · g Radio Garden · l location · x skip · o backend · a AirPlay · r health · b home';
   }
 
   if (screen === 'stats') {

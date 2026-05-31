@@ -10,6 +10,8 @@ import {
   formatExploreCursor,
   mediaTransportActionForInput,
   moveExploreCursor,
+  nextAirPlayDeviceId,
+  nextPlaybackBackend,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldHandleKeyboardEvent,
@@ -114,6 +116,26 @@ describe('app state helpers', () => {
     expect(nextSleepTimerMinutes(15)).toBe(30);
     expect(nextSleepTimerMinutes(30)).toBe(60);
     expect(nextSleepTimerMinutes(60)).toBeNull();
+  });
+
+  it('cycles playback backend through AirPlay', () => {
+    expect(nextPlaybackBackend('auto')).toBe('mpv');
+    expect(nextPlaybackBackend('mpv')).toBe('ffplay');
+    expect(nextPlaybackBackend('ffplay')).toBe('airplay');
+    expect(nextPlaybackBackend('airplay')).toBe('auto');
+  });
+
+  it('cycles AirPlay targets through discovered receivers', () => {
+    const devices = [
+      {id: 'living@Living Room', name: 'Living Room', host: 'living.local', port: 7000, txt: [], requiresPassword: true, airplay2: true},
+      {id: 'office@Office', name: 'Office', host: 'office.local', port: 7000, txt: [], requiresPassword: false, airplay2: true}
+    ];
+
+    expect(nextAirPlayDeviceId(undefined, devices)).toBe('living@Living Room');
+    expect(nextAirPlayDeviceId('living@Living Room', devices)).toBe('office@Office');
+    expect(nextAirPlayDeviceId('office@Office', devices)).toBeUndefined();
+    expect(nextAirPlayDeviceId('missing', devices)).toBeUndefined();
+    expect(nextAirPlayDeviceId(undefined, [])).toBeUndefined();
   });
 
   it('moves the explore cursor around the globe and wraps longitude', () => {

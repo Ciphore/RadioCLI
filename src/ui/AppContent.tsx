@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {
+  AirPlayDevice,
   Country,
   IcyNowPlaying,
   LibraryState,
@@ -22,8 +23,10 @@ import {StatsScreen} from './screens/StatsScreen.js';
 import {SettingsScreen} from './screens/SettingsScreen.js';
 import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
+import {playbackBackendLabel} from '../player/backend-install.js';
 
 type AppContentProps = {
+  airPlayDevices: AirPlayDevice[];
   backends: string[];
   countryFilter: string;
   diagnostics: PlaybackDiagnostics;
@@ -57,6 +60,7 @@ type AppContentProps = {
 };
 
 export function AppContent({
+  airPlayDevices,
   backends,
   countryFilter,
   diagnostics,
@@ -94,7 +98,7 @@ export function AppContent({
         <Text bold>RadioCLI</Text>
         <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
         <Text color="gray">Resize to at least 64x18 for the full receiver UI.</Text>
-        <Text color="gray">Playback: {playback.state} · {playback.backend}</Text>
+        <Text color="gray">Playback: {playback.state} · {playbackBackendLabel(playback.backend)}</Text>
         <Text color="gray">q quit · Ctrl+C always exits</Text>
       </Box>
     );
@@ -221,6 +225,7 @@ export function AppContent({
         storePath={storePath}
         playback={playback}
         backends={backends}
+        airPlayDevices={airPlayDevices}
         providerHealth={providerHealth}
         theme={theme}
         diagnostics={diagnostics}

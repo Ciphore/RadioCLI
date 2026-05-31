@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/smoke/*.ts", "scripts/*.mjs"],
-  "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/*.mjs"]
+  "entry": ["src/smoke/*.ts", "src/player/airplay-worker.ts", "scripts/*.mjs"],
+  "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/*.mjs"],
+  "ignoreDependencies": ["node-airtunes2"]
 }

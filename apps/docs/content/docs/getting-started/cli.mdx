@@ -26,7 +26,9 @@ radiocli add-url <stream-url> [station name]
 ## Health Check
 
 Use `radiocli doctor` after installation to confirm whether `mpv` or `ffplay` is
-available and to print the recommended native install command for your OS.
+available, whether playback controls are `full`, `limited`, or `missing`, and to
+print the recommended native install command for your OS. `mpv` is the full-control
+backend; `ffplay` is reported as fallback playback with limited controls.
 
 Use `radiocli check` when debugging playback or provider issues. It reports local
 store paths, playback backends, and provider health. Include that output when filing

@@ -9,9 +9,11 @@ RadioCLI needs:
 
 - Homebrew on macOS: installs RadioCLI, Node.js, and `mpv`
 - npm, pnpm, or Bun on macOS, Linux, and Windows: Node.js 22 or newer
-- `mpv` for the best playback experience; RadioCLI expects one local playback
-  backend at runtime
-- `ffplay` from FFmpeg as an optional fallback
+- `mpv` for playback, pause, mute, volume, media keys, metadata, and readiness
+  checks
+- `ffmpeg` plus an audited, compatible sender package on macOS for experimental
+  AirPlay
+- `ffplay` from FFmpeg as an optional playback-only fallback
 
 ## Recommended: macOS With Homebrew
 
@@ -49,11 +51,22 @@ bun add -g @ciphore/radiocli
 The `radiocli` executable still runs on Node.js 22 or newer, even when installed
 with pnpm or Bun.
 
-On macOS with npm, install `mpv` first:
+On macOS with npm, install `mpv` first. Install FFmpeg too if you want to test
+the experimental AirPlay backend:
 
 ```bash
 brew install mpv
+brew install ffmpeg
+npm audit --audit-level=low
 ```
+
+RadioCLI discovers AirPlay/RAOP receivers with Bonjour and decodes streams with
+`ffmpeg`, but it only advertises the `airplay` backend when a compatible sender
+package passes its dependency safety gate. Do not install `node-airtunes2`
+blindly: the current public package line is blocked by RadioCLI because its
+transitive dependency tree contains known vulnerable versions. If you supply a
+patched compatible sender, passcode-protected receivers prompt in the TUI; enter
+the code with `:airplay-code 1234`.
 
 ## Linux
 
@@ -120,6 +133,12 @@ Windows:
 ```powershell
 winget install --id Gyan.FFmpeg -e
 ```
+
+`ffplay` can tune streams when `mpv` is unavailable, but it does not provide
+reliable pause, mute, volume, play/pause media-key, metadata, or readiness
+control. In `ffplay` mode RadioCLI labels the backend as `ffplay fallback`,
+shows limited-control footer text, and `radiocli doctor` reports
+`controls=limited`.
 
 CI covers command-mode typecheck, tests, builds, package checks, and fresh
 install smoke checks on Ubuntu, macOS, and Windows.

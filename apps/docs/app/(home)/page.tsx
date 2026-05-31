@@ -33,7 +33,7 @@ const specs = [
   },
   {
     label: 'Playback',
-    body: 'mpv first, ffplay fallback, IPC controls for pause, mute, volume, readiness, and metadata.',
+    body: 'mpv first for IPC controls, ffplay fallback for playback-only recovery.',
   },
   {
     label: 'Controls',
@@ -56,7 +56,7 @@ const features = [
   },
   {
     title: 'A receiver, not a wrapper',
-    body: 'Now Playing has 50 signal-gated receiver styles, stream diagnostics, ICY metadata cleanup, transport, favorites, volume, and a sleep timer.',
+    body: 'Now Playing has 50 signal-gated receiver styles, stream diagnostics, ICY metadata cleanup, mpv-backed controls, favorites, and a sleep timer.',
   },
   {
     title: 'Local-first library',
