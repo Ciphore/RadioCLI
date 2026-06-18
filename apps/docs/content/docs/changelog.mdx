@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.6 - 2026-06-17
+
+### Added
+
+- Added VLC (`cvlc`/`vlc`) as a third playback-only backend so installs without
+  `mpv` or `ffplay` still play audio.
+- Added a Help screen (`?`) listing every keybinding and `:` command, plus
+  command-name tab completion in the command palette.
+- Added persisted ICY track history shown on Now Playing (`d`) and up/down
+  recall of recent search queries in the search box.
+- Added opt-in resume of the most recent station on launch.
+- Added `O` to open the station homepage and `y` to copy its stream URL.
+- Added ASCII-safe display, transparent background (also honoring `NO_COLOR`),
+  and reduce-motion settings for terminal and low-power compatibility.
+- Added a best-effort Radio Browser upvote when favoriting a station.
+- Added a `radiocli version` command (and `--version` / `-v`).
+- Added `:doctor`, `:help`, `:resume`, `:ascii`, `:motion`, and `:background`
+  command-palette entries.
+
+### Changed
+
+- Playback binary detection now probes common install locations (Homebrew,
+  Scoop, WinGet, Chocolatey, and the VLC app bundle) when a tool is not on
+  `PATH`, so GUI-launched terminals still find `mpv`/`ffplay`/VLC.
+- The Radio Browser `User-Agent` now reports the installed package version.
+
 ## 0.1.5 - 2026-05-31
 
 ### Fixed
