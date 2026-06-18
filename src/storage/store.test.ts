@@ -58,6 +58,46 @@ describe('JsonLibraryStore', () => {
     expect(reloaded.settings.mediaKeys.next).toEqual(['next']);
   });
 
+  it('records track history per station, deduping consecutive repeats, and persists it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const station: Station = {id: 'station-1', provider: 'radio-browser', name: 'Test FM', tags: []};
+    const other: Station = {id: 'station-2', provider: 'radio-browser', name: 'Other FM', tags: []};
+
+    const store = new JsonLibraryStore(file);
+    store.recordTrack(station, 'Artist - Song One');
+    store.recordTrack(station, 'Artist - Song One');
+    store.recordTrack(station, '   ');
+    store.recordTrack(other, 'Different - Track');
+    const latest = store.recordTrack(station, 'Artist - Song Two');
+
+    expect(latest.trackHistory.map(track => track.title)).toEqual([
+      'Artist - Song Two',
+      'Different - Track',
+      'Artist - Song One'
+    ]);
+
+    const reloaded = new JsonLibraryStore(file).snapshot();
+    expect(reloaded.trackHistory).toHaveLength(3);
+    expect(reloaded.trackHistory[0]?.stationName).toBe('Test FM');
+  });
+
+  it('records search history newest-first, deduped and capped', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+
+    const store = new JsonLibraryStore(file);
+    store.addSearch('jazz');
+    store.addSearch('   ');
+    store.addSearch('tokyo');
+    const latest = store.addSearch('jazz');
+
+    expect(latest.searchHistory).toEqual(['jazz', 'tokyo']);
+    expect(new JsonLibraryStore(file).snapshot().searchHistory).toEqual(['jazz', 'tokyo']);
+  });
+
   it('treats AirPlay as a session output and restarts on automatic local playback', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);

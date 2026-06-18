@@ -35,7 +35,7 @@ export function pageFooterText({
   }
 
   if (screen === 'search' && editingSearch) {
-    return 'Type query · Backspace edit · Enter search/tune · Esc finish';
+    return 'Type query · ↑/↓ history · Enter search/tune · Esc finish';
   }
 
   if (screen === 'search') {
@@ -94,6 +94,10 @@ export function pageFooterText({
 
   if (screen === 'stats') {
     return 'b home';
+  }
+
+  if (screen === 'help') {
+    return '? or b close · : command';
   }
 
   return ': command';

@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import type {Station} from '../../types.js';
-import {receiverDialLabel} from './NowPlayingScreen.js';
+import type {Station, TrackPlay} from '../../types.js';
+import {receiverDialLabel, recentTracksForStation} from './NowPlayingScreen.js';
 
 const station: Station = {
   id: 'station-1',
@@ -8,6 +8,23 @@ const station: Station = {
   name: 'Test FM',
   tags: []
 };
+
+describe('recentTracksForStation', () => {
+  const history: TrackPlay[] = [
+    {title: 'Song C', stationKey: 'radio-browser:station-1', stationName: 'Test FM', at: '3'},
+    {title: 'Other', stationKey: 'radio-browser:station-2', stationName: 'Other FM', at: '2'},
+    {title: 'Song B', stationKey: 'radio-browser:station-1', stationName: 'Test FM', at: '1'},
+    {title: 'Song A', stationKey: 'radio-browser:station-1', stationName: 'Test FM', at: '0'}
+  ];
+
+  it('returns only the current station tracks, newest first, capped to the limit', () => {
+    expect(recentTracksForStation(history, station, 2).map(track => track.title)).toEqual(['Song C', 'Song B']);
+  });
+
+  it('returns nothing when no station is tuned', () => {
+    expect(recentTracksForStation(history, null, 3)).toEqual([]);
+  });
+});
 
 describe('receiverDialLabel', () => {
   it('uses a station frequency when the station name exposes one', () => {

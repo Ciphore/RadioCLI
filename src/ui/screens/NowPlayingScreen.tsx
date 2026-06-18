@@ -6,10 +6,13 @@ import type {
   PlaybackState,
   ReceiverStyle,
   Station,
-  ThemeName
+  ThemeName,
+  TrackPlay
 } from '../../types.js';
 import {stationLocation, stationTags, stationTech, truncate} from '../format.js';
-import {panelBackground, themeAccent} from '../theme.js';
+import {themeAccent} from '../theme.js';
+import {panelBorderStyle, useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {buildVisualizer, visualizerHeight} from '../visualizers/receiver-visualizers.js';
 
@@ -25,6 +28,7 @@ type NowPlayingProps = {
   showDiagnostics: boolean;
   stationTime: string;
   receiverStyle: ReceiverStyle;
+  trackHistory: TrackPlay[];
   width: number;
   height: number;
 };
@@ -41,9 +45,15 @@ export function NowPlayingScreen({
   showDiagnostics,
   stationTime,
   receiverStyle,
+  trackHistory,
   width,
   height
 }: NowPlayingProps): React.ReactElement {
+  const {panel: panelBackground, ascii} = useDisplay();
+  // In ASCII mode route every rendered string through the glyph mapper so no
+  // braille, block, box-drawing, or punctuation (·, ★) leaks to the terminal.
+  const a = (value: string): string => (ascii ? toAsciiSafe(value) : value);
+  const stationTracks = recentTracksForStation(trackHistory, station, 3);
   const accent = themeAccent(theme);
   const panelWidth = Math.max(62, width);
   const panelHeight = Math.max(10, height);
@@ -66,6 +76,8 @@ export function NowPlayingScreen({
     ? truncate(metadata.title, Math.max(8, innerWidth - 12))
     : 'Waiting for ICY track metadata';
   const dialLabel = receiverDialLabel(station);
+  const renderRows = ascii ? visualRows.map(asciifyVisualRow) : visualRows;
+  const favoriteText = favorite ? '★ Favorite' : '☆ Favorite';
 
   return (
     <Box flexDirection="column">
@@ -75,7 +87,7 @@ export function NowPlayingScreen({
         theme={theme}
       />
       <Box
-        borderStyle="round"
+        borderStyle={panelBorderStyle(ascii)}
         borderColor={accent}
         borderBackgroundColor={panelBackground}
         backgroundColor={panelBackground}
@@ -87,17 +99,17 @@ export function NowPlayingScreen({
       >
         <Box justifyContent="space-between" width={innerWidth}>
           <Text color={accent} bold>
-            {dialLabel}
+            {a(dialLabel)}
           </Text>
           <Text color={accent}>RADIOCLI</Text>
           <Text color={accent}>{playback.state.toUpperCase()}</Text>
         </Box>
         <Box marginTop={1}>
-          <Text color={accent} bold>{stationName}</Text>
+          <Text color={accent} bold>{a(stationName)}</Text>
         </Box>
-        <Text color="gray">{truncate(stationPlace, innerWidth)}</Text>
+        <Text color="gray">{a(truncate(stationPlace, innerWidth))}</Text>
         <Box flexDirection="column">
-          {visualRows.map((row, index) => (
+          {renderRows.map((row, index) => (
             <Text key={`${index}-${row.color}-${row.text}`} color={row.segments ? undefined : row.color}>
               {row.segments
                 ? renderSegments(row.segments)
@@ -106,24 +118,52 @@ export function NowPlayingScreen({
           ))}
         </Box>
         <Box marginTop={1} justifyContent="space-between" width={innerWidth}>
-          <Text color={metadata?.title ? accent : 'gray'}>{metadataLine}</Text>
-          <Text color={favorite ? 'yellow' : 'gray'}>{favorite ? '★ Favorite' : '☆ Favorite'}</Text>
+          <Text color={metadata?.title ? accent : 'gray'}>{a(metadataLine)}</Text>
+          <Text color={favorite ? 'yellow' : 'gray'}>{a(favoriteText)}</Text>
         </Box>
-        <Text color="gray">{infoLine}</Text>
+        <Text color="gray">{a(infoLine)}</Text>
         {showDiagnostics ? (
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">Diagnostics</Text>
-            <Text color="gray">Stream: {diagnostics.streamUrl ? truncate(diagnostics.streamUrl, innerWidth - 8) : 'none'}</Text>
-            <Text color="gray">Station time: {stationTime}</Text>
+            <Text color="gray">{a(`Stream: ${diagnostics.streamUrl ? truncate(diagnostics.streamUrl, innerWidth - 8) : 'none'}`)}</Text>
+            <Text color="gray">{a(`Station time: ${stationTime}`)}</Text>
             <Text color="gray">
-              Started: {diagnostics.startedAt ? new Date(diagnostics.startedAt).toLocaleTimeString() : 'not playing'} ·
-              available {diagnostics.availableBackends.join(', ') || 'none'}
+              {a(`Started: ${diagnostics.startedAt ? new Date(diagnostics.startedAt).toLocaleTimeString() : 'not playing'} · available ${diagnostics.availableBackends.join(', ') || 'none'}`)}
             </Text>
+            {stationTracks.length > 0 ? (
+              <Box flexDirection="column" marginTop={1}>
+                <Text color="gray">Recent tracks</Text>
+                {stationTracks.map(track => (
+                  <Text key={`${track.at}-${track.title}`} color="gray">
+                    {a(`· ${truncate(track.title, innerWidth - 2)}`)}
+                  </Text>
+                ))}
+              </Box>
+            ) : null}
           </Box>
         ) : null}
       </Box>
     </Box>
   );
+}
+
+type VisualRow = {text: string; color: string; segments?: Array<{text: string; color: string}>};
+
+function asciifyVisualRow(row: VisualRow): VisualRow {
+  return {
+    ...row,
+    text: toAsciiSafe(row.text),
+    segments: row.segments?.map(segment => ({...segment, text: toAsciiSafe(segment.text)}))
+  };
+}
+
+export function recentTracksForStation(history: TrackPlay[], station: Station | null, limit: number): TrackPlay[] {
+  if (!station) {
+    return [];
+  }
+
+  const key = `${station.provider}:${station.id}`;
+  return history.filter(track => track.stationKey === key).slice(0, limit);
 }
 
 export function receiverDialLabel(station: Station | null): string {

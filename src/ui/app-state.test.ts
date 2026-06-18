@@ -131,7 +131,8 @@ describe('app state helpers', () => {
   it('cycles playback backend through AirPlay', () => {
     expect(nextPlaybackBackend('auto')).toBe('mpv');
     expect(nextPlaybackBackend('mpv')).toBe('ffplay');
-    expect(nextPlaybackBackend('ffplay')).toBe('airplay');
+    expect(nextPlaybackBackend('ffplay')).toBe('vlc');
+    expect(nextPlaybackBackend('vlc')).toBe('airplay');
     expect(nextPlaybackBackend('airplay')).toBe('auto');
   });
 

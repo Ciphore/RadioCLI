@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import type {Country, LocationGuess, ResolvedStream, SearchOptions, Station} from '../types.js';
 import {ProviderCache} from './cache.js';
+import {userAgent} from '../version.js';
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -200,13 +201,31 @@ export class RadioBrowserProvider {
     return {url: result.url, name: result.name};
   }
 
+  // Give back to the directory: an upvote on favorite helps surface good
+  // stations for everyone. Radio Browser rate-limits votes per IP, so this is
+  // best-effort and never blocks the favorite action.
+  async vote(station: Station): Promise<boolean> {
+    if (station.provider !== this.id) {
+      return false;
+    }
+
+    try {
+      const result = clickResolveSchema.parse(
+        await this.request<unknown>(`/json/vote/${encodeURIComponent(station.id)}`, {}, {timeoutMs: 5000})
+      );
+      return result.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async detectLocation(): Promise<LocationGuess | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch('https://ipapi.co/json/', {
         signal: controller.signal,
-        headers: {'User-Agent': 'radiocli/0.1'}
+        headers: {'User-Agent': userAgent()}
       });
       if (!response.ok) {
         return null;
@@ -364,7 +383,7 @@ async function fetchWithTimeout(url: URL, timeoutMs: number): Promise<Response> 
     return await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'radiocli/0.1 (+https://radio-browser.info)',
+        'User-Agent': userAgent(' (+https://radio-browser.info)'),
         Accept: 'application/json'
       }
     });

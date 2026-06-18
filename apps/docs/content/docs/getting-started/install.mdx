@@ -13,6 +13,21 @@ RadioCLI needs:
   checks
 - FFmpeg on macOS for experimental AirPlay and optional `ffplay` fallback
 - `ffplay` from FFmpeg as an optional playback-only fallback
+- VLC (`cvlc`/`vlc`) as an additional playback-only fallback when `mpv` and
+  `ffplay` are unavailable. RadioCLI also probes common install locations
+  (Homebrew, Scoop, WinGet, Chocolatey, and the VLC app bundle) when a binary is
+  not on `PATH`, so GUI-launched terminals still find it.
+
+## Quickest: Try It With npx
+
+If you already have Node.js 22+, run RadioCLI without installing anything:
+
+```bash
+npx @ciphore/radiocli
+```
+
+This is the fastest way to try the TUI. You still need `mpv`, `ffplay`, or VLC
+for audio — run `npx @ciphore/radiocli doctor` to check.
 
 ## Recommended: macOS With Homebrew
 

@@ -9,6 +9,7 @@ type PlaybackBackendDetectionOptions = {
 };
 
 export const ffplayLimitedControlsMessage = 'ffplay fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
+export const vlcLimitedControlsMessage = 'VLC fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
 
 export type PlaybackBackendCapabilities = {
   backend: string;
@@ -25,6 +26,10 @@ export function detectPlaybackBackends({
   hasAirPlaySender = hasAirPlaySenderPackage
 }: PlaybackBackendDetectionOptions = {}): string[] {
   const backends = ['mpv', 'ffplay'].filter(hasCommand);
+  if (hasCommand('cvlc') || hasCommand('vlc')) {
+    backends.push('vlc');
+  }
+
   if (platform === 'darwin' && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
     backends.push('airplay');
   }
@@ -52,6 +57,17 @@ export function playbackBackendCapabilities(backend: string | null | undefined):
     return {
       backend,
       label: 'ffplay fallback',
+      supportsPause: false,
+      supportsMute: false,
+      supportsVolume: false,
+      supportsMediaKeys: false
+    };
+  }
+
+  if (backend === 'vlc') {
+    return {
+      backend,
+      label: 'VLC fallback',
       supportsPause: false,
       supportsMute: false,
       supportsVolume: false,
@@ -116,6 +132,16 @@ export function playbackBackendStatusLines(
     return [
       'playback=fallback-only',
       'playback_backend=ffplay',
+      'controls=limited',
+      'controls_hint=install mpv for pause, mute, volume, and media keys',
+      ...lines
+    ];
+  }
+
+  if (backendSet.has('vlc')) {
+    return [
+      'playback=fallback-only',
+      'playback_backend=vlc',
       'controls=limited',
       'controls_hint=install mpv for pause, mute, volume, and media keys',
       ...lines

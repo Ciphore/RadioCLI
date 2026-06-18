@@ -21,6 +21,7 @@ import {StationScreen} from './screens/StationScreen.js';
 import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
 import {StatsScreen} from './screens/StatsScreen.js';
 import {SettingsScreen} from './screens/SettingsScreen.js';
+import {HelpScreen} from './screens/HelpScreen.js';
 import {AirPlaySettingsScreen} from './screens/AirPlaySettingsScreen.js';
 import {AirPlayCodeScreen} from './screens/AirPlayCodeScreen.js';
 import {selectedAirPlayDevice} from './airplay-settings.js';
@@ -212,6 +213,7 @@ export function AppContent({
         showDiagnostics={showDiagnostics}
         stationTime={stationTime}
         receiverStyle={library.settings.receiverStyle}
+        trackHistory={library.trackHistory}
         width={layout.receiverWidth}
         height={layout.receiverRows}
       />
@@ -262,6 +264,10 @@ export function AppContent({
         width={frameWidth}
       />
     );
+  }
+
+  if (screen === 'help') {
+    return <HelpScreen theme={theme} width={frameWidth} />;
   }
 
   return <Text>Unknown screen.</Text>;

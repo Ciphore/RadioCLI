@@ -14,6 +14,10 @@ export function audioOutputLabel(output: AppSettings['preferredBackend'] | strin
     return 'This device (ffplay fallback)';
   }
 
+  if (output === 'vlc') {
+    return 'This device (VLC fallback)';
+  }
+
   if (output === 'airplay') {
     return 'AirPlay';
   }
@@ -33,7 +37,7 @@ export function resolvedAudioOutput(
     return backends.includes(output) ? output : null;
   }
 
-  for (const backend of ['mpv', 'ffplay'] as const) {
+  for (const backend of ['mpv', 'ffplay', 'vlc'] as const) {
     if (backends.includes(backend)) {
       return backend;
     }

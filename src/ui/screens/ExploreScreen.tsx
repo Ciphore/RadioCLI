@@ -6,7 +6,9 @@ import {StationList} from '../components/StationList.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from '../cosmo-world-map.js';
 import {computeExploreMapLayout} from '../explore-map-layout.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {exploreMapLand, mapMarker, panelBackground, panelBorder, themeAccent} from '../theme.js';
+import {exploreMapLand, mapMarker, panelBorder, themeAccent} from '../theme.js';
+import {panelBorderStyle, useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type ExploreScreenProps = {
   title: string;
@@ -37,6 +39,7 @@ export function ExploreScreen({
   width,
   height
 }: ExploreScreenProps): React.ReactElement {
+  const {panel: panelBackground, ascii} = useDisplay();
   const {contentWidth, headerRows, bodyRows, split, listPanelWidth, mapPanelWidth, mapRows, mapColumns, listRows, listPageSize} =
     computeExploreMapLayout(width, height, pageSize);
   const cursorMarker = React.useMemo(
@@ -58,7 +61,7 @@ export function ExploreScreen({
       </Box>
       <Box marginTop={1} height={bodyRows} width={contentWidth} flexDirection={split ? 'row' : 'column'} flexShrink={0}>
         <Box
-          borderStyle="single"
+          borderStyle={panelBorderStyle(ascii, 'single')}
           borderColor={panelBorder}
           borderBackgroundColor={panelBackground}
           backgroundColor={panelBackground}
@@ -73,7 +76,7 @@ export function ExploreScreen({
         <Box
           marginLeft={split ? 1 : 0}
           marginTop={split ? 0 : 1}
-          borderStyle="single"
+          borderStyle={panelBorderStyle(ascii, 'single')}
           borderColor={panelBorder}
           borderBackgroundColor={panelBackground}
           backgroundColor={panelBackground}
@@ -88,7 +91,7 @@ export function ExploreScreen({
             <Text color="gray">{stations.length.toLocaleString()}</Text>
           </Box>
           <Box height={1} flexShrink={0}>
-            <Text color="gray">{loading ? 'Loading stations…' : ' '}</Text>
+            <Text color="gray">{loading ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…') : ' '}</Text>
           </Box>
           {!loading ? (
             <StationList
@@ -107,6 +110,7 @@ export function ExploreScreen({
 }
 
 function CosmoMapLine({row, theme}: {row: CosmoMapRow; theme: ThemeName}): React.ReactElement {
+  const {ascii} = useDisplay();
   const chunks: Array<{kind: CosmoMapCellKind; text: string}> = [];
   for (const cell of row.cells) {
     const previous = chunks.at(-1);
@@ -125,7 +129,7 @@ function CosmoMapLine({row, theme}: {row: CosmoMapRow; theme: ThemeName}): React
         offset += chunk.text.length;
         return (
           <Text key={key} color={cosmoMapColor(chunk.kind, theme)}>
-            {chunk.text}
+            {ascii ? toAsciiSafe(chunk.text) : chunk.text}
           </Text>
         );
       })}

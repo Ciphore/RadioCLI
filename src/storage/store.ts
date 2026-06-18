@@ -9,7 +9,8 @@ import {
   type AppSettings,
   type LibraryState,
   type ListeningSession,
-  type Station
+  type Station,
+  type TrackPlay
 } from '../types.js';
 import {backupBadFile} from '../providers/cache.js';
 
@@ -152,7 +153,7 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   volume: z.number().min(0).max(100).default(70),
   enableRadioGarden: z.boolean().default(false),
   enableNearbyLocation: z.boolean().default(false),
-  preferredBackend: z.enum(['auto', 'mpv', 'ffplay', 'airplay']).default('auto'),
+  preferredBackend: z.enum(['auto', 'mpv', 'ffplay', 'vlc', 'airplay']).default('auto'),
   preferredAirPlayDevice: z.string().min(1).optional(),
   tuneTimeoutSeconds: z.number().min(3).max(45).default(12),
   skipBrokenStreams: z.boolean().default(true),
@@ -162,7 +163,11 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
       playPause: z.array(z.string()).default([]),
       next: z.array(z.string()).default([])
     })
-    .default(defaultMediaKeys)
+    .default(defaultMediaKeys),
+  resumeOnLaunch: z.boolean().default(false),
+  transparentBackground: z.boolean().default(false),
+  asciiMode: z.boolean().default(false),
+  reduceMotion: z.boolean().default(false)
 });
 
 const librarySchema: z.ZodType<LibraryState> = z.object({
@@ -176,6 +181,17 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     .default([]),
   favorites: z.array(stationSchema).default([]),
   imported: z.array(stationSchema).default([]),
+  trackHistory: z
+    .array(
+      z.object({
+        title: z.string(),
+        stationKey: z.string(),
+        stationName: z.string(),
+        at: z.string()
+      })
+    )
+    .default([]),
+  searchHistory: z.array(z.string()).default([]),
   activity: z
     .object({
       sessions: z
@@ -239,6 +255,45 @@ export class JsonLibraryStore {
     ].slice(0, 50);
 
     this.state = {...this.state, recent};
+    this.write();
+    return this.snapshot();
+  }
+
+  // Persist the ICY track titles a station announces so "what was that song?"
+  // is answerable later. Consecutive duplicates on the same station are skipped.
+  recordTrack(station: Station, title: string): LibraryState {
+    const cleaned = title.trim();
+    if (!cleaned) {
+      return this.snapshot();
+    }
+
+    const key = stationKey(station);
+    const last = this.state.trackHistory[0];
+    if (last && last.title === cleaned && last.stationKey === key) {
+      return this.snapshot();
+    }
+
+    const entry: TrackPlay = {
+      title: cleaned,
+      stationKey: key,
+      stationName: station.name,
+      at: new Date().toISOString()
+    };
+
+    this.state = {...this.state, trackHistory: [entry, ...this.state.trackHistory].slice(0, 100)};
+    this.write();
+    return this.snapshot();
+  }
+
+  // Most-recent-first search queries for up-arrow recall in the search box.
+  addSearch(query: string): LibraryState {
+    const cleaned = query.trim();
+    if (!cleaned) {
+      return this.snapshot();
+    }
+
+    const searchHistory = [cleaned, ...this.state.searchHistory.filter(item => item !== cleaned)].slice(0, 30);
+    this.state = {...this.state, searchHistory};
     this.write();
     return this.snapshot();
   }
@@ -379,6 +434,8 @@ function defaultState(): LibraryState {
     recent: [],
     favorites: [],
     imported: [],
+    trackHistory: [],
+    searchHistory: [],
     activity: {sessions: []},
     settings: {
       theme: 'green',

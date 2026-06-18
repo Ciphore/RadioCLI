@@ -5,7 +5,8 @@ import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Socket} from 'node:net';
 import type {AirPlayDevice, AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
-import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint} from './backend-install.js';
+import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
+import {resolveCommand} from './command.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 import {encodeWorkerStart, parseWorkerMessage, serializeWorkerMessage, type AirPlayWorkerCommand, type AirPlayWorkerEvent} from './airplay-worker-protocol.js';
@@ -32,7 +33,7 @@ export function isPlaybackOutputError(error: unknown): boolean {
 
 export class PlayerController {
   private process: ChildProcessWithoutNullStreams | null = null;
-  private backend: 'mpv' | 'ffplay' | 'airplay' | null = null;
+  private backend: 'mpv' | 'ffplay' | 'vlc' | 'airplay' | null = null;
   private ipcPath: string | null = null;
   private metadataTimer: NodeJS.Timeout | null = null;
   private playbackStateTimer: NodeJS.Timeout | null = null;
@@ -188,6 +189,9 @@ export class PlayerController {
     } else if (backend === 'ffplay') {
       this.playWithFfplay(url);
       await this.waitForReady(backend);
+    } else if (backend === 'vlc') {
+      this.playWithVlc(url);
+      await this.waitForReady(backend);
     }
 
     this.setState({
@@ -331,7 +335,7 @@ export class PlayerController {
     return [...this.availableAirPlayDevices];
   }
 
-  private selectBackend(): 'mpv' | 'ffplay' | 'airplay' | null {
+  private selectBackend(): 'mpv' | 'ffplay' | 'vlc' | 'airplay' | null {
     const preferred = this.getSettings().preferredBackend;
     const backends = this.availableBackends ?? this.refreshDetectedBackends();
     if (preferred === 'mpv') {
@@ -340,6 +344,10 @@ export class PlayerController {
 
     if (preferred === 'ffplay') {
       return backends.includes('ffplay') ? 'ffplay' : null;
+    }
+
+    if (preferred === 'vlc') {
+      return backends.includes('vlc') ? 'vlc' : null;
     }
 
     if (preferred === 'airplay') {
@@ -352,6 +360,10 @@ export class PlayerController {
 
     if (backends.includes('ffplay')) {
       return 'ffplay';
+    }
+
+    if (backends.includes('vlc')) {
+      return 'vlc';
     }
 
     return null;
@@ -374,7 +386,7 @@ export class PlayerController {
     this.ipcPath = createMpvIpcPath();
     this.currentMpvMediaTitle = cleanMediaTitle(initialTitle) ?? 'RadioCLI';
     this.process = spawn(
-      'mpv',
+      resolveCommand('mpv') ?? 'mpv',
       [
         '--no-video',
         '--really-quiet',
@@ -392,9 +404,22 @@ export class PlayerController {
   }
 
   private playWithFfplay(url: string): void {
-    this.process = spawn('ffplay', ['-nodisp', '-hide_banner', '-loglevel', 'error', '-volume', String(this.getSettings().volume), '-autoexit', url], {
+    this.process = spawn(resolveCommand('ffplay') ?? 'ffplay', ['-nodisp', '-hide_banner', '-loglevel', 'error', '-volume', String(this.getSettings().volume), '-autoexit', url], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
+    this.wireProcess();
+  }
+
+  private playWithVlc(url: string): void {
+    // VLC ships a `cvlc` shim for headless playback; fall back to the main `vlc`
+    // binary (resolved from app bundles when off PATH) with a dummy interface.
+    const binary = resolveCommand('cvlc') ?? resolveCommand('vlc') ?? 'cvlc';
+    const gain = (clampVolume(this.getSettings().volume) / 100).toFixed(2);
+    this.process = spawn(
+      binary,
+      ['--intf', 'dummy', '--no-video', '--quiet', '--play-and-exit', `--gain=${gain}`, url],
+      {stdio: ['pipe', 'pipe', 'pipe']}
+    );
     this.wireProcess();
   }
 
@@ -630,6 +655,10 @@ export class PlayerController {
       return {ok: false, message: ffplayLimitedControlsMessage};
     }
 
+    if (this.backend === 'vlc' && this.process) {
+      return {ok: false, message: vlcLimitedControlsMessage};
+    }
+
     return null;
   }
 
@@ -791,7 +820,7 @@ export class PlayerController {
     });
   }
 
-  private async waitForReady(backend: 'mpv' | 'ffplay'): Promise<void> {
+  private async waitForReady(backend: 'mpv' | 'ffplay' | 'vlc'): Promise<void> {
     const timeoutMs = this.getSettings().tuneTimeoutSeconds * 1000;
     const started = Date.now();
 
@@ -800,7 +829,7 @@ export class PlayerController {
         throw new Error('Player exited before the stream became ready.');
       }
 
-      if (backend === 'ffplay') {
+      if (backend === 'ffplay' || backend === 'vlc') {
         await waitForStartupWindow(() => this.process, Math.min(500, timeoutMs));
         return;
       }

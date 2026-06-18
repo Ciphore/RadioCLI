@@ -117,6 +117,14 @@ function settingValue(
       return diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`;
     case 'Toggle skip broken streams':
       return settings.skipBrokenStreams ? 'on' : 'off';
+    case 'Resume last station on launch':
+      return settings.resumeOnLaunch ? 'on' : 'off';
+    case 'Transparent background':
+      return settings.transparentBackground ? 'on' : 'off';
+    case 'ASCII-safe display':
+      return settings.asciiMode ? 'on' : 'off';
+    case 'Reduce motion':
+      return settings.reduceMotion ? 'on' : 'off';
     case 'Reset learned media keys':
       return `prev ${settings.mediaKeys.previous.length} · play ${settings.mediaKeys.playPause.length} · next ${settings.mediaKeys.next.length}`;
     default:

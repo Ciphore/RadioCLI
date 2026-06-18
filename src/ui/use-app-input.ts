@@ -16,6 +16,7 @@ import {
   type MediaTransportAction
 } from './app-state.js';
 import {parseSgrMouseEvents, primaryMousePress} from './terminal-mouse.js';
+import {completeCommand} from './help-content.js';
 
 type CurrentRef<T> = {
   current: T;
@@ -34,6 +35,8 @@ type AppInputOptions = {
   capturingTransportAction: MediaTransportAction | null;
   commandMode: boolean;
   commandText: string;
+  copyStationUrl: (station: Station | null) => Promise<void>;
+  openStationHomepage: (station: Station | null) => void;
   currentItemCount: (screen: Screen) => number;
   cycleDisplayColor: () => void;
   cycleAudioOutput: () => void;
@@ -54,6 +57,7 @@ type AppInputOptions = {
   playAdjacent: (direction: 1 | -1) => void;
   playStation: (station: Station) => Promise<void>;
   player: PlayerController;
+  recallSearchHistory: (direction: 'older' | 'newer') => void;
   playingStation: Station | null;
   moveExploreCursor: (direction: ExploreMoveDirection, fast?: boolean) => void;
   moveExploreCursorToCell: (x: number, y: number) => void;
@@ -85,6 +89,7 @@ type AppInputOptions = {
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
   togglePause: () => void;
+  toggleSetting: (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion') => void;
   toggleNearbyLocation: () => void;
   toggleRadioGarden: () => void;
   toggleSkipBrokenStreams: () => void;
@@ -98,6 +103,8 @@ export function useAppInput({
   capturingTransportAction,
   commandMode,
   commandText,
+  copyStationUrl,
+  openStationHomepage,
   currentItemCount,
   cycleDisplayColor,
   cycleAudioOutput,
@@ -119,6 +126,7 @@ export function useAppInput({
   playStation,
   player,
   playingStation,
+  recallSearchHistory,
   moveExploreCursor,
   moveExploreCursorToCell,
   refreshAirPlayTargets,
@@ -149,6 +157,7 @@ export function useAppInput({
   toggleFavorite,
   toggleMute,
   togglePause,
+  toggleSetting,
   toggleNearbyLocation,
   toggleRadioGarden,
   toggleSkipBrokenStreams
@@ -255,6 +264,12 @@ export function useAppInput({
         return;
       }
 
+      if (key.tab) {
+        // Complete the command name only while still typing it (no args yet).
+        setCommandText(value => (/\s/.test(value) ? value : completeCommand(value)));
+        return;
+      }
+
       if (isEditableInput(input, key)) {
         setCommandText(value => applyTextInput(value, input, key));
       }
@@ -299,6 +314,16 @@ export function useAppInput({
 
       if (key.escape) {
         setEditingSearch(false);
+        return;
+      }
+
+      if (key.upArrow) {
+        recallSearchHistory('older');
+        return;
+      }
+
+      if (key.downArrow) {
+        recallSearchHistory('newer');
         return;
       }
 
@@ -352,6 +377,11 @@ export function useAppInput({
 
     if (input === 'q') {
       shutdown();
+      return;
+    }
+
+    if (input === '?') {
+      go(screen === 'help' ? 'home' : 'help');
       return;
     }
 
@@ -507,6 +537,16 @@ export function useAppInput({
       return;
     }
 
+    if (input === 'O') {
+      openStationHomepage(favoriteTarget(screen, selectedStation, playingStation));
+      return;
+    }
+
+    if (input === 'y') {
+      void copyStationUrl(favoriteTarget(screen, selectedStation, playingStation));
+      return;
+    }
+
     if (input === ' ') {
       togglePause();
       return;
@@ -581,6 +621,14 @@ export function useAppInput({
           toggleMute();
         } else if (item === 'Toggle skip broken streams') {
           toggleSkipBrokenStreams();
+        } else if (item === 'Resume last station on launch') {
+          toggleSetting('resumeOnLaunch');
+        } else if (item === 'Transparent background') {
+          toggleSetting('transparentBackground');
+        } else if (item === 'ASCII-safe display') {
+          toggleSetting('asciiMode');
+        } else if (item === 'Reduce motion') {
+          toggleSetting('reduceMotion');
         } else if (item === 'Refresh provider health') {
           refreshProviderHealth();
           setMessage('Provider health refreshed.');

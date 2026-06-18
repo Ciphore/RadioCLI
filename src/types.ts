@@ -68,7 +68,8 @@ export type Screen =
   | 'stats'
   | 'airplay-settings'
   | 'airplay-code'
-  | 'settings';
+  | 'settings'
+  | 'help';
 
 export type ThemeName = (typeof themeNames)[number];
 
@@ -155,11 +156,15 @@ export type AppSettings = {
   volume: number;
   enableRadioGarden: boolean;
   enableNearbyLocation: boolean;
-  preferredBackend: 'auto' | 'mpv' | 'ffplay' | 'airplay';
+  preferredBackend: 'auto' | 'mpv' | 'ffplay' | 'vlc' | 'airplay';
   preferredAirPlayDevice?: string;
   tuneTimeoutSeconds: number;
   skipBrokenStreams: boolean;
   mediaKeys: MediaKeyBindings;
+  resumeOnLaunch?: boolean;
+  transparentBackground?: boolean;
+  asciiMode?: boolean;
+  reduceMotion?: boolean;
 };
 
 type RecentPlay = {
@@ -179,11 +184,20 @@ type ListeningActivity = {
   sessions: ListeningSession[];
 };
 
+export type TrackPlay = {
+  title: string;
+  stationKey: string;
+  stationName: string;
+  at: string;
+};
+
 export type LibraryState = {
   recent: RecentPlay[];
   favorites: Station[];
   imported: Station[];
   activity: ListeningActivity;
+  trackHistory: TrackPlay[];
+  searchHistory: string[];
   settings: AppSettings;
 };
 

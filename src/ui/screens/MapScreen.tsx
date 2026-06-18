@@ -2,6 +2,8 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {Country, ThemeName} from '../../types.js';
 import {mapLand, mapWater, themeAccent, themeContributionColors} from '../theme.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 import {visibleWindow} from '../list-window.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
@@ -31,6 +33,8 @@ export function MapScreen({
   mode,
   width
 }: MapScreenProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const asciify = (value: string): string => (ascii ? toAsciiSafe(value) : value);
   const contentWidth = Math.max(52, width - 2);
   const topCountries = Array.from(countries).sort((a, b) => b.stationCount - a.stationCount).slice(0, mode === 'full' ? 10 : 6);
   const selectedCountry = countries[selected];
@@ -48,14 +52,14 @@ export function MapScreen({
         theme={theme}
         right={`filter: ${filter || 'all'}`}
       />
-      {loading ? <Text color="gray">Loading country density…</Text> : null}
+      {loading ? <Text color="gray">{asciify('Loading country density…')}</Text> : null}
       <Box marginTop={1} flexDirection="column">
         {graph.rows.map(row => (
           <MapLine key={row.cells.map(cell => cell.char).join('')} row={row} theme={theme} />
         ))}
       </Box>
       <Text color="gray">
-        {graph.plotted} plotted · {graph.unplotted} unplaced · labels show highest station counts
+        {asciify(`${graph.plotted} plotted · ${graph.unplotted} unplaced · labels show highest station counts`)}
       </Text>
       <Box marginTop={1} flexDirection={mode === 'full' ? 'row' : 'column'}>
         <Box width={topWidth} flexDirection="column">
@@ -72,7 +76,7 @@ export function MapScreen({
           <Text>
             Selected:{' '}
             <Text color={themeAccent(theme)}>
-              {selectedCountry ? `${selectedCountry.name} · ${selectedCountry.stationCount.toLocaleString()}` : 'none'}
+              {selectedCountry ? asciify(`${selectedCountry.name} · ${selectedCountry.stationCount.toLocaleString()}`) : 'none'}
             </Text>
           </Text>
           <Menu
@@ -85,7 +89,7 @@ export function MapScreen({
                 <Text color={active ? themeAccent(theme) : undefined} bold={active}>
                   {country.code}
                 </Text>
-                <Text color="gray"> · {truncate(country.name, Math.max(8, listWidth - 8))}</Text>
+                <Text color="gray">{asciify(` · ${truncate(country.name, Math.max(8, listWidth - 8))}`)}</Text>
               </Box>
             )}
           />
@@ -96,6 +100,7 @@ export function MapScreen({
 }
 
 function MapLine({row, theme}: {row: MapRow; theme: ThemeName}): React.ReactElement {
+  const {ascii} = useDisplay();
   const chunks: Array<{kind: MapCellKind; text: string}> = [];
   for (const cell of row.cells) {
     const previous = chunks[chunks.length - 1];
@@ -116,7 +121,7 @@ function MapLine({row, theme}: {row: MapRow; theme: ThemeName}): React.ReactElem
     <Box>
       {keyedChunks.map(chunk => (
         <Text key={chunk.key} color={mapColor(chunk.kind, theme)}>
-          {chunk.text}
+          {ascii ? toAsciiSafe(chunk.text) : chunk.text}
         </Text>
       ))}
     </Box>

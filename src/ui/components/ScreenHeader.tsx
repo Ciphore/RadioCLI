@@ -2,6 +2,8 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {ThemeName} from '../../types.js';
 import {textDim, themeAccent} from '../theme.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 import {truncate} from '../format.js';
 
 type ScreenHeaderProps = {
@@ -17,21 +19,23 @@ type ScreenHeaderProps = {
 // subtitle below. Renders one row (plus one for the subtitle when present).
 export function ScreenHeader({title, width, theme, subtitle, right}: ScreenHeaderProps): React.ReactElement {
   const accent = themeAccent(theme);
+  const {ascii} = useDisplay();
+  const a = (value: string): string => (ascii ? toAsciiSafe(value) : value);
   const safeTitle = truncate(title, Math.max(4, width - 4));
   const rightText = right ? ` ${right}` : '';
   const ruleWidth = Math.max(1, width - safeTitle.length - rightText.length - 2);
-  const rule = '─'.repeat(ruleWidth);
+  const rule = (ascii ? '-' : '─').repeat(ruleWidth);
 
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Box>
         <Text color={accent} bold>
-          {safeTitle}
+          {a(safeTitle)}
         </Text>
         <Text color={textDim}> {rule}</Text>
-        {rightText ? <Text color="gray">{rightText}</Text> : null}
+        {rightText ? <Text color="gray">{a(rightText)}</Text> : null}
       </Box>
-      {subtitle ? <Text color="gray">{truncate(subtitle, width)}</Text> : null}
+      {subtitle ? <Text color="gray">{a(truncate(subtitle, width))}</Text> : null}
     </Box>
   );
 }

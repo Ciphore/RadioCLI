@@ -7,6 +7,7 @@ describe('audio output helpers', () => {
     expect(audioOutputLabel('auto')).toBe('Automatic');
     expect(audioOutputLabel('mpv')).toBe('This device (mpv)');
     expect(audioOutputLabel('ffplay')).toBe('This device (ffplay fallback)');
+    expect(audioOutputLabel('vlc')).toBe('This device (VLC fallback)');
     expect(audioOutputLabel('airplay')).toBe('AirPlay');
   });
 
