@@ -2,7 +2,8 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {LibraryState, ThemeName} from '../../types.js';
 import {computeListeningStats, type DailyListening} from '../../activity/stats.js';
-import {panelBackground, panelBorder, textHighlight, themeAccent, themeContributionColors} from '../theme.js';
+import {panelBorder, textHighlight, themeAccent, themeContributionColors} from '../theme.js';
+import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 
@@ -16,6 +17,7 @@ type StatsScreenProps = {
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function StatsScreen({library, theme, width, height}: StatsScreenProps): React.ReactElement {
+  const {panel: panelBackground, ascii} = useDisplay();
   const stats = computeListeningStats(library.activity.sessions);
   const contentWidth = Math.max(20, width - 4);
   const graph = buildContributionGraph(stats.days, contentWidth);
@@ -37,7 +39,7 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
       />
       <Box
         marginTop={1}
-        borderStyle="single"
+        borderStyle={panelBorderStyle(ascii, 'single')}
         borderColor={panelBorder}
         borderBackgroundColor={panelBackground}
         backgroundColor={panelBackground}
@@ -66,7 +68,7 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
 
       <Box
         marginTop={1}
-        borderStyle="single"
+        borderStyle={panelBorderStyle(ascii, 'single')}
         borderColor={panelBorder}
         borderBackgroundColor={panelBackground}
         backgroundColor={panelBackground}

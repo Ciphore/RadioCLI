@@ -13,7 +13,8 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('./command.js', () => ({
-  commandExists: vi.fn()
+  commandExists: vi.fn(),
+  resolveCommand: vi.fn()
 }));
 
 vi.mock('./airplay-discovery.js', () => ({
@@ -153,6 +154,33 @@ describe('PlayerController lifecycle', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     expect(controller.getState()).toMatchObject({backend: 'ffplay', state: 'stopped', ready: false});
     unsubscribe();
+  });
+
+  it('spawns VLC headless when it is the only available backend', async () => {
+    vi.useFakeTimers();
+    commandExistsMock.mockImplementation(command => command === 'cvlc' || command === 'vlc');
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'auto', volume: 80, tuneTimeoutSeconds: 3}));
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await vi.advanceTimersByTimeAsync(500);
+    await playing;
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'cvlc',
+      ['--intf', 'dummy', '--no-video', '--quiet', '--play-and-exit', '--gain=0.80', 'https://streams.example.com/live.mp3'],
+      {stdio: ['pipe', 'pipe', 'pipe']}
+    );
+    expect(controller.getState()).toMatchObject({backend: 'vlc', state: 'playing', ready: true});
+
+    await expect(controller.togglePause()).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining('VLC fallback has limited controls')
+    });
+
+    await controller.stop();
+    expect(controller.getState()).toMatchObject({backend: 'vlc', state: 'stopped', ready: false});
   });
 
   it('starts the AirPlay worker and forwards passcodes', async () => {

@@ -234,7 +234,42 @@ describe('RadioBrowserProvider', () => {
     expect(tokyoStations.map(station => station.id)).toEqual(['tokyo-popular']);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('upvotes Radio Browser stations and ignores non-Radio-Browser stations', async () => {
+    const fetch = mockFetch(url => {
+      expect(url.pathname).toBe('/json/vote/tokyo-jazz');
+      return jsonResponse({ok: true, message: 'voted'});
+    });
+
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+
+    await expect(provider.vote(radioBrowserStation('tokyo-jazz'))).resolves.toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    await expect(provider.vote({...radioBrowserStation('imported'), provider: 'playlist'})).resolves.toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a User-Agent that carries the package version', async () => {
+    let sentUserAgent: string | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        sentUserAgent = new Headers(init?.headers).get('User-Agent') ?? undefined;
+        return jsonResponse({ok: true});
+      })
+    );
+
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    await provider.vote(radioBrowserStation('tokyo-jazz'));
+
+    expect(sentUserAgent).toMatch(/^radiocli\/\d+\.\d+\.\d+/);
+  });
 });
+
+function radioBrowserStation(id: string): import('../types.js').Station {
+  return {id, provider: 'radio-browser', name: id, tags: []};
+}
 
 function mockFetch(handler: (url: URL) => Response | Promise<Response>): ReturnType<typeof vi.fn> {
   const fetch = vi.fn((input: RequestInfo | URL) => handler(new URL(String(input))));

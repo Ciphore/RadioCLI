@@ -47,6 +47,10 @@ export class ProviderManager {
     return this.radioBrowser.resolve(station);
   }
 
+  vote(station: Station): Promise<boolean> {
+    return this.radioBrowser.vote(station);
+  }
+
   async health(settings: AppSettings): Promise<Record<string, string>> {
     const radioBrowser = await this.radioBrowser.health().catch(error =>
       error instanceof Error ? error.message : 'unavailable'

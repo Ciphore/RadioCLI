@@ -5,7 +5,8 @@ import {PlayerController, type PlaybackControlResult} from '../player/player-con
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import {receiverStyleNames, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
-import {appBackground, nextReceiverStyle, nextTheme, panelBackground, textDim, themeAccent} from './theme.js';
+import {nextReceiverStyle, nextTheme, textDim, themeAccent} from './theme.js';
+import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
 import {TopTabs} from './components/TopTabs.js';
@@ -19,6 +20,7 @@ import {useCommandExecutor} from './use-command-executor.js';
 import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
 import {isAirPlayBackendAvailable} from './airplay-settings.js';
 import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
+import {copyToClipboard, openExternal} from './system-actions.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -59,6 +61,13 @@ const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>(receiverStyle
 const LIVE_RECEIVER_PULSE_MS = 80;
 const AMBIENT_RECEIVER_PULSE_MS = 140;
 const LOADING_SPINNER_MS = 120;
+
+const settingToggleLabel: Record<'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion', string> = {
+  resumeOnLaunch: 'Resume on launch',
+  transparentBackground: 'Transparent background',
+  asciiMode: 'ASCII-safe display',
+  reduceMotion: 'Reduce motion'
+};
 
 export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
   const {exit} = useApp();
@@ -111,11 +120,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const stationContextsRef = useRef(stationContexts);
   const lastStationContextKeyRef = useRef<StationContextKey>('explore');
   const lastSubmittedSearchRef = useRef('');
+  const searchHistoryRef = useRef<{cursor: number; draft: string}>({cursor: -1, draft: ''});
   const exploreCursorRef = useRef(exploreCursor);
   const exploreRequestRef = useRef(0);
   const exploreMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const theme = library.settings.theme;
+  const displayMode = useMemo(
+    () => resolveDisplayMode(library.settings),
+    [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion]
+  );
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
   const diagnostics = player.diagnostics();
   const filterLabel = formatFilterLabel(filters);
@@ -171,7 +185,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     stats: 1,
     'airplay-settings': 0,
     'airplay-code': 1,
-    settings: settingsItems.length
+    settings: settingsItems.length,
+    help: 0
   });
   itemCountsRef.current = {
     home: homeItems.length,
@@ -186,7 +201,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     stats: 1,
     'airplay-settings': availableAirPlayDevices.length,
     'airplay-code': 1,
-    settings: settingsItems.length
+    settings: settingsItems.length,
+    help: 0
   };
 
   const displayStations = useMemo(() => applyStationFilters(stationContext.stations, filters), [filters, stationContext.stations]);
@@ -205,7 +221,20 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   useEffect(() => player.onChange(setPlayback), [player]);
 
-  useEffect(() => player.onMetadata(setNowPlaying), [player]);
+  const playingStationRef = useRef<Station | null>(null);
+  playingStationRef.current = playingStation;
+
+  useEffect(
+    () =>
+      player.onMetadata(metadata => {
+        setNowPlaying(metadata);
+        const station = playingStationRef.current;
+        if (station && metadata.title) {
+          setLibrary(store.recordTrack(station, metadata.title));
+        }
+      }),
+    [player, store]
+  );
 
   useEffect(() => {
     if (screen !== 'explore' || layout.compact || !stdout.isTTY) {
@@ -229,6 +258,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   useEffect(() => {
     if (
       !shouldAnimateReceiver(screen, playback) ||
+      library.settings.reduceMotion ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -238,11 +268,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     const intervalMs = LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle) ? LIVE_RECEIVER_PULSE_MS : AMBIENT_RECEIVER_PULSE_MS;
     const timer = setInterval(() => setPulse(value => (value + 1) % 240), intervalMs);
     return () => clearInterval(timer);
-  }, [library.settings.receiverStyle, playback.ready, playback.state, screen]);
+  }, [library.settings.receiverStyle, library.settings.reduceMotion, playback.ready, playback.state, screen]);
 
   useEffect(() => {
     if (
       playback.state !== 'loading' ||
+      library.settings.reduceMotion ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -252,7 +283,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
     const timer = setInterval(() => setSpinnerFrame(value => (value + 1) % 1000), LOADING_SPINNER_MS);
     return () => clearInterval(timer);
-  }, [playback.state]);
+  }, [library.settings.reduceMotion, playback.state]);
 
   useEffect(() => {
     if ((screen === 'countries' || screen === 'map') && countries.length === 0 && !loadingCountries) {
@@ -545,6 +576,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         });
         selectedByScreenRef.current.search = 0;
         lastSubmittedSearchRef.current = query.trim();
+        setLibrary(store.addSearch(query));
+        searchHistoryRef.current = {cursor: -1, draft: ''};
         setSelected(0);
         setEditingSearch(true);
       } catch (error) {
@@ -553,7 +586,33 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setLoadingStations(false);
       }
     },
-    [filters, providers, searchQuery, setStationContextFor]
+    [filters, providers, searchQuery, setStationContextFor, store]
+  );
+
+  const recallSearchHistory = useCallback(
+    (direction: 'older' | 'newer') => {
+      const history = store.snapshot().searchHistory;
+      if (history.length === 0) {
+        return;
+      }
+
+      const state = searchHistoryRef.current;
+      if (direction === 'older') {
+        if (state.cursor === -1) {
+          state.draft = searchQuery;
+        }
+
+        state.cursor = Math.min(history.length - 1, state.cursor + 1);
+        setSearchQuery(history[state.cursor] ?? '');
+      } else if (state.cursor <= 0) {
+        state.cursor = -1;
+        setSearchQuery(state.draft);
+      } else {
+        state.cursor -= 1;
+        setSearchQuery(history[state.cursor] ?? '');
+      }
+    },
+    [searchQuery, store]
   );
 
   const loadNearby = useCallback(async () => {
@@ -677,6 +736,25 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     },
     [filters, go, player, providers, queueFromCurrentList, rememberQueueSelection, stationMatches, store]
   );
+
+  // Resume the most recent station on launch when opted in, like a radio
+  // powering back on to its last frequency. Runs once and never auto-navigates.
+  const didResumeRef = useRef(false);
+  useEffect(() => {
+    if (didResumeRef.current) {
+      return;
+    }
+
+    didResumeRef.current = true;
+    if (!settingsRef.current.resumeOnLaunch) {
+      return;
+    }
+
+    const last = store.snapshot().recent[0]?.station;
+    if (last) {
+      void playStation(last);
+    }
+  }, [playStation, store]);
   playStationRef.current = playStation;
 
   const toggleFavorite = useCallback(
@@ -689,8 +767,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       const wasFavorite = store.isFavorite(station);
       setLibrary(store.toggleFavorite(station));
       setMessage(`${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`);
+      if (!wasFavorite) {
+        // Best-effort upvote back to the directory; never blocks favoriting.
+        void providers.vote(station);
+      }
     },
-    [store]
+    [providers, store]
   );
 
   const showControlResult = useCallback((result: PlaybackControlResult) => {
@@ -698,6 +780,39 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       setMessage(result.message);
     }
   }, []);
+
+  const openStationHomepage = useCallback((station: Station | null) => {
+    if (!station?.homepage) {
+      setMessage('This station has no homepage.');
+      return;
+    }
+
+    openExternal(station.homepage);
+    setMessage(`Opening homepage: ${station.name}`);
+  }, []);
+
+  const copyStationUrl = useCallback(
+    async (station: Station | null) => {
+      if (!station) {
+        setMessage('Select or play a station first.');
+        return;
+      }
+
+      let url = station.streamUrl;
+      if (!url) {
+        url = await providers.resolve(station).then(resolved => resolved.url).catch(() => undefined);
+      }
+
+      if (!url) {
+        setMessage(`No stream URL available for ${station.name}.`);
+        return;
+      }
+
+      const copied = copyToClipboard(url);
+      setMessage(copied ? `Copied stream URL: ${station.name}` : `Stream URL: ${url}`);
+    },
+    [providers]
+  );
 
   const submitAirPlayCode = useCallback(
     (code: string) => {
@@ -884,6 +999,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     setMessage(`Skip broken streams ${skipBrokenStreams ? 'enabled' : 'disabled'}.`);
   }, [updateSettings]);
 
+  const toggleSetting = useCallback(
+    (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion') => {
+      const next = !settingsRef.current[key];
+      updateSettings({[key]: next});
+      setMessage(`${settingToggleLabel[key]} ${next ? 'on' : 'off'}.`);
+    },
+    [updateSettings]
+  );
+
   const cycleSleepTimer = useCallback(() => {
     const currentMinutes = sleepUntil ? Math.round((sleepUntil - Date.now()) / 60000) : null;
     const next = nextSleepTimerMinutes(currentMinutes);
@@ -999,6 +1123,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     adjustVolume,
     airPlayCode,
     canEnterAirPlayCode,
+    copyStationUrl,
+    openStationHomepage,
     beginLearningTransportKey,
     capturingTransportAction,
     commandMode,
@@ -1024,6 +1150,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     playStation,
     player,
     playingStation,
+    recallSearchHistory,
     moveExploreCursor: moveExploreMapCursor,
     moveExploreCursorToCell: moveExploreMapCursorToCell,
     refreshProviderHealth,
@@ -1056,6 +1183,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     toggleFavorite,
     toggleMute,
     togglePause,
+    toggleSetting,
     toggleNearbyLocation,
     toggleRadioGarden,
     toggleSkipBrokenStreams
@@ -1068,10 +1196,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const hasTopTabs = !layout.compact;
   const globalFooter =
     playback.backend === 'ffplay'
-      ? '←/→ tabs · F7/F9 or ,/. station · ffplay fallback: limited controls · t/v display · q quit'
+      ? '←/→ tabs · F7/F9 or ,/. station · ffplay fallback: limited controls · t/v display · ? help · q quit'
       : playback.backend === 'airplay'
-        ? '←/→ tabs · F7/F9 or ,/. station · AirPlay: +/- volume, m mute · t/v display · q quit'
-      : '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit';
+        ? '←/→ tabs · F7/F9 or ,/. station · AirPlay: +/- volume, m mute · t/v display · ? help · q quit'
+      : '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · ? help · q quit';
   const playbackFooter = playbackFooterText({
     station: playingStation,
     playback,
@@ -1094,9 +1222,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   });
 
   return (
-    <Box flexDirection="column" paddingX={1} height={layout.rows} width={layout.columns} overflow="hidden" backgroundColor={appBackground}>
+    <DisplayContext.Provider value={displayMode}>
+    <Box flexDirection="column" paddingX={1} height={layout.rows} width={layout.columns} overflow="hidden" backgroundColor={displayMode.app}>
       {hasTopTabs ? (
-        <Box height={3} marginBottom={1} flexShrink={0} backgroundColor={appBackground}>
+        <Box height={3} marginBottom={1} flexShrink={0} backgroundColor={displayMode.app}>
           <TopTabs
             tabs={topTabs}
             active={activeTabForScreen(screen)}
@@ -1106,7 +1235,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           />
         </Box>
       ) : null}
-      <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={appBackground}>
+      <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={displayMode.app}>
         <AppContent
           airPlayDevices={availableAirPlayDevices}
           airPlayCode={airPlayCode}
@@ -1147,7 +1276,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           </Box>
         ) : null}
       </Box>
-      <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={panelBackground}>
+      <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.panel}>
         {playbackFooter ? <Text color={themeAccent(theme)}>{playbackFooter}</Text> : null}
         <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : 'gray'}>
           {truncate(pageFooter, frameWidth)}
@@ -1155,6 +1284,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         <Text color={textDim}>{truncate(globalFooter, frameWidth)}</Text>
       </Box>
     </Box>
+    </DisplayContext.Provider>
   );
 }
 
@@ -1220,7 +1350,7 @@ function nextAvailablePlaybackBackend(
   backends: string[]
 ): AppSettings['preferredBackend'] {
   const options: AppSettings['preferredBackend'][] = ['auto'];
-  for (const backend of ['mpv', 'ffplay', 'airplay'] as const) {
+  for (const backend of ['mpv', 'ffplay', 'vlc', 'airplay'] as const) {
     if (backends.includes(backend)) {
       options.push(backend);
     }
@@ -1247,13 +1377,17 @@ function audioOutputCanApply(output: AppSettings['preferredBackend'], settings: 
   return output !== 'airplay' || Boolean(settings.preferredAirPlayDevice);
 }
 
-function preferredLocalPlaybackBackend(backends: string[]): 'mpv' | 'ffplay' | null {
+function preferredLocalPlaybackBackend(backends: string[]): 'mpv' | 'ffplay' | 'vlc' | null {
   if (backends.includes('mpv')) {
     return 'mpv';
   }
 
   if (backends.includes('ffplay')) {
     return 'ffplay';
+  }
+
+  if (backends.includes('vlc')) {
+    return 'vlc';
   }
 
   return null;

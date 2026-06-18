@@ -13,8 +13,10 @@ It is built with [Ink](https://github.com/vadimdemedes/ink), [React](https://rea
 ## Features
 
 - Explore public radio from around the world through a cosmo-style braille world map beside the station list, with click-to-place mouse support and WASD keyboard movement backed by a cached geotagged station atlas. Country lists, global station search, a country-density map, and opt-in nearby discovery round out the discovery surface.
-- Tune stations with `mpv` first for full playback controls, with `ffplay` as a playback-only fallback when available.
-- Use a receiver-style Now Playing screen with 50 selectable receiver visualizers, backend status, cleaned ICY track metadata, stream diagnostics, sleep timer, favorite state, `mpv`-backed volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
+- Tune stations with `mpv` first for full playback controls, with `ffplay` and VLC (`cvlc`/`vlc`) as playback-only fallbacks. RadioCLI also probes common install locations (Homebrew, Scoop, WinGet, Chocolatey, VLC app bundle) when a backend is not on `PATH`, so GUI-launched terminals still find it.
+- Use a receiver-style Now Playing screen with 50 selectable receiver visualizers, backend status, cleaned ICY track metadata and persisted track history, stream diagnostics, sleep timer, favorite state, `mpv`-backed volume, pause, mute, station skipping, and zero-signal graphics whenever playback is idle, paused, stopped, or not backend-ready.
+- Open the in-app Help screen (`?`) for every keybinding and `:` command, with command-name tab completion and search-history recall. Open a station homepage (`O`) or copy its stream URL (`y`).
+- Adapt to any terminal: ASCII-safe display, transparent background (and `NO_COLOR`) for light terminals, reduce-motion for SSH and low-power devices, and opt-in resume of the last station on launch.
 - Keep shortcuts in a fixed adaptive footer: a compact live station and track row appears above page-specific and global controls while playback is active.
 - Move previous/next through the exact station list you tuned from, even after navigating to another screen.
 - Browse dense station lists with inline location/codec metadata and yellow favorite stars next to station names.
@@ -75,7 +77,7 @@ Live public radio from around the world
 3 recent · 2 favorites · 1 imported
 
 ↑/↓ move · Enter open · number jump · : command
-←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
+←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · ? help · q quit
 ```
 
 The Now Playing screen is a framed receiver panel with **50 selectable receiver styles**. The sample below shows the default pulse-grid display; press `v` to cycle through the catalog, which spans several families:
@@ -106,7 +108,7 @@ Now playing ──────────────────────�
 
 Playing: KEXP 90.3 FM · Now: Artist - Track · Seattle, Washington, United States · MP3 / 128 kbps / english · mpv · playing · vol 70 · Nearby 4/90
 space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home
-←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · q quit
+←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · ? help · q quit
 ```
 
 For the exact non-interactive demo transcript:

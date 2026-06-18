@@ -52,7 +52,7 @@ const emptyMediaKeyBindings: MediaKeyBindings = {
 
 const mediaTransportActions = ['previous', 'playPause', 'next'] as const;
 const sleepTimerOptions: SleepTimerMinutes[] = [null, 15, 30, 60];
-const playbackBackendOptions: AppSettings['preferredBackend'][] = ['auto', 'mpv', 'ffplay', 'airplay'];
+const playbackBackendOptions: AppSettings['preferredBackend'][] = ['auto', 'mpv', 'ffplay', 'vlc', 'airplay'];
 export const defaultExploreCursor: ExploreCursor = {
   latitude: 48.8566,
   longitude: 2.3522

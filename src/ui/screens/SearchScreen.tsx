@@ -3,7 +3,8 @@ import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
 import {StationList} from '../components/StationList.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {panelBackground, panelBorder, themeAccent} from '../theme.js';
+import {panelBorder, themeAccent} from '../theme.js';
+import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {truncate} from '../format.js';
 
 type SearchScreenProps = {
@@ -33,6 +34,7 @@ export function SearchScreen({
   pageSize,
   width
 }: SearchScreenProps): React.ReactElement {
+  const {panel: panelBackground, ascii} = useDisplay();
   const contentWidth = Math.max(40, width);
   const inputWidth = Math.max(34, Math.min(contentWidth, 96));
   const inputTextWidth = Math.max(8, inputWidth - 8);
@@ -48,7 +50,7 @@ export function SearchScreen({
       />
       <Box
         marginTop={1}
-        borderStyle="single"
+        borderStyle={panelBorderStyle(ascii, 'single')}
         borderColor={editing ? themeAccent(theme) : panelBorder}
         borderBackgroundColor={panelBackground}
         backgroundColor={panelBackground}

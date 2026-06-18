@@ -17,6 +17,10 @@ volume or mute state, and an active sleep timer.
 | `t` | Cycle display color |
 | `v` | Cycle receiver style |
 | `+` / `-` | Adjust volume |
+| `f` | Favorite the selected or playing station |
+| `O` | Open the station homepage in your browser |
+| `y` | Copy the station stream URL to the clipboard |
+| `?` | Toggle the Help screen |
 | `q` or `Ctrl+C` | Quit cleanly |
 
 Pause, mute, volume, and play/pause media-key control require the `mpv` backend.
@@ -29,17 +33,21 @@ available but labels interactive playback controls as limited and shows an
 | Screen | Controls |
 | --- | --- |
 | Home | `Up` / `Down` move, `Enter` open, number jump, `:` command |
-| Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
+| Search input | type query, `Up` / `Down` recall search history, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
 | Explore | click map, `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `Up` / `Down` move, `Enter` open stations, `w` map, `b` home |
 | World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
-| Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics, `b` home |
+| Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics and recent tracks, `b` home |
 | Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` audio output, `a` AirPlay, `r` health, `b` home |
 | AirPlay | `Up` / `Down` choose, `Enter` select receiver, `c` code entry, `r` refresh, `b` settings |
 | AirPlay Code | type receiver code, `Backspace` edit, `Enter` submit, `Esc` AirPlay |
 | Stats | `b` home |
+| Help | `?` or `b` close |
+
+Press `?` from any screen to open Help, a full reference of keybindings and
+`:` commands. In the command palette, `Tab` completes the command name.
 
 Explore mouse clicks use terminal mouse reporting while the Explore tab is
 active. If your terminal or tmux setup does not pass those events through, the
@@ -64,6 +72,12 @@ Useful command entries:
 :timeout 15
 :skip off
 :location on
+:doctor
+:resume on
+:ascii on
+:motion on
+:background on
+:help
 :learn previous
 :learn play
 :learn next
@@ -76,6 +90,21 @@ Useful command entries:
 :settings
 :stop
 ```
+
+## Display And Compatibility Modes
+
+Settings includes toggles for terminals and devices that need them, each also
+available as a command:
+
+- **Resume last station on launch** (`:resume on`) re-tunes your most recent
+  station when RadioCLI starts, like a radio powering back on.
+- **Transparent background** (`:background on`) drops the dark panel fill so
+  light-themed terminals keep their own background. RadioCLI also honors the
+  [`NO_COLOR`](https://no-color.org) convention automatically.
+- **ASCII-safe display** (`:ascii on`) maps braille, block, and box-drawing
+  glyphs to ASCII for terminals and fonts without those glyphs.
+- **Reduce motion** (`:motion on`) freezes the receiver and loading animations
+  to save CPU and bandwidth over SSH and on low-power devices.
 
 ## Source-List Queues
 

@@ -1,7 +1,8 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {Screen, ThemeName} from '../../types.js';
-import {panelBackground, panelBorder, themeAccent} from '../theme.js';
+import {panelBorder, themeAccent} from '../theme.js';
+import {useDisplay} from '../display-context.js';
 import {truncate} from '../format.js';
 
 export type TopTab = {
@@ -19,6 +20,10 @@ type TopTabsProps = {
 
 export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps): React.ReactElement {
   const accent = themeAccent(theme);
+  const {panel: panelBackground, ascii} = useDisplay();
+  const box = ascii
+    ? {tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|'}
+    : {tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│'};
   const brand = 'RADIOCLI';
   const rightText = ` ${rightLabel} `;
   const bodyWidth = Math.max(1, width - 4);
@@ -34,14 +39,14 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
   return (
     <Box flexDirection="column" backgroundColor={panelBackground} width={width}>
       <Text backgroundColor={panelBackground}>
-        <Text color={panelBorder}>┌ </Text>
+        <Text color={panelBorder}>{box.tl} </Text>
         <Text color={accent} bold>
           {brand}
         </Text>
-        <Text color={panelBorder}> {'─'.repeat(titleRuleWidth)}┐</Text>
+        <Text color={panelBorder}> {box.h.repeat(titleRuleWidth)}{box.tr}</Text>
       </Text>
       <Text backgroundColor={panelBackground}>
-        <Text color={panelBorder}>│ </Text>
+        <Text color={panelBorder}>{box.v} </Text>
         {visibleTabs.map((item, index) => (
           <Text key={item.type === 'overflow' ? `${item.side}-overflow` : item.tab.screen}>
             {item.type === 'overflow' ? (
@@ -51,15 +56,15 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
                 {item.tab.label}
               </Text>
             )}
-            {index < visibleTabs.length - 1 ? <Text color="gray"> │ </Text> : null}
+            {index < visibleTabs.length - 1 ? <Text color="gray"> {box.v} </Text> : null}
           </Text>
         ))}
         <Text>{' '.repeat(tabPaddingWidth)}</Text>
         {canShowRight ? <Text color="gray">{rightText}</Text> : null}
-        <Text color={panelBorder}> │</Text>
+        <Text color={panelBorder}> {box.v}</Text>
       </Text>
       <Text backgroundColor={panelBackground} color={panelBorder}>
-        └{'─'.repeat(Math.max(0, width - 2))}┘
+        {box.bl}{box.h.repeat(Math.max(0, width - 2))}{box.br}
       </Text>
     </Box>
   );

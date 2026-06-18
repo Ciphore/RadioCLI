@@ -238,6 +238,32 @@ export function useCommandExecutor({
         return;
       }
 
+      if (name === 'doctor') {
+        const backends = player.refreshDetectedBackends();
+        setMessage(`Playback backends: ${backends.join(', ') || 'none — install mpv, then run radiocli doctor'}.`);
+        return;
+      }
+
+      if (name === 'help') {
+        go('help');
+        return;
+      }
+
+      if (name === 'resume' || name === 'ascii' || name === 'motion' || name === 'background') {
+        const key =
+          name === 'resume'
+            ? 'resumeOnLaunch'
+            : name === 'ascii'
+              ? 'asciiMode'
+              : name === 'motion'
+                ? 'reduceMotion'
+                : 'transparentBackground';
+        const enabled = value === '' ? !settingsRef.current[key] : value === 'on' || value === 'true' || value === '1';
+        updateSettings({[key]: enabled});
+        setMessage(`${name} ${enabled ? 'on' : 'off'}.`);
+        return;
+      }
+
       setMessage(`Unknown command: ${name}`);
     },
     [

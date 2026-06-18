@@ -7,6 +7,7 @@ import {PlayerController} from './player/player-controller.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
+import {appVersion} from './version.js';
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
   const args = process.argv.slice(2);
@@ -33,6 +34,11 @@ export async function runCommand(args: string[]): Promise<void> {
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     printHelp();
+    return;
+  }
+
+  if (command === 'version' || command === '--version' || command === '-v') {
+    console.log(appVersion());
     return;
   }
 
@@ -127,6 +133,7 @@ export function printHelp(): void {
 
 Usage:
   radiocli                 Start the TUI
+  radiocli version         Print the installed version
   radiocli check           Show provider/backend health
   radiocli doctor          Show local playback setup guidance
   radiocli countries       Print top countries

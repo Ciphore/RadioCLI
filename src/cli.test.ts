@@ -54,6 +54,13 @@ describe('CLI command dispatch', () => {
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 
+  it('prints the installed version', async () => {
+    await runCommand(['version']);
+
+    expect(logs.join('\n')).toMatch(/^\d+\.\d+\.\d+/);
+    expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
   it('prints doctor setup guidance without creating user library state', async () => {
     await runCommand(['doctor']);
 
