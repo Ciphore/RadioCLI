@@ -35,7 +35,7 @@ export function pageFooterText({
   }
 
   if (screen === 'search' && editingSearch) {
-    return 'Type query · ↑/↓ history · Enter search/tune · Esc finish';
+    return 'Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Esc finish';
   }
 
   if (screen === 'search') {

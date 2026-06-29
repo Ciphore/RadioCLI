@@ -58,6 +58,20 @@ describe('page footer shortcuts', () => {
     ).toContain('o output');
   });
 
+  it('advertises result navigation while editing search text', () => {
+    expect(
+      pageFooterText({
+        capturingTransportAction: null,
+        commandMode: false,
+        commandText: '',
+        editingCountryFilter: false,
+        editingSearch: true,
+        playbackBackend: 'mpv',
+        screen: 'search'
+      })
+    ).toBe('Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Esc finish');
+  });
+
   it('keeps AirPlay code entry hidden until AirPlay streaming is ready', () => {
     expect(
       pageFooterText({

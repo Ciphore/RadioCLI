@@ -15,6 +15,7 @@ type StatsScreenProps = {
 };
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const heatmapSquare = '■';
 
 export function StatsScreen({library, theme, width, height}: StatsScreenProps): React.ReactElement {
   const {panel: panelBackground, ascii} = useDisplay();
@@ -88,7 +89,7 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           <Text color="gray">Less · </Text>
           {graphColors.map(color => (
             <Text key={color} color={color}>
-              ██<Text> </Text>
+              {heatmapSquare}<Text> </Text>
             </Text>
           ))}
           <Text color="gray">More</Text>
@@ -139,11 +140,11 @@ function buildContributionGraph(days: DailyListening[], width: number): {
   months: string;
   rows: Array<{key: string; label: string; cells: Array<{key: string; level: number; text: string}>}>;
 } {
-  const cellWidth = width >= 168 ? 3 : width >= 120 ? 2 : 1;
+  const cellWidth = width >= 112 ? 2 : 1;
   const weeks = Array.from({length: 53}, (_, weekIndex) =>
     days.slice(weekIndex * 7, weekIndex * 7 + 7)
   ).filter(week => week.length > 0);
-  const maxSeconds = Math.max(1, ...days.map(day => day.seconds));
+  const scaleSeconds = contributionScaleSeconds(days);
   const labels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
   const rows = Array.from({length: 7}, (_, dayIndex) => ({
@@ -151,8 +152,8 @@ function buildContributionGraph(days: DailyListening[], width: number): {
     label: labels[dayIndex] ?? '',
     cells: weeks.map(week => {
       const day = week[dayIndex];
-      const level = contributionLevel(day?.seconds ?? 0, maxSeconds);
-      const text = cellWidth > 1 ? `${'█'.repeat(cellWidth - 1)} ` : '█';
+      const level = contributionLevel(day?.seconds ?? 0, scaleSeconds);
+      const text = cellWidth > 1 ? `${heatmapSquare} ` : heatmapSquare;
       return {key: day?.date ?? `${week[0]?.date ?? 'empty'}-${dayIndex}`, level, text};
     })
   }));
@@ -160,21 +161,35 @@ function buildContributionGraph(days: DailyListening[], width: number): {
   return {months: monthLine(weeks, cellWidth), rows};
 }
 
-function contributionLevel(seconds: number, maxSeconds: number): number {
+export function contributionScaleSeconds(days: DailyListening[]): number {
+  const activeSeconds = days
+    .map(day => day.seconds)
+    .filter(seconds => seconds > 0)
+    .sort((left, right) => left - right);
+
+  if (activeSeconds.length === 0) {
+    return 1;
+  }
+
+  const percentileIndex = Math.min(activeSeconds.length - 1, Math.ceil(activeSeconds.length * 0.95) - 1);
+  return Math.max(1, activeSeconds[percentileIndex] ?? activeSeconds[activeSeconds.length - 1] ?? 1);
+}
+
+export function contributionLevel(seconds: number, scaleSeconds: number): number {
   if (seconds <= 0) {
     return 0;
   }
 
-  const ratio = seconds / maxSeconds;
-  if (ratio > 0.75) {
+  const ratio = seconds / Math.max(1, scaleSeconds);
+  if (ratio >= 0.75) {
     return 4;
   }
 
-  if (ratio > 0.45) {
+  if (ratio >= 0.5) {
     return 3;
   }
 
-  if (ratio > 0.2) {
+  if (ratio >= 0.25) {
     return 2;
   }
 

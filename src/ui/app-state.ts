@@ -43,6 +43,7 @@ export type PlaybackQueue = {
 export type MediaTransportAction = 'previous' | 'playPause' | 'next';
 export type SleepTimerMinutes = 15 | 30 | 60 | null;
 export type KeyboardEventType = 'press' | 'repeat' | 'release';
+export type SearchEditingArrowAction = 'select-previous' | 'select-next' | 'history-older' | 'history-newer';
 
 const emptyMediaKeyBindings: MediaKeyBindings = {
   previous: [],
@@ -100,6 +101,21 @@ export const topTabs: TopTab[] = [
 
 export function clamp(value: number, max: number): number {
   return Math.min(Math.max(value, 0), Math.max(max, 0));
+}
+
+export function searchEditingArrowAction(
+  key: {upArrow?: boolean; downArrow?: boolean; ctrl?: boolean},
+  hasResults: boolean
+): SearchEditingArrowAction | null {
+  if (key.upArrow) {
+    return key.ctrl || !hasResults ? 'history-older' : 'select-previous';
+  }
+
+  if (key.downArrow) {
+    return key.ctrl || !hasResults ? 'history-newer' : 'select-next';
+  }
+
+  return null;
 }
 
 export function clampVolume(value: number): number {

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-06-29
+
+### Changed
+
+- Search results can now be navigated with `Up` / `Down` while editing the
+  search query; search-history recall remains available with
+  `Ctrl+Up` / `Ctrl+Down`.
+- The listening stats activity heatmap now renders day cells as square markers
+  and uses a capped contribution scale so one unusually long listening day does
+  not flatten the rest of the Less/More color range.
+
 ## [0.1.6] - 2026-06-17
 
 ### Added
@@ -146,6 +157,7 @@ Initial public release.
 
 [0.1.5]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.5
 [0.1.6]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.6
+[0.1.7]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.7
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2

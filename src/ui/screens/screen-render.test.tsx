@@ -1,11 +1,12 @@
 import {render} from 'ink-testing-library';
 import {describe, expect, it} from 'vitest';
-import type {AppSettings, PlaybackDiagnostics, PlaybackState, Station, TrackPlay} from '../../types.js';
+import type {AppSettings, LibraryState, PlaybackDiagnostics, PlaybackState, Station, TrackPlay} from '../../types.js';
 import {DisplayContext, resolveDisplayMode} from '../display-context.js';
 import {HelpScreen} from './HelpScreen.js';
 import {NowPlayingScreen} from './NowPlayingScreen.js';
 import {SettingsScreen} from './SettingsScreen.js';
 import {ExploreScreen} from './ExploreScreen.js';
+import {contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
 import {settingsItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
 
@@ -139,6 +140,51 @@ describe('Explore world map rendering', () => {
   it('replaces braille with ASCII in ASCII-safe mode', () => {
     const frame = renderExplore(true).lastFrame() ?? '';
     expect(/[⠀-⣿]/.test(frame)).toBe(false);
+  });
+});
+
+describe('StatsScreen rendering', () => {
+  it('renders activity heatmap days as square markers instead of stretched blocks', () => {
+    const library: LibraryState = {
+      recent: [],
+      favorites: [],
+      imported: [],
+      trackHistory: [],
+      searchHistory: [],
+      activity: {
+        sessions: [
+          {
+            id: 'listen',
+            station,
+            startedAt: new Date(2026, 4, 24, 12).toISOString(),
+            endedAt: new Date(2026, 4, 24, 13).toISOString(),
+            listenedSeconds: 3600
+          }
+        ]
+      },
+      settings
+    };
+    const frame = render(
+      <DisplayContext.Provider value={resolveDisplayMode({asciiMode: false}, {})}>
+        <StatsScreen library={library} theme="green" width={132} height={32} />
+      </DisplayContext.Provider>
+    ).lastFrame() ?? '';
+
+    expect(frame).toContain('■');
+    expect(frame).not.toContain('██');
+  });
+
+  it('caps contribution color scaling so one outlier does not flatten normal active days', () => {
+    const days = [
+      ...Array.from({length: 19}, (_, index) => ({date: `2026-05-${String(index + 1).padStart(2, '0')}`, seconds: 3600})),
+      {date: '2026-05-20', seconds: 36_000}
+    ];
+    const scaleSeconds = contributionScaleSeconds(days);
+
+    expect(scaleSeconds).toBe(3600);
+    expect(contributionLevel(3600, scaleSeconds)).toBe(4);
+    expect(contributionLevel(900, scaleSeconds)).toBe(2);
+    expect(contributionLevel(0, scaleSeconds)).toBe(0);
   });
 });
 

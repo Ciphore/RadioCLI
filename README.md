@@ -279,7 +279,7 @@ Page-specific footer controls:
 | Screen | Controls |
 | --- | --- |
 | Home | `↑` / `↓` move, `Enter` open, number jump, `:` command |
-| Search input | type query, `Backspace` edit, `Enter` search or tune, `Esc` finish |
+| Search input | type query, `Backspace` edit, `Up` / `Down` move results, `Ctrl+Up` / `Ctrl+Down` recall search history, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `↑` / `↓` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
 | Explore | click map, `WASD` fine move, `Shift+WASD` jump, `↑` / `↓` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `↑` / `↓` move, `Enter` open stations, `w` map, `b` home |

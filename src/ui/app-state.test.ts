@@ -13,6 +13,7 @@ import {
   moveExploreCursor,
   nextPlaybackBackend,
   nextSleepTimerMinutes,
+  searchEditingArrowAction,
   normalizeMediaKeyBindings,
   shouldHandleKeyboardEvent,
   shouldAnimateReceiver,
@@ -98,6 +99,16 @@ describe('app state helpers', () => {
     expect(shouldHandleKeyboardEvent('press')).toBe(true);
     expect(shouldHandleKeyboardEvent('repeat')).toBe(true);
     expect(shouldHandleKeyboardEvent('release')).toBe(false);
+  });
+
+  it('uses search editing arrows for result selection when results are visible', () => {
+    expect(searchEditingArrowAction({upArrow: true}, true)).toBe('select-previous');
+    expect(searchEditingArrowAction({downArrow: true}, true)).toBe('select-next');
+    expect(searchEditingArrowAction({upArrow: true, ctrl: true}, true)).toBe('history-older');
+    expect(searchEditingArrowAction({downArrow: true, ctrl: true}, true)).toBe('history-newer');
+    expect(searchEditingArrowAction({upArrow: true}, false)).toBe('history-older');
+    expect(searchEditingArrowAction({downArrow: true}, false)).toBe('history-newer');
+    expect(searchEditingArrowAction({}, true)).toBeNull();
   });
 
   it('maps terminal function-key transport sequences', () => {

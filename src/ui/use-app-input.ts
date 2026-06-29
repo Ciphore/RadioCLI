@@ -11,6 +11,7 @@ import {
   isEditableInput,
   isPlainPrintableInput,
   mediaTransportActionForInput,
+  searchEditingArrowAction,
   shouldHandleKeyboardEvent,
   type ExploreMoveDirection,
   type MediaTransportAction
@@ -317,13 +318,17 @@ export function useAppInput({
         return;
       }
 
-      if (key.upArrow) {
-        recallSearchHistory('older');
-        return;
-      }
-
-      if (key.downArrow) {
-        recallSearchHistory('newer');
+      const arrowAction = searchEditingArrowAction(key, currentItemCount('search') > 0);
+      if (arrowAction) {
+        if (arrowAction === 'history-older') {
+          recallSearchHistory('older');
+        } else if (arrowAction === 'history-newer') {
+          recallSearchHistory('newer');
+        } else if (arrowAction === 'select-previous') {
+          setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
+        } else {
+          setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
+        }
         return;
       }
 
