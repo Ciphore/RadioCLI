@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {Screen, ThemeName} from '../../types.js';
-import {panelBorder, themeAccent} from '../theme.js';
+import {panelBorder, textMuted, themeAccent} from '../theme.js';
 import {useDisplay} from '../display-context.js';
 import {truncate} from '../format.js';
 
@@ -50,17 +50,17 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
         {visibleTabs.map((item, index) => (
           <Text key={item.type === 'overflow' ? `${item.side}-overflow` : item.tab.screen}>
             {item.type === 'overflow' ? (
-              <Text color="gray">…</Text>
+              <Text color={textMuted}>…</Text>
             ) : (
-              <Text color={item.tab.screen === active ? accent : 'gray'} bold={item.tab.screen === active}>
+              <Text color={item.tab.screen === active ? accent : textMuted} bold={item.tab.screen === active}>
                 {item.tab.label}
               </Text>
             )}
-            {index < visibleTabs.length - 1 ? <Text color="gray"> {box.v} </Text> : null}
+            {index < visibleTabs.length - 1 ? <Text color={textMuted}> {box.v} </Text> : null}
           </Text>
         ))}
         <Text>{' '.repeat(tabPaddingWidth)}</Text>
-        {canShowRight ? <Text color="gray">{rightText}</Text> : null}
+        {canShowRight ? <Text color={textMuted}>{rightText}</Text> : null}
         <Text color={panelBorder}> {box.v}</Text>
       </Text>
       <Text backgroundColor={panelBackground} color={panelBorder}>

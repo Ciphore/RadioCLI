@@ -10,7 +10,7 @@ import {audioOutputLabel} from '../audio-output.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
-import {textDim, themeAccent} from '../theme.js';
+import {textDim, textMuted, themeAccent} from '../theme.js';
 
 type AirPlaySettingsScreenProps = {
   selected: number;
@@ -48,17 +48,17 @@ export function AirPlaySettingsScreen({
       />
 
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray">
+        <Text color={textMuted}>
           Audio output: <Text color={accent}>{preferredOutput}</Text> · Streaming:{' '}
           <Text color={availability.ready ? accent : 'yellow'}>{availability.ready ? 'ready' : 'unavailable'}</Text> · Receivers:{' '}
           <Text color={accent}>{devices.length}</Text>
         </Text>
-        <Text color={availability.ready ? 'gray' : 'yellow'}>{truncate(availability.detail, lineWidth)}</Text>
-        <Text color="gray">
+        <Text color={availability.ready ? textMuted : 'yellow'}>{truncate(availability.detail, lineWidth)}</Text>
+        <Text color={textMuted}>
           Selected: <Text color={selectedDevice ? accent : textDim}>{truncate(selectedDevice?.name ?? 'none', Math.max(4, lineWidth - 10))}</Text>
         </Text>
         {availability.ready && selectedDevice?.requiresPassword && !selectedDevice.local ? (
-          <Text color="gray">
+          <Text color={textMuted}>
             Code: <Text color={accent}>if the receiver shows a code while tuning, RadioCLI will ask for it</Text>
           </Text>
         ) : null}
@@ -70,7 +70,7 @@ export function AirPlaySettingsScreen({
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray" bold>
+        <Text color={textMuted} bold>
           Receivers
         </Text>
         {devices.length > 0 ? (
@@ -90,13 +90,13 @@ export function AirPlaySettingsScreen({
                     {name}
                   </Text>
                   {isSelected ? <Text color={accent}>{selectedLabel}</Text> : null}
-                  <Text color="gray"> · {detail}</Text>
+                  <Text color={textMuted}> · {detail}</Text>
                 </Box>
               );
             }}
           />
         ) : (
-          <Text color="gray">No receivers discovered.</Text>
+          <Text color={textMuted}>No receivers discovered.</Text>
         )}
         <Text color={textDim}>
           {canEnterCode ? 'Enter selects · c opens code entry · r refreshes receivers' : 'Enter selects · r refreshes receivers'}

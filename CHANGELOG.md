@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-07-02
+
+### Changed
+
+- Replaced the classic equalizer receiver style with Ultracode, a centered
+  color-ripple display that follows the active display color; saved `equalizer`
+  preferences migrate to `ultracode`.
+- The listening stats activity graph now renders as a calendar-year grid with
+  larger contribution cells and clearer month labels when the terminal has room.
+- Muted UI text now uses truecolor neutrals instead of terminal `gray`, making
+  secondary labels more readable across dark terminal palettes.
+
+### Fixed
+
+- Stale continuous listening sessions are capped before splitting them across
+  days so one long-unclosed playback session cannot dominate listening totals.
+- Receiver visualizer pulses now reset when an active Ultracode view opens but
+  keep advancing smoothly during normal playback.
+
 ## [0.1.7] - 2026-06-29
 
 ### Changed
@@ -158,6 +177,7 @@ Initial public release.
 [0.1.5]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.5
 [0.1.6]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.6
 [0.1.7]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.7
+[0.1.8]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.8
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2

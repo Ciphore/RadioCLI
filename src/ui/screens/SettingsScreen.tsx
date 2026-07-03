@@ -5,7 +5,7 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 import {settingsItems} from '../screen-items.js';
-import {themeAccent} from '../theme.js';
+import {textMuted, themeAccent} from '../theme.js';
 import {playbackBackendCapabilities} from '../../player/backend-install.js';
 import {airPlayReceiverSettingValue} from '../airplay-settings.js';
 import {audioOutputLabel, audioOutputSettingValue} from '../audio-output.js';
@@ -62,7 +62,7 @@ export function SettingsScreen({
                 </Text>
                 {value ? (
                   <>
-                    <Text color="gray"> · </Text>
+                    <Text color={textMuted}> · </Text>
                     <Text color={accent}>{value}</Text>
                   </>
                 ) : null}
@@ -72,19 +72,19 @@ export function SettingsScreen({
         />
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray" bold>
+        <Text color={textMuted} bold>
           Status
         </Text>
-        <Text color="gray">
+        <Text color={textMuted}>
           Output: <Text color={accent}>{audioOutputLabel(playback.backend)}</Text> / {playback.state} ·{' '}
           Selected: <Text color={accent}>{audioOutputLabel(settings.preferredBackend)}</Text> ·{' '}
           {diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`} · tune timeout {settings.tuneTimeoutSeconds}s
         </Text>
-        <Text color="gray">
+        <Text color={textMuted}>
           Provider health: {health.length ? health.map(([provider, status]) => `${provider} ${status}`).join(' · ') : 'not checked yet'}
         </Text>
-        <Text color="gray">Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>
-        <Text color="gray">Library: {truncate(storePath, lineWidth - 9)}</Text>
+        <Text color={textMuted}>Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>
+        <Text color={textMuted}>Library: {truncate(storePath, lineWidth - 9)}</Text>
       </Box>
     </Box>
   );

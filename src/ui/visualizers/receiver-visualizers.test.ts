@@ -34,7 +34,7 @@ function frameText(rows: ReturnType<typeof buildVisualizer>): string {
 const cubeGlyph = /[.:;=+*#%@/\\|_\-]/;
 const asciiAnimationStyles = ['fire', 'fireworks', 'plasma', 'spinning-donut', 'starfield'] as const;
 const newlyResponsiveStyles = [
-  'equalizer',
+  'ultracode',
   'motion-blob',
   'motion-area',
   'motion-contour',
@@ -128,10 +128,26 @@ function glyphFootprint(rows: ReturnType<typeof buildVisualizer>, pattern: RegEx
   };
 }
 
+function backgroundAt(rows: ReturnType<typeof buildVisualizer>, y: number, x: number): string | undefined {
+  const row = rows[y];
+  let offset = 0;
+  for (const segment of row?.segments ?? []) {
+    const end = offset + segment.text.length;
+    if (x >= offset && x < end) {
+      return segment.backgroundColor;
+    }
+    offset = end;
+  }
+
+  return undefined;
+}
+
 describe('receiver visualizers', () => {
   it('excludes retired receiver styles from the UI cycle', () => {
     const styles = new Set<string>(receiverStyleNames);
 
+    expect(styles.has('equalizer')).toBe(false);
+    expect(styles.has('ultracode')).toBe(true);
     for (const style of removedReceiverStyles) {
       expect(styles.has(style)).toBe(false);
     }
@@ -239,6 +255,33 @@ describe('receiver visualizers', () => {
     }
   });
 
+  it('renders the ultracode ripple with the supplied violet sequence', () => {
+    const rows = buildVisualizer('ultracode', 8, 80, visualizerHeight('ultracode', 12), station, playback, 'violet');
+    const text = frameText(rows);
+    const segments = rows.flatMap(row => row.segments ?? []);
+    const backgrounds = new Set(segments.map(segment => segment.backgroundColor).filter(Boolean));
+
+    expect(rows).toHaveLength(12);
+    expect(rows.every(row => row.text.length === 80)).toBe(true);
+    expect(text.trim()).toBe('');
+    expect(text).not.toMatch(/Effort|Faster|Smarter|low|medium|high|xhigh|ultracode|workflows|adjust|confirm|cancel|quit/);
+    expect(backgrounds.has('#8c50f0')).toBe(true);
+    expect(backgrounds.has('#3e1676')).toBe(true);
+    expect(backgrounds.size).toBeGreaterThan(3);
+  });
+
+  it('starts the ultracode ripple at the receiver center and adapts to the display color', () => {
+    const violetRows = buildVisualizer('ultracode', 0, 81, 9, station, playback, 'violet');
+    const rubyRows = buildVisualizer('ultracode', 0, 81, 9, station, playback, 'ruby');
+    const centerX = 40;
+    const centerY = 4;
+
+    expect(backgroundAt(violetRows, centerY, centerX)).toBe('#8c50f0');
+    expect(backgroundAt(violetRows, centerY, centerX - 1)).toBeUndefined();
+    expect(backgroundAt(violetRows, centerY - 1, centerX)).toBeUndefined();
+    expect(backgroundAt(rubyRows, centerY, centerX)).toBe('#ff5f87');
+  });
+
   it('holds every receiver style at a zero-signal frame when playback is inactive', () => {
     for (const style of receiverStyleNames) {
       const height = visualizerHeight(style, 12);
@@ -257,7 +300,7 @@ describe('receiver visualizers', () => {
   });
 
   it('renders inactive receiver visuals as a flat zero-level baseline', () => {
-    const rows = buildVisualizer('equalizer', 8, 32, 6, station, inactivePlaybacks[0]!, 'ruby');
+    const rows = buildVisualizer('ultracode', 8, 32, 6, station, inactivePlaybacks[0]!, 'ruby');
 
     expect(rows).toHaveLength(6);
     expect(rows.slice(0, -1).every(row => row.text.trim() === '')).toBe(true);

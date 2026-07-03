@@ -10,11 +10,15 @@ type VisualLine = {
 type VisualSegment = {
   text: string;
   color: string;
+  backgroundColor?: string;
+  bold?: boolean;
 };
 
 type VisualCell = {
   text: string;
   color: string;
+  backgroundColor?: string;
+  bold?: boolean;
 };
 
 export function buildVisualizer(
@@ -30,8 +34,8 @@ export function buildVisualizer(
     return buildZeroSignalVisualizer(width, height, theme);
   }
 
-  if (style === 'equalizer') {
-    return buildEqualizer(pulse, width, height, theme);
+  if (style === 'ultracode') {
+    return buildUltracode(pulse, width, height, theme);
   }
 
   if (style === 'motion-blob') {
@@ -230,7 +234,7 @@ export function buildVisualizer(
     return buildNewton(pulse, width, height, theme);
   }
 
-  return buildEqualizer(pulse, width, height, theme);
+  return buildUltracode(pulse, width, height, theme);
 }
 
 function playbackHasSignal(playback: PlaybackState): boolean {
@@ -258,81 +262,103 @@ function buildFlatZeroSignal(width: number, requestedHeight: number, theme: Them
   }));
 }
 
-function buildEqualizer(
+const ultracodeWavelength = 20;
+const ultracodeTravelPerPulse = 80 * 0.03;
+const ultracodeVioletRamp = ['#3e1676', '#491e87', '#542799', '#5f2faa', '#6b37bc', '#763fcd', '#8148df', '#8c50f0'];
+
+function buildUltracode(
   pulse: number,
   width: number,
   height: number,
   theme: ThemeName
 ): VisualLine[] {
+  const renderWidth = Math.max(1, width);
+  const renderHeight = Math.max(1, height);
   const accent = themeAccent(theme);
-  const bandWidth = 3;
-  const bandCount = Math.floor((width - 2) / bandWidth);
+  const ramp = ultracodeRippleRamp(theme);
+  const selectedColor = ramp[ramp.length - 1] ?? accent;
+  const travel = pulse * ultracodeTravelPerPulse;
+  const originColumn = Math.floor(renderWidth / 2);
+  const originRow = Math.floor(renderHeight / 2);
+  const rows = Array.from({length: renderHeight}, (_, rowIndex) => {
+    const cells: VisualCell[] = Array.from({length: renderWidth}, (_, columnIndex) => {
+      const level = ultracodeRippleLevel(
+        ultracodeDistance(columnIndex, rowIndex, originColumn, originRow),
+        travel,
+        ramp.length
+      );
 
-  const levels = Array.from({length: bandCount}, (_, i) => {
-    const low = Math.sin(i * 0.18 + pulse * 0.46);
-    const mid = Math.cos(i * 0.32 - pulse * 0.28);
-    const high = Math.sin(i * 0.45 + pulse * 0.68);
-    const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
-    const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
-    return Math.round(eased * height);
-  });
-
-  const peaks = Array.from({length: bandCount}, (_, i) => {
-    let maxLvl = 0;
-    for (let k = 0; k < 8; k++) {
-      const p = (pulse - k + 240) % 240;
-      const low = Math.sin(i * 0.18 + p * 0.46);
-      const mid = Math.cos(i * 0.32 - p * 0.28);
-      const high = Math.sin(i * 0.45 + p * 0.68);
-      const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
-      const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
-      const lvl = Math.round(eased * height);
-      if (lvl > maxLvl) {
-        maxLvl = lvl;
-      }
-    }
-    return maxLvl;
-  });
-
-  const rows: VisualLine[] = [];
-  const colors = themeContributionColors(theme);
-
-  for (let rowIndex = 0; rowIndex < height; rowIndex++) {
-    const threshold = height - rowIndex;
-    let rowText = ' ';
-
-    for (let i = 0; i < bandCount; i++) {
-      const lvl = levels[i]!;
-      const peak = peaks[i]!;
-
-      let bandChar = '  ';
-      if (lvl >= threshold) {
-        bandChar = '██';
-      } else if (peak === threshold) {
-        bandChar = '◆◆';
-      } else {
-        bandChar = '··';
-      }
-
-      rowText += bandChar + ' ';
-    }
-
-    let color = colors[2] ?? accent;
-    if (rowIndex < Math.max(1, height * 0.3)) {
-      color = '#ff5f87';
-    } else if (rowIndex < Math.max(2, height * 0.6)) {
-      color = colors[4] ?? accent;
-    } else {
-      color = colors[3] ?? accent;
-    }
-
-    rows.push({
-      text: rowText.padEnd(width).slice(0, width),
-      color
+      return {
+        text: ' ',
+        color: level === null ? accent : selectedColor,
+        backgroundColor: level === null ? undefined : ramp[level] ?? selectedColor
+      };
     });
-  }
+
+    return lineFromCells(cells, accent);
+  });
 
   return rows;
+}
+
+function ultracodeDistance(column: number, row: number, originColumn: number, originRow: number): number {
+  const dx = column - originColumn;
+  const dy = (row - originRow) * 2;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function ultracodeRippleLevel(distance: number, travel: number, rampLength: number): number | null {
+  if (distance > travel) {
+    return null;
+  }
+
+  const phase = (((distance - travel) % ultracodeWavelength) + ultracodeWavelength) % ultracodeWavelength;
+  const brightness = (1 + Math.cos((2 * Math.PI * phase) / ultracodeWavelength)) / 2;
+  return Math.min(rampLength - 1, Math.round(brightness * (rampLength - 1)));
+}
+
+function ultracodeRippleRamp(theme: ThemeName): string[] {
+  if (theme === 'violet') {
+    return ultracodeVioletRamp;
+  }
+
+  const colors = themeContributionColors(theme);
+  const start = colors[1] ?? '#1c1c1c';
+  const end = themeAccent(theme);
+  return Array.from({length: 8}, (_, index) => interpolateHex(start, end, index / 7));
+}
+
+type Rgb = [number, number, number];
+
+function interpolateHex(startHex: string, endHex: string, amount: number): string {
+  const start = hexToRgb(startHex);
+  const end = hexToRgb(endHex);
+  return rgbToHex([
+    Math.round(start[0] + (end[0] - start[0]) * amount),
+    Math.round(start[1] + (end[1] - start[1]) * amount),
+    Math.round(start[2] + (end[2] - start[2]) * amount)
+  ]);
+}
+
+function hexToRgb(hex: string): Rgb {
+  const normalized = hex.replace('#', '');
+  const expanded = normalized.length === 3
+    ? [...normalized].map(value => value + value).join('')
+    : normalized.padEnd(6, '0').slice(0, 6);
+  const value = Number.parseInt(expanded, 16);
+  return [
+    (value >> 16) & 255,
+    (value >> 8) & 255,
+    value & 255
+  ];
+}
+
+function rgbToHex([red, green, blue]: Rgb): string {
+  return `#${[red, green, blue].map(value => clampColor(value).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function clampColor(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 function buildMotionBlob(
@@ -2492,10 +2518,20 @@ function lineFromCells(cells: VisualCell[], fallbackColor: string): VisualLine {
 
   for (const cell of cells) {
     const previous = segments[segments.length - 1];
-    if (previous && previous.color === cell.color) {
+    if (
+      previous &&
+      previous.color === cell.color &&
+      previous.backgroundColor === cell.backgroundColor &&
+      previous.bold === cell.bold
+    ) {
       previous.text += cell.text;
     } else {
-      segments.push({text: cell.text, color: cell.color});
+      segments.push({
+        text: cell.text,
+        color: cell.color,
+        backgroundColor: cell.backgroundColor,
+        bold: cell.bold
+      });
     }
   }
 
@@ -2566,7 +2602,7 @@ function dimMotionColorAt(position: number, theme: ThemeName): string {
 
 export function visualizerHeight(style: ReceiverStyle, availableRows: number, width = 80): number {
   const maxRowsByStyle: Partial<Record<ReceiverStyle, number>> = {
-    equalizer: 12,
+    ultracode: 14,
     'motion-blob': 12,
     'motion-area': 11,
     'motion-contour': 14,
@@ -2618,7 +2654,7 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number, wi
     newton: 14
   };
   const spaciousStyles = new Set<ReceiverStyle>([
-    'equalizer',
+    'ultracode',
     'motion-blob',
     'motion-area',
     'motion-contour',
@@ -2670,7 +2706,9 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number, wi
     'newton'
   ]);
   const minRows =
-    style === 'cube' || style === 'motion-contour' || style === 'spinning-donut'
+    style === 'ultracode'
+      ? 7
+      : style === 'cube' || style === 'motion-contour' || style === 'spinning-donut'
       ? 8
       : spaciousStyles.has(style)
         ? 7

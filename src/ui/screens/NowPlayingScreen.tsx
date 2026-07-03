@@ -10,7 +10,7 @@ import type {
   TrackPlay
 } from '../../types.js';
 import {stationLocation, stationTags, stationTech, truncate} from '../format.js';
-import {themeAccent} from '../theme.js';
+import {textMuted, themeAccent} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
@@ -107,7 +107,7 @@ export function NowPlayingScreen({
         <Box marginTop={1}>
           <Text color={accent} bold>{a(stationName)}</Text>
         </Box>
-        <Text color="gray">{a(truncate(stationPlace, innerWidth))}</Text>
+        <Text color={textMuted}>{a(truncate(stationPlace, innerWidth))}</Text>
         <Box flexDirection="column">
           {renderRows.map((row, index) => (
             <Text key={`${index}-${row.color}-${row.text}`} color={row.segments ? undefined : row.color}>
@@ -118,23 +118,23 @@ export function NowPlayingScreen({
           ))}
         </Box>
         <Box marginTop={1} justifyContent="space-between" width={innerWidth}>
-          <Text color={metadata?.title ? accent : 'gray'}>{a(metadataLine)}</Text>
-          <Text color={favorite ? 'yellow' : 'gray'}>{a(favoriteText)}</Text>
+          <Text color={metadata?.title ? accent : textMuted}>{a(metadataLine)}</Text>
+          <Text color={favorite ? 'yellow' : textMuted}>{a(favoriteText)}</Text>
         </Box>
-        <Text color="gray">{a(infoLine)}</Text>
+        <Text color={textMuted}>{a(infoLine)}</Text>
         {showDiagnostics ? (
           <Box marginTop={1} flexDirection="column">
-            <Text color="gray">Diagnostics</Text>
-            <Text color="gray">{a(`Stream: ${diagnostics.streamUrl ? truncate(diagnostics.streamUrl, innerWidth - 8) : 'none'}`)}</Text>
-            <Text color="gray">{a(`Station time: ${stationTime}`)}</Text>
-            <Text color="gray">
+            <Text color={textMuted}>Diagnostics</Text>
+            <Text color={textMuted}>{a(`Stream: ${diagnostics.streamUrl ? truncate(diagnostics.streamUrl, innerWidth - 8) : 'none'}`)}</Text>
+            <Text color={textMuted}>{a(`Station time: ${stationTime}`)}</Text>
+            <Text color={textMuted}>
               {a(`Started: ${diagnostics.startedAt ? new Date(diagnostics.startedAt).toLocaleTimeString() : 'not playing'} · available ${diagnostics.availableBackends.join(', ') || 'none'}`)}
             </Text>
             {stationTracks.length > 0 ? (
               <Box flexDirection="column" marginTop={1}>
-                <Text color="gray">Recent tracks</Text>
+                <Text color={textMuted}>Recent tracks</Text>
                 {stationTracks.map(track => (
-                  <Text key={`${track.at}-${track.title}`} color="gray">
+                  <Text key={`${track.at}-${track.title}`} color={textMuted}>
                     {a(`· ${truncate(track.title, innerWidth - 2)}`)}
                   </Text>
                 ))}
@@ -147,7 +147,8 @@ export function NowPlayingScreen({
   );
 }
 
-type VisualRow = {text: string; color: string; segments?: Array<{text: string; color: string}>};
+type VisualSegment = {text: string; color: string; backgroundColor?: string; bold?: boolean};
+type VisualRow = {text: string; color: string; segments?: VisualSegment[]};
 
 function asciifyVisualRow(row: VisualRow): VisualRow {
   return {
@@ -215,13 +216,13 @@ function stationFrequency(name: string): string | null {
   return null;
 }
 
-function renderSegments(segments: Array<{text: string; color: string}>): React.ReactNode {
+function renderSegments(segments: VisualSegment[]): React.ReactNode {
   let offset = 0;
   return segments.map(segment => {
-    const key = `${offset}-${segment.color}`;
+    const key = `${offset}-${segment.color}-${segment.backgroundColor ?? ''}-${segment.bold ? 'bold' : ''}`;
     offset += segment.text.length;
     return (
-      <Text key={key} color={segment.color}>
+      <Text key={key} color={segment.color} backgroundColor={segment.backgroundColor} bold={segment.bold}>
         {segment.text}
       </Text>
     );

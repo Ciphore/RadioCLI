@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {ThemeName} from '../../types.js';
-import {themeAccent} from '../theme.js';
+import {textMuted, themeAccent} from '../theme.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {commandHelp, keyHelpSections} from '../help-content.js';
 import {truncate} from '../format.js';
@@ -33,7 +33,7 @@ export function HelpScreen({theme, width}: HelpScreenProps): React.ReactElement 
             {section.entries.map(entry => (
               <Text key={entry.keys}>
                 <Text color={accent}>{entry.keys.padEnd(keyColumnWidth)}</Text>
-                <Text color="gray">{entry.description}</Text>
+                <Text color={textMuted}>{entry.description}</Text>
               </Text>
             ))}
           </Box>
@@ -45,7 +45,7 @@ export function HelpScreen({theme, width}: HelpScreenProps): React.ReactElement 
         </Text>
         <Box flexDirection="row" flexWrap="wrap" columnGap={3}>
           {commandHelp.map(command => (
-            <Text key={command.name} color="gray">
+            <Text key={command.name} color={textMuted}>
               {truncate(`:${command.name}${command.args ? ` ${command.args}` : ''}`, lineWidth)}
             </Text>
           ))}

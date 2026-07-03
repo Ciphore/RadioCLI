@@ -1,7 +1,7 @@
 const providerIds = ['radio-browser', 'radio-garden', 'playlist'] as const;
 export const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper', 'cyan', 'lime', 'coral', 'rose', 'slate', 'mono'] as const;
 export const receiverStyleNames = [
-  'equalizer',
+  'ultracode',
   'motion-blob',
   'motion-area',
   'motion-contour',

@@ -6,7 +6,7 @@ import {HelpScreen} from './HelpScreen.js';
 import {NowPlayingScreen} from './NowPlayingScreen.js';
 import {SettingsScreen} from './SettingsScreen.js';
 import {ExploreScreen} from './ExploreScreen.js';
-import {contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
+import {buildContributionGraph, contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
 import {settingsItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
 
@@ -144,7 +144,7 @@ describe('Explore world map rendering', () => {
 });
 
 describe('StatsScreen rendering', () => {
-  it('renders activity heatmap days as square markers instead of stretched blocks', () => {
+  it('renders activity heatmap as large calendar-year cells with readable month labels', () => {
     const library: LibraryState = {
       recent: [],
       favorites: [],
@@ -170,8 +170,42 @@ describe('StatsScreen rendering', () => {
       </DisplayContext.Provider>
     ).lastFrame() ?? '';
 
-    expect(frame).toContain('■');
+    expect(frame).toContain('Jan');
     expect(frame).not.toContain('██');
+  });
+
+  it('starts the contribution graph at January and uses large cells when space allows', () => {
+    const graph = buildContributionGraph([
+      {date: '2026-01-01', seconds: 3600},
+      {date: '2026-12-31', seconds: 0}
+    ], 170);
+
+    expect(graph.months.startsWith('Jan')).toBe(true);
+    expect(graph.months).toContain('Dec');
+    expect(graph.cellText).toBe('  ');
+    expect(graph.cellGap).toBe(' ');
+    expect(graph.rows[4]?.cells[0]).toMatchObject({
+      level: 4,
+      text: '  ',
+      visible: true
+    });
+    expect(graph.rows[0]?.cells[0]).toMatchObject({
+      level: 0,
+      text: '  ',
+      visible: true
+    });
+    expect(graph.rows[6]?.cells.at(-1)).toMatchObject({
+      level: 0,
+      text: '  ',
+      visible: true
+    });
+
+    const normalWidthGraph = buildContributionGraph([
+      {date: '2026-01-01', seconds: 3600},
+      {date: '2026-12-31', seconds: 0}
+    ], 128);
+    expect(normalWidthGraph.cellText).toBe('  ');
+    expect(normalWidthGraph.cellGap).toBe('');
   });
 
   it('caps contribution color scaling so one outlier does not flatten normal active days', () => {

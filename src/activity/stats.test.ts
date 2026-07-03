@@ -57,6 +57,18 @@ describe('computeListeningStats', () => {
     expect(stats.currentStreak).toBe(2);
   });
 
+  it('caps stale continuous sessions before splitting them across days', () => {
+    const sessions: ListeningSession[] = [
+      session('stale', new Date(2026, 4, 31, 2), 30 * 24 * 60 * 60, station)
+    ];
+
+    const stats = computeListeningStats(sessions, new Date(2026, 6, 3, 18));
+    const activeDays = stats.days.filter(day => day.seconds > 0);
+
+    expect(stats.totalSeconds).toBe(12 * 60 * 60);
+    expect(activeDays.map(day => day.date)).toEqual([localDay(new Date(2026, 4, 31))]);
+  });
+
   it('does not collapse late-night local listening into one UTC day', () => {
     const previousDay = new Date(2026, 4, 23);
     const today = new Date(2026, 4, 24);

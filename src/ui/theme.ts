@@ -7,7 +7,10 @@ export const panelBorder = '#28313c';
 
 // Shared neutral palette. Use these named tokens instead of ad-hoc hex literals
 // so secondary text, rules, and map shading stay consistent across every screen.
-export const textDim = '#5b6573';
+// Keep these as hex truecolor values rather than ANSI names like "gray";
+// named gray maps to terminal-palette "bright black" and can become unreadable.
+export const textMuted = '#aab4c2';
+export const textDim = '#8a96a8';
 export const textHighlight = '#d8c66f';
 export const mapLand = '#33414f';
 export const mapWater = '#1a2430';
@@ -36,7 +39,7 @@ export function themeAccent(theme: ThemeName): string {
   }
 
   if (theme === 'violet') {
-    return '#a78bfa';
+    return '#8c50f0';
   }
 
   if (theme === 'copper') {
@@ -94,7 +97,7 @@ export function themeContributionColors(theme: ThemeName): string[] {
   }
 
   if (theme === 'violet') {
-    return [emptyContribution, '#302047', '#5b3f8f', '#7c5cff', '#a78bfa'];
+    return [emptyContribution, '#3e1676', '#542799', '#763fcd', '#8c50f0'];
   }
 
   if (theme === 'copper') {

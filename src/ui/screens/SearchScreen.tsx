@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
 import {StationList} from '../components/StationList.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {panelBorder, themeAccent} from '../theme.js';
+import {panelBorder, textMuted, themeAccent} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {truncate} from '../format.js';
 
@@ -59,10 +59,10 @@ export function SearchScreen({
         marginBottom={1}
         flexShrink={0}
       >
-        <Text color={editing ? themeAccent(theme) : 'gray'}>{editing ? '› ' : '  '}</Text>
-        <Text color={query ? themeAccent(theme) : 'gray'}>{truncate(query || 'Search stations, genres, languages, places…', inputTextWidth)}</Text>
+        <Text color={editing ? themeAccent(theme) : textMuted}>{editing ? '› ' : '  '}</Text>
+        <Text color={query ? themeAccent(theme) : textMuted}>{truncate(query || 'Search stations, genres, languages, places…', inputTextWidth)}</Text>
       </Box>
-      {loading ? <Text color="gray">Searching public station directories…</Text> : null}
+      {loading ? <Text color={textMuted}>Searching public station directories…</Text> : null}
       {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
     </Box>
   );

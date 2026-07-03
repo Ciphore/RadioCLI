@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {ThemeName} from '../../types.js';
-import {textDim, themeAccent} from '../theme.js';
+import {textDim, textMuted, themeAccent} from '../theme.js';
 import {useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 import {truncate} from '../format.js';
@@ -33,9 +33,9 @@ export function ScreenHeader({title, width, theme, subtitle, right}: ScreenHeade
           {a(safeTitle)}
         </Text>
         <Text color={textDim}> {rule}</Text>
-        {rightText ? <Text color="gray">{a(rightText)}</Text> : null}
+        {rightText ? <Text color={textMuted}>{a(rightText)}</Text> : null}
       </Box>
-      {subtitle ? <Text color="gray">{a(truncate(subtitle, width))}</Text> : null}
+      {subtitle ? <Text color={textMuted}>{a(truncate(subtitle, width))}</Text> : null}
     </Box>
   );
 }

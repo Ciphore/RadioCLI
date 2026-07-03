@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {Country, ThemeName} from '../../types.js';
-import {mapLand, mapWater, themeAccent, themeContributionColors} from '../theme.js';
+import {mapLand, mapWater, textMuted, themeAccent, themeContributionColors} from '../theme.js';
 import {useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 import {visibleWindow} from '../list-window.js';
@@ -52,23 +52,23 @@ export function MapScreen({
         theme={theme}
         right={`filter: ${filter || 'all'}`}
       />
-      {loading ? <Text color="gray">{asciify('Loading country density…')}</Text> : null}
+      {loading ? <Text color={textMuted}>{asciify('Loading country density…')}</Text> : null}
       <Box marginTop={1} flexDirection="column">
         {graph.rows.map(row => (
           <MapLine key={row.cells.map(cell => cell.char).join('')} row={row} theme={theme} />
         ))}
       </Box>
-      <Text color="gray">
+      <Text color={textMuted}>
         {asciify(`${graph.plotted} plotted · ${graph.unplotted} unplaced · labels show highest station counts`)}
       </Text>
       <Box marginTop={1} flexDirection={mode === 'full' ? 'row' : 'column'}>
         <Box width={topWidth} flexDirection="column">
-          <Text color="gray">Highest station counts</Text>
+          <Text color={textMuted}>Highest station counts</Text>
           {topCountries.map(country => (
             <Text key={country.code}>
               <Text color={themeAccent(theme)}>{country.code.padEnd(3)}</Text>
               <Text>{truncate(country.name, 30).padEnd(31)}</Text>
-              <Text color="gray">{country.stationCount.toLocaleString().padStart(7)}</Text>
+              <Text color={textMuted}>{country.stationCount.toLocaleString().padStart(7)}</Text>
             </Text>
           ))}
         </Box>
@@ -89,7 +89,7 @@ export function MapScreen({
                 <Text color={active ? themeAccent(theme) : undefined} bold={active}>
                   {country.code}
                 </Text>
-                <Text color="gray">{asciify(` · ${truncate(country.name, Math.max(8, listWidth - 8))}`)}</Text>
+                <Text color={textMuted}>{asciify(` · ${truncate(country.name, Math.max(8, listWidth - 8))}`)}</Text>
               </Box>
             )}
           />
@@ -147,7 +147,7 @@ function mapColor(kind: MapCellKind, theme: ThemeName): string {
   }
 
   if (kind === 'level1') {
-    return colors[1] ?? 'gray';
+    return colors[1] ?? textMuted;
   }
 
   if (kind === 'land') {

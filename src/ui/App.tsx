@@ -5,7 +5,7 @@ import {PlayerController, type PlaybackControlResult} from '../player/player-con
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import {receiverStyleNames, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
-import {nextReceiverStyle, nextTheme, textDim, themeAccent} from './theme.js';
+import {nextReceiverStyle, nextTheme, textDim, textMuted, themeAccent} from './theme.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
@@ -34,9 +34,11 @@ import {
   initialStationContexts,
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
+  nextReceiverPulse,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
   shouldAnimateReceiver,
+  shouldResetReceiverPulse,
   shouldSkipAfterTuneError,
   stationApproximateTime,
   stationContextKeyForScreen,
@@ -49,7 +51,8 @@ import {
   type StationContext,
   type StationContextKey,
   type ExploreCursor,
-  type ExploreMoveDirection
+  type ExploreMoveDirection,
+  type ReceiverPulseSnapshot
 } from './app-state.js';
 
 type AppProps = {
@@ -61,6 +64,7 @@ const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>(receiverStyle
 const LIVE_RECEIVER_PULSE_MS = 80;
 const AMBIENT_RECEIVER_PULSE_MS = 140;
 const LOADING_SPINNER_MS = 120;
+const VISUALIZER_MESSAGE_MS = 4500;
 
 const settingToggleLabel: Record<'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion', string> = {
   resumeOnLaunch: 'Resume on launch',
@@ -124,6 +128,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const exploreCursorRef = useRef(exploreCursor);
   const exploreRequestRef = useRef(0);
   const exploreMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transientMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const receiverPulseSnapshotRef = useRef<ReceiverPulseSnapshot | null>(null);
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
@@ -256,6 +262,21 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [renderedStationContextKey, screen, selected]);
 
   useEffect(() => {
+    const current: ReceiverPulseSnapshot = {
+      screen,
+      receiverStyle: library.settings.receiverStyle,
+      playbackState: playback.state,
+      playbackReady: playback.ready
+    };
+
+    if (shouldResetReceiverPulse(receiverPulseSnapshotRef.current, current)) {
+      setPulse(0);
+    }
+
+    receiverPulseSnapshotRef.current = current;
+  }, [library.settings.receiverStyle, playback.ready, playback.state, screen]);
+
+  useEffect(() => {
     if (
       !shouldAnimateReceiver(screen, playback) ||
       library.settings.reduceMotion ||
@@ -266,7 +287,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
 
     const intervalMs = LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle) ? LIVE_RECEIVER_PULSE_MS : AMBIENT_RECEIVER_PULSE_MS;
-    const timer = setInterval(() => setPulse(value => (value + 1) % 240), intervalMs);
+    const timer = setInterval(() => setPulse(nextReceiverPulse), intervalMs);
     return () => clearInterval(timer);
   }, [library.settings.receiverStyle, library.settings.reduceMotion, playback.ready, playback.state, screen]);
 
@@ -300,6 +321,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     () => () => {
       if (exploreMoveTimerRef.current) {
         clearTimeout(exploreMoveTimerRef.current);
+      }
+      if (transientMessageTimerRef.current) {
+        clearTimeout(transientMessageTimerRef.current);
       }
     },
     []
@@ -857,17 +881,30 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     void player.togglePause().then(showControlResult);
   }, [player, showControlResult]);
 
+  const showTransientMessage = useCallback((nextMessage: string) => {
+    if (transientMessageTimerRef.current) {
+      clearTimeout(transientMessageTimerRef.current);
+    }
+
+    setMessage(nextMessage);
+    transientMessageTimerRef.current = setTimeout(() => {
+      setMessage(currentMessage => currentMessage === nextMessage ? null : currentMessage);
+      transientMessageTimerRef.current = null;
+    }, VISUALIZER_MESSAGE_MS);
+  }, []);
+
   const cycleDisplayColor = useCallback(() => {
     const theme = nextTheme(settingsRef.current.theme);
     updateSettings({theme});
-    setMessage(`Display color: ${theme}`);
-  }, [updateSettings]);
+    showTransientMessage(`Display color: ${theme}`);
+  }, [showTransientMessage, updateSettings]);
 
   const cycleReceiverStyle = useCallback(() => {
     const receiverStyle = nextReceiverStyle(settingsRef.current.receiverStyle);
+    setPulse(0);
     updateSettings({receiverStyle});
-    setMessage(`Receiver style: ${receiverStyle}`);
-  }, [updateSettings]);
+    showTransientMessage(`Receiver style: ${receiverStyle}`);
+  }, [showTransientMessage, updateSettings]);
 
   const toggleRadioGarden = useCallback(() => {
     const enableRadioGarden = !settingsRef.current.enableRadioGarden;
@@ -1270,15 +1307,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           storePath={store.filePath}
           theme={theme}
         />
-        {message ? (
-          <Box marginTop={1}>
-            <Text color={themeAccent(theme)}>{message}</Text>
-          </Box>
-        ) : null}
+        <Box height={1}>
+          {message ? <Text color={themeAccent(theme)}>{truncate(message, frameWidth)}</Text> : null}
+        </Box>
       </Box>
       <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.panel}>
         {playbackFooter ? <Text color={themeAccent(theme)}>{playbackFooter}</Text> : null}
-        <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : 'gray'}>
+        <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
           {truncate(pageFooter, frameWidth)}
         </Text>
         <Text color={textDim}>{truncate(globalFooter, frameWidth)}</Text>

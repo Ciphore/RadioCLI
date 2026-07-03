@@ -11,7 +11,7 @@ import type {
   Station,
   ThemeName
 } from '../types.js';
-import {themeAccent} from './theme.js';
+import {textMuted, themeAccent} from './theme.js';
 import {HomeScreen} from './screens/HomeScreen.js';
 import {CountriesScreen} from './screens/CountriesScreen.js';
 import {MapScreen} from './screens/MapScreen.js';
@@ -103,9 +103,9 @@ export function AppContent({
       <Box flexDirection="column">
         <Text bold>RadioCLI</Text>
         <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
-        <Text color="gray">Resize to at least 64x18 for the full receiver UI.</Text>
-        <Text color="gray">Playback: {playback.state} · {playbackBackendLabel(playback.backend)}</Text>
-        <Text color="gray">q quit · Ctrl+C always exits</Text>
+        <Text color={textMuted}>Resize to at least 64x18 for the full receiver UI.</Text>
+        <Text color={textMuted}>Playback: {playback.state} · {playbackBackendLabel(playback.backend)}</Text>
+        <Text color={textMuted}>q quit · Ctrl+C always exits</Text>
       </Box>
     );
   }

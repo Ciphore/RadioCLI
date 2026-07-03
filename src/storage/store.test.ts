@@ -178,6 +178,38 @@ describe('JsonLibraryStore', () => {
     }
   );
 
+  it('migrates the replaced equalizer receiver style to ultracode', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        recent: [],
+        favorites: [],
+        imported: [],
+        activity: {sessions: []},
+        settings: {
+          theme: 'violet',
+          receiverStyle: 'equalizer',
+          receiverStyleVersion: 2,
+          volume: 70,
+          enableRadioGarden: false,
+          enableNearbyLocation: false,
+          preferredBackend: 'auto',
+          tuneTimeoutSeconds: 12,
+          skipBrokenStreams: true
+        }
+      }),
+      'utf8'
+    );
+
+    const state = new JsonLibraryStore(file).snapshot();
+    expect(state.settings.theme).toBe('violet');
+    expect(state.settings.receiverStyle).toBe('ultracode');
+    expect(state.settings.receiverStyleVersion).toBe(2);
+  });
+
   it('defaults missing preferred AirPlay device to undefined', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);

@@ -2,7 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {LibraryState, ThemeName} from '../../types.js';
 import {computeListeningStats, type DailyListening} from '../../activity/stats.js';
-import {panelBorder, textHighlight, themeAccent, themeContributionColors} from '../theme.js';
+import {panelBorder, textHighlight, textMuted, themeAccent, themeContributionColors} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
@@ -15,7 +15,29 @@ type StatsScreenProps = {
 };
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const heatmapSquare = '■';
+const dayLabelWidth = 5;
+const heatmapCellOptions = [
+  {cell: '  ', gap: ' '},
+  {cell: '  ', gap: ''},
+  {cell: '■', gap: ''}
+] as const;
+const compactHeatmapCell = '■';
+const compactHeatmapGap = '';
+
+type ContributionCell = {
+  key: string;
+  level: number;
+  text: string;
+  visible: boolean;
+};
+
+type ContributionGraph = {
+  year: number;
+  months: string;
+  cellText: string;
+  cellGap: string;
+  rows: Array<{key: string; label: string; cells: ContributionCell[]}>;
+};
 
 export function StatsScreen({library, theme, width, height}: StatsScreenProps): React.ReactElement {
   const {panel: panelBackground, ascii} = useDisplay();
@@ -28,6 +50,7 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
   const metricWidth = Math.max(28, Math.floor((contentWidth - 2) / 2));
   const favoriteWidth = Math.max(8, metricWidth - 18);
   const compact = height < 30;
+  const tileHeight = graph.cellText.trim().length === 0 ? 2 : 1;
 
   return (
     <Box flexDirection="column">
@@ -49,20 +72,20 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
       >
         <Box>
           <Text color={themeAccent(theme)} bold>
-            Activity — last 53 weeks
+            Activity — {graph.year}
           </Text>
         </Box>
-        <Box marginTop={compact ? 0 : 1} flexDirection="column">
-          <Text color="gray">      {graph.months}</Text>
+        <Box flexDirection="column">
+          <Text color={textMuted}>{' '.repeat(dayLabelWidth)}{graph.months}</Text>
           {graph.rows.map(row => (
-            <Box key={row.key}>
-              <Text color="gray">{row.label.padEnd(5)}</Text>
-              {row.cells.map(cell => (
-                <Text key={cell.key} color={graphColors[cell.level]}>
-                  {cell.text}
-                </Text>
+            <React.Fragment key={row.key}>
+              {Array.from({length: tileHeight}, (_, tileLine) => (
+                <Box key={`${row.key}-${tileLine}`}>
+                  <Text color={textMuted}>{tileLine === 0 ? row.label.padEnd(dayLabelWidth) : ' '.repeat(dayLabelWidth)}</Text>
+                  {row.cells.map(cell => renderContributionCell(cell, graphColors, graph.cellGap))}
+                </Box>
               ))}
-            </Box>
+            </React.Fragment>
           ))}
         </Box>
       </Box>
@@ -86,13 +109,14 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Station threshold', '>= 120s total', metricWidth, theme)}
         </Box>
         <Box marginTop={1}>
-          <Text color="gray">Less · </Text>
+          <Text color={textMuted}>Less · </Text>
           {graphColors.map(color => (
-            <Text key={color} color={color}>
-              {heatmapSquare}<Text> </Text>
-            </Text>
+            <React.Fragment key={color}>
+              {renderLegendCell(color, graph.cellText, graph.cellGap)}
+              <Text> </Text>
+            </React.Fragment>
           ))}
-          <Text color="gray">More</Text>
+          <Text color={textMuted}>More</Text>
         </Box>
         {!compact ? (
         <Box marginTop={1}>
@@ -104,6 +128,47 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
         ) : null}
       </Box>
     </Box>
+  );
+}
+
+function renderContributionCell(cell: ContributionCell, graphColors: string[], cellGap: string): React.ReactElement {
+  if (!cell.visible) {
+    return <Text key={cell.key}>{cell.text}</Text>;
+  }
+
+  const color = graphColors[cell.level] ?? graphColors[0] ?? textMuted;
+  if (cell.text.trim().length === 0) {
+    return (
+      <React.Fragment key={cell.key}>
+        <Text backgroundColor={color}>{cell.text}</Text>
+        {cellGap ? <Text>{cellGap}</Text> : null}
+      </React.Fragment>
+    );
+  }
+
+  return (
+    <React.Fragment key={cell.key}>
+      <Text color={color}>{cell.text}</Text>
+      {cellGap ? <Text>{cellGap}</Text> : null}
+    </React.Fragment>
+  );
+}
+
+function renderLegendCell(color: string, text: string, cellGap: string): React.ReactElement {
+  if (text.trim().length === 0) {
+    return (
+      <>
+        <Text backgroundColor={color}>{text}</Text>
+        {cellGap ? <Text>{cellGap}</Text> : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Text color={color}>{text}</Text>
+      {cellGap ? <Text>{cellGap}</Text> : null}
+    </>
   );
 }
 
@@ -121,14 +186,14 @@ function metricPair(
     <Box height={1} width={metricWidth * 2 + 2}>
       <Box width={metricWidth}>
         <Text>
-          <Text color="gray">{leftLabel}: </Text>
+          <Text color={textMuted}>{leftLabel}: </Text>
           <Text color={accent}>{leftValue}</Text>
         </Text>
       </Box>
       <Text>{' '.repeat(leftPadding > 2 ? 2 : leftPadding)}</Text>
       <Box width={metricWidth}>
         <Text>
-          <Text color="gray">{rightLabel}: </Text>
+          <Text color={textMuted}>{rightLabel}: </Text>
           <Text color={accent}>{rightValue}</Text>
         </Text>
       </Box>
@@ -136,15 +201,19 @@ function metricPair(
   );
 }
 
-function buildContributionGraph(days: DailyListening[], width: number): {
-  months: string;
-  rows: Array<{key: string; label: string; cells: Array<{key: string; level: number; text: string}>}>;
-} {
-  const cellWidth = width >= 112 ? 2 : 1;
-  const weeks = Array.from({length: 53}, (_, weekIndex) =>
-    days.slice(weekIndex * 7, weekIndex * 7 + 7)
-  ).filter(week => week.length > 0);
-  const scaleSeconds = contributionScaleSeconds(days);
+export function buildContributionGraph(days: DailyListening[], width: number): ContributionGraph {
+  const year = graphYear(days);
+  const weeks = calendarYearWeeks(year);
+  const largestCell = heatmapCellOptions.find(option => dayLabelWidth + weeks.length * (option.cell.length + option.gap.length) <= width);
+  const selectedCell = largestCell ?? {cell: compactHeatmapCell, gap: compactHeatmapGap};
+  const largeCellWidth = selectedCell.cell.length + selectedCell.gap.length;
+  const compactCellWidth = compactHeatmapCell.length + compactHeatmapGap.length;
+  const cellWidth = largeCellWidth > 0 ? largeCellWidth : compactCellWidth;
+  const cellText = selectedCell.cell;
+  const cellGap = selectedCell.gap;
+  const secondsByDate = new Map(days.map(day => [day.date, day.seconds]));
+  const yearDays = days.filter(day => parseLocalDay(day.date).getFullYear() === year);
+  const scaleSeconds = contributionScaleSeconds(yearDays);
   const labels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
   const rows = Array.from({length: 7}, (_, dayIndex) => ({
@@ -152,13 +221,22 @@ function buildContributionGraph(days: DailyListening[], width: number): {
     label: labels[dayIndex] ?? '',
     cells: weeks.map(week => {
       const day = week[dayIndex];
-      const level = contributionLevel(day?.seconds ?? 0, scaleSeconds);
-      const text = cellWidth > 1 ? `${heatmapSquare} ` : heatmapSquare;
-      return {key: day?.date ?? `${week[0]?.date ?? 'empty'}-${dayIndex}`, level, text};
+      if (!day) {
+        return {
+          key: `empty-${dayIndex}`,
+          level: 0,
+          text: ' '.repeat(cellWidth),
+          visible: false
+        };
+      }
+
+      const date = localDay(day.date);
+      const level = day.visible ? contributionLevel(secondsByDate.get(date) ?? 0, scaleSeconds) : 0;
+      return {key: date, level, text: cellText, visible: true};
     })
   }));
 
-  return {months: monthLine(weeks, cellWidth), rows};
+  return {year, months: monthLine(weeks, cellWidth, year), cellText, cellGap, rows};
 }
 
 export function contributionScaleSeconds(days: DailyListening[]): number {
@@ -196,25 +274,49 @@ export function contributionLevel(seconds: number, scaleSeconds: number): number
   return 1;
 }
 
-function monthLine(weeks: DailyListening[][], cellWidth: number): string {
-  const cells = weeks.map((week, index) => {
-    const first = week[0];
-    if (!first) {
-      return ''.padEnd(cellWidth, ' ');
+type CalendarDay = {
+  date: Date;
+  visible: boolean;
+};
+
+function graphYear(days: DailyListening[]): number {
+  const lastDay = days[days.length - 1];
+  return lastDay ? parseLocalDay(lastDay.date).getFullYear() : new Date().getFullYear();
+}
+
+function calendarYearWeeks(year: number): CalendarDay[][] {
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31);
+  const gridStart = addLocalDays(yearStart, -yearStart.getDay());
+  const gridEnd = addLocalDays(yearEnd, 6 - yearEnd.getDay());
+  const weeks: CalendarDay[][] = [];
+
+  for (let cursor = gridStart; cursor.getTime() <= gridEnd.getTime(); cursor = addLocalDays(cursor, 7)) {
+    weeks.push(Array.from({length: 7}, (_, dayIndex) => {
+      const date = addLocalDays(cursor, dayIndex);
+      return {date, visible: date.getFullYear() === year};
+    }));
+  }
+
+  return weeks;
+}
+
+function monthLine(weeks: CalendarDay[][], cellWidth: number, year: number): string {
+  const cells = Array.from({length: weeks.length * cellWidth}, () => ' ');
+
+  for (let month = 0; month < 12; month += 1) {
+    const label = monthLabels[month]!;
+    const firstOfMonth = localDay(new Date(year, month, 1));
+    const weekIndex = weeks.findIndex(week => week.some(day => localDay(day.date) === firstOfMonth));
+    if (weekIndex < 0) {
+      continue;
     }
 
-    const date = parseLocalDay(first.date);
-    const previous = index > 0 && weeks[index - 1]?.[0]
-      ? parseLocalDay(weeks[index - 1]![0]!.date)
-      : null;
-    const changedMonth = !previous || date.getMonth() !== previous.getMonth();
-    if (!changedMonth) {
-      return ''.padEnd(cellWidth, ' ');
+    const start = weekIndex * cellWidth;
+    for (let index = 0; index < label.length && start + index < cells.length; index += 1) {
+      cells[start + index] = label[index]!;
     }
-
-    const label = monthLabels[date.getMonth()]!;
-    return cellWidth >= 3 ? label : label.slice(0, cellWidth).padEnd(cellWidth, ' ');
-  });
+  }
 
   return cells.join('');
 }
@@ -222,6 +324,19 @@ function monthLine(weeks: DailyListening[][], cellWidth: number): string {
 function parseLocalDay(value: string): Date {
   const [year = '0', month = '1', day = '1'] = value.split('-');
   return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
+function localDay(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return new Date(next.getFullYear(), next.getMonth(), next.getDate());
 }
 
 function formatDays(days: number): string {

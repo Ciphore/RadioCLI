@@ -3,6 +3,7 @@ import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
 import {StationList} from '../components/StationList.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
+import {textMuted} from '../theme.js';
 
 type StationScreenProps = {
   title: string;
@@ -39,7 +40,7 @@ export function StationScreen({
         right={filterLabel === 'none' ? undefined : `filters: ${filterLabel}`}
       />
       <Box marginTop={1} flexDirection="column">
-        {loading ? <Text color="gray">Loading stations…</Text> : null}
+        {loading ? <Text color={textMuted}>Loading stations…</Text> : null}
         {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
       </Box>
     </Box>

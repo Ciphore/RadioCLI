@@ -2,7 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
 import {stationLocation, stationTags, stationTech, truncate} from '../format.js';
-import {themeAccent} from '../theme.js';
+import {textMuted, themeAccent} from '../theme.js';
 import {Menu, Pointer} from './Menu.js';
 import {visibleWindow} from '../list-window.js';
 
@@ -19,8 +19,8 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
   if (stations.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text color="gray">No stations here yet.</Text>
-        <Text color="gray">Try a different search or country, or clear active filters with :clear.</Text>
+        <Text color={textMuted}>No stations here yet.</Text>
+        <Text color={textMuted}>Try a different search or country, or clear active filters with :clear.</Text>
       </Box>
     );
   }
@@ -32,7 +32,7 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
 
   return (
     <Box flexDirection="column">
-      <Text color="gray">
+      <Text color={textMuted}>
         Showing {window.start + 1}-{window.end} of {stations.length}
       </Text>
       <Menu
@@ -55,13 +55,13 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
                 </Text>
                 {favorite ? <Text color="yellow"> ★</Text> : null}
                 <Text>{titlePadding}</Text>
-                <Text color="gray">
+                <Text color={textMuted}>
                   {truncate(`${stationLocation(station)} · ${stationTech(station)}`, metaWidth)}
                 </Text>
               </Box>
               {active ? (
                 <Box marginLeft={4}>
-                  <Text color="gray">
+                  <Text color={textMuted}>
                     #{window.start + index + 1} · {truncate(stationTags(station), rowWidth - 8)}
                   </Text>
                 </Box>

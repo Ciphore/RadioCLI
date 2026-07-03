@@ -44,6 +44,12 @@ export type MediaTransportAction = 'previous' | 'playPause' | 'next';
 export type SleepTimerMinutes = 15 | 30 | 60 | null;
 export type KeyboardEventType = 'press' | 'repeat' | 'release';
 export type SearchEditingArrowAction = 'select-previous' | 'select-next' | 'history-older' | 'history-newer';
+export type ReceiverPulseSnapshot = {
+  screen: Screen;
+  receiverStyle: AppSettings['receiverStyle'];
+  playbackState: PlaybackState['state'];
+  playbackReady: boolean;
+};
 
 const emptyMediaKeyBindings: MediaKeyBindings = {
   previous: [],
@@ -258,6 +264,31 @@ export function stationContextKeyForScreen(screen: Screen): StationContextKey | 
 
 export function shouldAnimateReceiver(screen: Screen, playback: PlaybackState): boolean {
   return screen === 'now-playing' && playback.state === 'playing' && playback.ready;
+}
+
+export function nextReceiverPulse(pulse: number): number {
+  return pulse + 1;
+}
+
+export function shouldResetReceiverPulse(previous: ReceiverPulseSnapshot | null, current: ReceiverPulseSnapshot): boolean {
+  if (current.receiverStyle !== 'ultracode') {
+    return false;
+  }
+
+  const currentActive =
+    current.screen === 'now-playing' &&
+    current.playbackState === 'playing' &&
+    current.playbackReady;
+  if (!currentActive) {
+    return false;
+  }
+
+  return !(
+    previous?.screen === 'now-playing' &&
+    previous.receiverStyle === 'ultracode' &&
+    previous.playbackState === 'playing' &&
+    previous.playbackReady
+  );
 }
 
 export function isEditableInput(input: string, key: {backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean}): boolean {

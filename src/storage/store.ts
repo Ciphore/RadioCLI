@@ -140,6 +140,10 @@ const removedReceiverStyles = new Set([
 ]);
 
 function normalizeReceiverStyle(value: unknown): unknown {
+  if (value === 'equalizer') {
+    return 'ultracode';
+  }
+
   return typeof value === 'string' && removedReceiverStyles.has(value) ? defaultReceiverStyle : value;
 }
 

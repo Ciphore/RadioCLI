@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {Country, ThemeName} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {themeAccent} from '../theme.js';
+import {textMuted, themeAccent} from '../theme.js';
 import {visibleWindow} from '../list-window.js';
 
 type CountriesProps = {
@@ -38,10 +38,10 @@ export function CountriesScreen({
         theme={theme}
         right={`filter: ${filter || 'all'}`}
       />
-      {loading ? <Text color="gray">Loading countries from Radio Browser…</Text> : null}
+      {loading ? <Text color={textMuted}>Loading countries from Radio Browser…</Text> : null}
       {!loading ? (
         <Box marginTop={1} flexDirection="column">
-          <Text color="gray">
+          <Text color={textMuted}>
             Showing {countries.length ? window.start + 1 : 0}-{window.end} of {countries.length}
           </Text>
           <Menu
@@ -54,7 +54,7 @@ export function CountriesScreen({
                 <Text color={active ? themeAccent(theme) : undefined} bold={active}>
                   {country.name}
                 </Text>
-                <Text color="gray"> · {country.code} · {country.stationCount.toLocaleString()} stations</Text>
+                <Text color={textMuted}> · {country.code} · {country.stationCount.toLocaleString()} stations</Text>
               </Box>
             )}
           />

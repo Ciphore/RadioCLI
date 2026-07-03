@@ -20,6 +20,7 @@ export type ListeningStats = {
 
 const trackedDays = 371;
 const listenedStationThresholdSeconds = 120;
+const maxContinuousListeningSeconds = 12 * 60 * 60;
 
 export function computeListeningStats(sessions: ListeningSession[], now = new Date()): ListeningStats {
   const today = startOfLocalDay(now);
@@ -76,10 +77,13 @@ function sessionSeconds(session: ListeningSession, now = new Date()): number {
   const started = Date.parse(session.startedAt);
   const ended = session.endedAt ? Date.parse(session.endedAt) : now.getTime();
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) {
-    return Math.max(0, Math.round(session.listenedSeconds));
+    return Math.min(maxContinuousListeningSeconds, Math.max(0, Math.round(session.listenedSeconds)));
   }
 
-  return Math.max(Math.round(session.listenedSeconds), Math.round((ended - started) / 1000));
+  return Math.min(
+    maxContinuousListeningSeconds,
+    Math.max(Math.round(session.listenedSeconds), Math.round((ended - started) / 1000))
+  );
 }
 
 function localDay(date: Date): string {
@@ -105,7 +109,7 @@ function splitSessionByDay(
   const rawEnd = Number.isFinite(recordedEnd) && recordedEnd > started
     ? recordedEnd
     : started + seconds * 1000;
-  const end = Math.max(started, rawEnd);
+  const end = Math.max(started, Math.min(rawEnd, started + seconds * 1000));
   const boundedStart = Math.max(started, firstDay.getTime());
   const boundedEnd = Math.min(end, lastDayEnd.getTime());
   if (boundedEnd <= boundedStart) {

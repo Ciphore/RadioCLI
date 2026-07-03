@@ -12,11 +12,13 @@ import {
   mediaTransportActionForInput,
   moveExploreCursor,
   nextPlaybackBackend,
+  nextReceiverPulse,
   nextSleepTimerMinutes,
   searchEditingArrowAction,
   normalizeMediaKeyBindings,
   shouldHandleKeyboardEvent,
   shouldAnimateReceiver,
+  shouldResetReceiverPulse,
   shouldSkipAfterTuneError,
   stationContextKeyForScreen,
   topTabs
@@ -161,5 +163,25 @@ describe('app state helpers', () => {
     expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'stopped', ready: false})).toBe(false);
     expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'idle', ready: false})).toBe(false);
     expect(shouldAnimateReceiver('search', playingPlayback)).toBe(false);
+  });
+
+  it('keeps receiver pulses continuous instead of restarting at the loop boundary', () => {
+    expect(nextReceiverPulse(239)).toBe(240);
+    expect(nextReceiverPulse(240)).toBe(241);
+  });
+
+  it('resets the ultracode pulse only when it becomes the active Now Playing receiver', () => {
+    const activeUltracode = {
+      screen: 'now-playing',
+      receiverStyle: 'ultracode',
+      playbackState: 'playing',
+      playbackReady: true
+    } as const;
+
+    expect(shouldResetReceiverPulse(null, activeUltracode)).toBe(true);
+    expect(shouldResetReceiverPulse({...activeUltracode, screen: 'search'}, activeUltracode)).toBe(true);
+    expect(shouldResetReceiverPulse({...activeUltracode, playbackState: 'paused'}, activeUltracode)).toBe(true);
+    expect(shouldResetReceiverPulse(activeUltracode, activeUltracode)).toBe(false);
+    expect(shouldResetReceiverPulse(null, {...activeUltracode, receiverStyle: 'pulse-grid'})).toBe(false);
   });
 });

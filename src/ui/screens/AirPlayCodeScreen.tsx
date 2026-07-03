@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {AirPlayDevice, PlaybackState, ThemeName} from '../../types.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
-import {textDim, themeAccent} from '../theme.js';
+import {textDim, textMuted, themeAccent} from '../theme.js';
 
 type AirPlayCodeScreenProps = {
   code: string;
@@ -37,10 +37,10 @@ export function AirPlayCodeScreen({
       />
 
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray">
+        <Text color={textMuted}>
           Receiver: <Text color={accent}>{truncate(receiverName, Math.max(8, lineWidth - 10))}</Text>
         </Text>
-        <Text color="gray">
+        <Text color={textMuted}>
           Playback: <Text color={accent}>{playback.backend}</Text> / {playback.state}
         </Text>
         <Text color={promptActive ? accent : 'yellow'}>
@@ -51,7 +51,7 @@ export function AirPlayCodeScreen({
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray" bold>
+        <Text color={textMuted} bold>
           Code
         </Text>
         <Text color={code ? accent : textDim}>{code ? masked : 'type the code from the receiver'}</Text>

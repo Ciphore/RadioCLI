@@ -6,7 +6,7 @@ import {StationList} from '../components/StationList.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from '../cosmo-world-map.js';
 import {computeExploreMapLayout} from '../explore-map-layout.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {exploreMapLand, mapMarker, panelBorder, themeAccent} from '../theme.js';
+import {exploreMapLand, mapMarker, panelBorder, textMuted, themeAccent} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 
@@ -88,10 +88,10 @@ export function ExploreScreen({
             <Text color={themeAccent(theme)} bold>
               Stations
             </Text>
-            <Text color="gray">{stations.length.toLocaleString()}</Text>
+            <Text color={textMuted}>{stations.length.toLocaleString()}</Text>
           </Box>
           <Box height={1} flexShrink={0}>
-            <Text color="gray">{loading ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…') : ' '}</Text>
+            <Text color={textMuted}>{loading ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…') : ' '}</Text>
           </Box>
           {!loading ? (
             <StationList

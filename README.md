@@ -82,7 +82,7 @@ Live public radio from around the world
 
 The Now Playing screen is a framed receiver panel with **50 selectable receiver styles**. The sample below shows the default pulse-grid display; press `v` to cycle through the catalog, which spans several families:
 
-- **Classic receiver** — equalizer, LEDs, and goniometer.
+- **Classic receiver** — ultracode ripple, LEDs, and goniometer.
 - **High-resolution braille** — smooth waveform, radial EQ, spectrogram, nebula, silk, ripple tank, phyllotaxis, harmonograph, bloom bars, moiré, galaxy, caustics.
 - **Generative & motion** — matrix, hologram, spinning ASCII cube, generated fire, fireworks, plasma, spinning donut, starfield, Lorenz attractor, Barnsley fern, Chladni plate, rotating tesseract, torus knot, fractal tree, Julia sets, and lava-lamp motion.
 
