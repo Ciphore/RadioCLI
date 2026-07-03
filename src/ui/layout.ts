@@ -22,6 +22,7 @@ export function computeTerminalLayout(columns = 100, rows = 30, footerRows = 2):
   const contentRows = Math.max(1, safeRows - reservedFooterRows - topRows);
   const mapMode = safeColumns >= 88 && contentRows >= 24 ? 'full' : 'compact';
   const stationRows = clamp(contentRows - 6, 1, 48);
+  const countryRows = clamp(contentRows - 5, 1, 64);
 
   return {
     columns: safeColumns,
@@ -30,7 +31,7 @@ export function computeTerminalLayout(columns = 100, rows = 30, footerRows = 2):
     topRows,
     contentRows,
     stationRows: compact ? 0 : stationRows,
-    countryRows: compact ? 0 : Math.max(1, contentRows - 4),
+    countryRows: compact ? 0 : countryRows,
     mapCountryRows: compact ? 0 : Math.max(1, contentRows - (mapMode === 'full' ? 25 : 14)),
     mapMode,
     receiverWidth: compact ? safeColumns : Math.max(62, safeColumns - 4),

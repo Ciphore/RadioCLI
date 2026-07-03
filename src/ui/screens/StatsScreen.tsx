@@ -17,12 +17,12 @@ type StatsScreenProps = {
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dayLabelWidth = 5;
 const heatmapCellOptions = [
-  {cell: '  ', gap: ' '},
   {cell: '  ', gap: ''},
-  {cell: '■', gap: ''}
+  {cell: ' ', gap: ''}
 ] as const;
-const compactHeatmapCell = '■';
+const compactHeatmapCell = ' ';
 const compactHeatmapGap = '';
+const tallHeatmapMinHeight = 26;
 
 type ContributionCell = {
   key: string;
@@ -36,6 +36,7 @@ type ContributionGraph = {
   months: string;
   cellText: string;
   cellGap: string;
+  tileHeight: number;
   rows: Array<{key: string; label: string; cells: ContributionCell[]}>;
 };
 
@@ -43,14 +44,13 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
   const {panel: panelBackground, ascii} = useDisplay();
   const stats = computeListeningStats(library.activity.sessions);
   const contentWidth = Math.max(20, width - 4);
-  const graph = buildContributionGraph(stats.days, contentWidth);
+  const graph = buildContributionGraph(stats.days, contentWidth, height);
   const graphColors = themeContributionColors(theme);
   const favorite = stats.favoriteStation?.name ?? 'none yet';
   const totalHours = stats.totalSeconds / 3600;
   const metricWidth = Math.max(28, Math.floor((contentWidth - 2) / 2));
   const favoriteWidth = Math.max(8, metricWidth - 18);
   const compact = height < 30;
-  const tileHeight = graph.cellText.trim().length === 0 ? 2 : 1;
 
   return (
     <Box flexDirection="column">
@@ -79,10 +79,10 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           <Text color={textMuted}>{' '.repeat(dayLabelWidth)}{graph.months}</Text>
           {graph.rows.map(row => (
             <React.Fragment key={row.key}>
-              {Array.from({length: tileHeight}, (_, tileLine) => (
+              {Array.from({length: graph.tileHeight}, (_, tileLine) => (
                 <Box key={`${row.key}-${tileLine}`}>
                   <Text color={textMuted}>{tileLine === 0 ? row.label.padEnd(dayLabelWidth) : ' '.repeat(dayLabelWidth)}</Text>
-                  {row.cells.map(cell => renderContributionCell(cell, graphColors, graph.cellGap))}
+                  {renderContributionCells(row.cells, graphColors, graph.cellGap)}
                 </Box>
               ))}
             </React.Fragment>
@@ -131,27 +131,36 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
   );
 }
 
-function renderContributionCell(cell: ContributionCell, graphColors: string[], cellGap: string): React.ReactElement {
-  if (!cell.visible) {
-    return <Text key={cell.key}>{cell.text}</Text>;
+function renderContributionCells(cells: ContributionCell[], graphColors: string[], cellGap: string): React.ReactNode {
+  const runs: Array<{key: string; level: number; text: string; visible: boolean}> = [];
+
+  for (const cell of cells) {
+    const text = cellGap ? `${cell.text}${cell.visible ? cellGap : ''}` : cell.text;
+    const previous = runs[runs.length - 1];
+    if (previous && previous.visible === cell.visible && previous.level === cell.level) {
+      previous.text += text;
+    } else {
+      runs.push({
+        key: `${runs.length}-${cell.key}`,
+        level: cell.level,
+        text,
+        visible: cell.visible
+      });
+    }
   }
 
-  const color = graphColors[cell.level] ?? graphColors[0] ?? textMuted;
-  if (cell.text.trim().length === 0) {
-    return (
-      <React.Fragment key={cell.key}>
-        <Text backgroundColor={color}>{cell.text}</Text>
-        {cellGap ? <Text>{cellGap}</Text> : null}
-      </React.Fragment>
-    );
-  }
+  return runs.map(run => {
+    if (!run.visible) {
+      return <Text key={run.key}>{run.text}</Text>;
+    }
 
-  return (
-    <React.Fragment key={cell.key}>
-      <Text color={color}>{cell.text}</Text>
-      {cellGap ? <Text>{cellGap}</Text> : null}
-    </React.Fragment>
-  );
+    const color = graphColors[run.level] ?? graphColors[0] ?? textMuted;
+    if (run.text.trim().length === 0) {
+      return <Text key={run.key} backgroundColor={color}>{run.text}</Text>;
+    }
+
+    return <Text key={run.key} color={color}>{run.text}</Text>;
+  });
 }
 
 function renderLegendCell(color: string, text: string, cellGap: string): React.ReactElement {
@@ -201,7 +210,7 @@ function metricPair(
   );
 }
 
-export function buildContributionGraph(days: DailyListening[], width: number): ContributionGraph {
+export function buildContributionGraph(days: DailyListening[], width: number, height = tallHeatmapMinHeight): ContributionGraph {
   const year = graphYear(days);
   const weeks = calendarYearWeeks(year);
   const largestCell = heatmapCellOptions.find(option => dayLabelWidth + weeks.length * (option.cell.length + option.gap.length) <= width);
@@ -211,6 +220,7 @@ export function buildContributionGraph(days: DailyListening[], width: number): C
   const cellWidth = largeCellWidth > 0 ? largeCellWidth : compactCellWidth;
   const cellText = selectedCell.cell;
   const cellGap = selectedCell.gap;
+  const tileHeight = cellText.trim().length === 0 && height >= tallHeatmapMinHeight ? 2 : 1;
   const secondsByDate = new Map(days.map(day => [day.date, day.seconds]));
   const yearDays = days.filter(day => parseLocalDay(day.date).getFullYear() === year);
   const scaleSeconds = contributionScaleSeconds(yearDays);
@@ -236,7 +246,7 @@ export function buildContributionGraph(days: DailyListening[], width: number): C
     })
   }));
 
-  return {year, months: monthLine(weeks, cellWidth, year), cellText, cellGap, rows};
+  return {year, months: monthLine(weeks, cellWidth, year), cellText, cellGap, tileHeight, rows};
 }
 
 export function contributionScaleSeconds(days: DailyListening[]): number {

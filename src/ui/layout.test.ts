@@ -14,8 +14,9 @@ describe('computeTerminalLayout', () => {
     expect(tall.stationRows).toBeGreaterThan(short.stationRows);
     expect(tall.countryRows).toBeGreaterThan(short.countryRows);
     expect(short.stationRows).toBe(12);
+    expect(short.countryRows).toBe(13);
     expect(computeTerminalLayout(124, 33).stationRows).toBe(21);
-    expect(computeTerminalLayout(159, 45).countryRows).toBe(35);
+    expect(computeTerminalLayout(159, 45).countryRows).toBe(34);
   });
 
   it('expands receiver width with wide terminals', () => {

@@ -20,6 +20,7 @@ import {
   shouldAnimateReceiver,
   shouldResetReceiverPulse,
   shouldSkipAfterTuneError,
+  shouldToggleNearbyLocationShortcut,
   stationContextKeyForScreen,
   topTabs
 } from './app-state.js';
@@ -163,6 +164,14 @@ describe('app state helpers', () => {
     expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'stopped', ready: false})).toBe(false);
     expect(shouldAnimateReceiver('now-playing', {...playingPlayback, state: 'idle', ready: false})).toBe(false);
     expect(shouldAnimateReceiver('search', playingPlayback)).toBe(false);
+  });
+
+  it('only lets the nearby location shortcut toggle from location-relevant tabs', () => {
+    expect(shouldToggleNearbyLocationShortcut('l', 'home')).toBe(true);
+    expect(shouldToggleNearbyLocationShortcut('l', 'nearby')).toBe(true);
+    expect(shouldToggleNearbyLocationShortcut('l', 'settings')).toBe(true);
+    expect(shouldToggleNearbyLocationShortcut('l', 'countries')).toBe(false);
+    expect(shouldToggleNearbyLocationShortcut('x', 'nearby')).toBe(false);
   });
 
   it('keeps receiver pulses continuous instead of restarting at the loop boundary', () => {

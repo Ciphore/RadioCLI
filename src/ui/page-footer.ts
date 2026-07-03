@@ -31,7 +31,7 @@ export function pageFooterText({
   }
 
   if (screen === 'home') {
-    return '↑/↓ move · Enter open · number jump · : command';
+    return '↑/↓ move · Enter open · number jump · l location · : command';
   }
 
   if (screen === 'search' && editingSearch) {
@@ -58,11 +58,11 @@ export function pageFooterText({
     return 'Click map · WASD fine move · Shift+WASD jump · ↑/↓ station · Enter tune · f favorite · b home';
   }
 
-  if (
-    screen === 'nearby' ||
-    screen === 'stations' ||
-    screen === 'library'
-  ) {
+  if (screen === 'nearby') {
+    return '↑/↓ or n/p move · Enter tune · f favorite · l location · [/] page · b home';
+  }
+
+  if (screen === 'stations' || screen === 'library') {
     return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b home';
   }
 

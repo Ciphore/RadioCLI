@@ -13,6 +13,7 @@ import {
   mediaTransportActionForInput,
   searchEditingArrowAction,
   shouldHandleKeyboardEvent,
+  shouldToggleNearbyLocationShortcut,
   type ExploreMoveDirection,
   type MediaTransportAction
 } from './app-state.js';
@@ -456,7 +457,7 @@ export function useAppInput({
       return;
     }
 
-    if (input === 'l') {
+    if (shouldToggleNearbyLocationShortcut(input, screen)) {
       toggleNearbyLocation();
       return;
     }
@@ -513,6 +514,11 @@ export function useAppInput({
     }
 
     if (input === 'b' || key.escape) {
+      if (screen === 'stations') {
+        go('countries');
+        return;
+      }
+
       go('home');
       return;
     }

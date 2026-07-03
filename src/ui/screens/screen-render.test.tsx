@@ -6,6 +6,7 @@ import {HelpScreen} from './HelpScreen.js';
 import {NowPlayingScreen} from './NowPlayingScreen.js';
 import {SettingsScreen} from './SettingsScreen.js';
 import {ExploreScreen} from './ExploreScreen.js';
+import {CountriesScreen} from './CountriesScreen.js';
 import {buildContributionGraph, contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
 import {settingsItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
@@ -143,6 +144,33 @@ describe('Explore world map rendering', () => {
   });
 });
 
+describe('CountriesScreen rendering', () => {
+  it('keeps long country rows to one terminal line', () => {
+    const frame = render(
+      <CountriesScreen
+        countries={[
+          {
+            name: 'The Extremely Long Democratic Republic Of The Country With A Very Long Name',
+            code: 'TL',
+            stationCount: 123456789
+          }
+        ]}
+        selected={0}
+        loading={false}
+        filter=""
+        editingFilter={false}
+        theme="green"
+        pageSize={1}
+        width={48}
+      />
+    ).lastFrame() ?? '';
+
+    expect(frame).toContain('>');
+    expect(frame).toContain('…');
+    expect(frame).not.toContain('Very Long Name');
+  });
+});
+
 describe('StatsScreen rendering', () => {
   it('renders activity heatmap as large calendar-year cells with readable month labels', () => {
     const library: LibraryState = {
@@ -183,7 +211,8 @@ describe('StatsScreen rendering', () => {
     expect(graph.months.startsWith('Jan')).toBe(true);
     expect(graph.months).toContain('Dec');
     expect(graph.cellText).toBe('  ');
-    expect(graph.cellGap).toBe(' ');
+    expect(graph.cellGap).toBe('');
+    expect(graph.tileHeight).toBe(2);
     expect(graph.rows[4]?.cells[0]).toMatchObject({
       level: 4,
       text: '  ',
@@ -206,6 +235,24 @@ describe('StatsScreen rendering', () => {
     ], 128);
     expect(normalWidthGraph.cellText).toBe('  ');
     expect(normalWidthGraph.cellGap).toBe('');
+
+    const compactWidthGraph = buildContributionGraph([
+      {date: '2026-01-01', seconds: 3600},
+      {date: '2026-12-31', seconds: 0}
+    ], 80);
+    expect(compactWidthGraph.cellText).toBe(' ');
+    expect(compactWidthGraph.cellGap).toBe('');
+  });
+
+  it('uses one-line heatmap cells when the stats panel is height constrained', () => {
+    const graph = buildContributionGraph([
+      {date: '2026-01-01', seconds: 3600},
+      {date: '2026-12-31', seconds: 0}
+    ], 170, 20);
+
+    expect(graph.cellText).toBe('  ');
+    expect(graph.cellGap).toBe('');
+    expect(graph.tileHeight).toBe(1);
   });
 
   it('caps contribution color scaling so one outlier does not flatten normal active days', () => {

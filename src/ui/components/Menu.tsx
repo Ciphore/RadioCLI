@@ -9,11 +9,13 @@ type MenuProps<T> = {
 };
 
 export function Menu<T>({items, selected, keyFor, render}: MenuProps<T>): React.ReactElement {
+  const activeIndex = items.length > 0 ? Math.min(Math.max(selected, 0), items.length - 1) : -1;
+
   return (
     <Box flexDirection="column">
       {items.map((item, position) => (
         <Box key={keyFor?.(item, position) ?? defaultMenuKey(item)}>
-          {render(item, position, position === selected)}
+          {render(item, position, position === activeIndex)}
         </Box>
       ))}
     </Box>

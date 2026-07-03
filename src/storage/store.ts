@@ -38,8 +38,7 @@ const stationSchema: z.ZodType<Station> = z
     distanceKm: z.number().optional(),
     hls: z.boolean().optional(),
     lastCheckedOk: z.boolean().optional()
-  })
-  .strict();
+  });
 
 const defaultMediaKeys = {
   previous: [],
@@ -156,7 +155,7 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   receiverStyleVersion: z.number().optional(),
   volume: z.number().min(0).max(100).default(70),
   enableRadioGarden: z.boolean().default(false),
-  enableNearbyLocation: z.boolean().default(false),
+  enableNearbyLocation: z.boolean().default(true),
   preferredBackend: z.enum(['auto', 'mpv', 'ffplay', 'vlc', 'airplay']).default('auto'),
   preferredAirPlayDevice: z.string().min(1).optional(),
   tuneTimeoutSeconds: z.number().min(3).max(45).default(12),
@@ -217,7 +216,7 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     receiverStyleVersion: 2,
     volume: 70,
     enableRadioGarden: false,
-    enableNearbyLocation: false,
+    enableNearbyLocation: true,
     preferredBackend: 'auto',
     tuneTimeoutSeconds: 12,
     skipBrokenStreams: true,
@@ -447,7 +446,7 @@ function defaultState(): LibraryState {
       receiverStyleVersion: 2,
       volume: 70,
       enableRadioGarden: false,
-      enableNearbyLocation: false,
+      enableNearbyLocation: true,
       preferredBackend: 'auto',
       tuneTimeoutSeconds: 12,
       skipBrokenStreams: true,

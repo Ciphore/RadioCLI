@@ -20,7 +20,7 @@ type TopTabsProps = {
 
 export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps): React.ReactElement {
   const accent = themeAccent(theme);
-  const {panel: panelBackground, ascii} = useDisplay();
+  const {app: background, ascii} = useDisplay();
   const box = ascii
     ? {tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|'}
     : {tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│'};
@@ -37,15 +37,15 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
   const tabPaddingWidth = Math.max(0, bodyWidth - visibleTabsWidth - (canShowRight ? rightText.length : 0));
 
   return (
-    <Box flexDirection="column" backgroundColor={panelBackground} width={width}>
-      <Text backgroundColor={panelBackground}>
+    <Box flexDirection="column" backgroundColor={background} width={width}>
+      <Text backgroundColor={background}>
         <Text color={panelBorder}>{box.tl} </Text>
         <Text color={accent} bold>
           {brand}
         </Text>
         <Text color={panelBorder}> {box.h.repeat(titleRuleWidth)}{box.tr}</Text>
       </Text>
-      <Text backgroundColor={panelBackground}>
+      <Text backgroundColor={background}>
         <Text color={panelBorder}>{box.v} </Text>
         {visibleTabs.map((item, index) => (
           <Text key={item.type === 'overflow' ? `${item.side}-overflow` : item.tab.screen}>
@@ -63,7 +63,7 @@ export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps):
         {canShowRight ? <Text color={textMuted}>{rightText}</Text> : null}
         <Text color={panelBorder}> {box.v}</Text>
       </Text>
-      <Text backgroundColor={panelBackground} color={panelBorder}>
+      <Text backgroundColor={background} color={panelBorder}>
         {box.bl}{box.h.repeat(Math.max(0, width - 2))}{box.br}
       </Text>
     </Box>

@@ -19,6 +19,14 @@ describe('JsonLibraryStore', () => {
     restoreEnv('RADIO_ATLAS_HOME', originalRadioAtlasHome);
   });
 
+  it('enables nearby location lookup by default for new stores', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+
+    expect(new JsonLibraryStore(file).snapshot().settings.enableNearbyLocation).toBe(true);
+  });
+
   it('persists recents, favorites, and settings', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
@@ -236,6 +244,47 @@ describe('JsonLibraryStore', () => {
     );
 
     expect(new JsonLibraryStore(file).snapshot().settings.preferredAirPlayDevice).toBeUndefined();
+  });
+
+  it('ignores unknown station metadata instead of resetting the whole library', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        recent: [
+          {
+            station: {
+              id: 'station-with-extra-field',
+              provider: 'radio-browser',
+              name: 'Extra Field FM',
+              tags: [],
+              experimentalDirectoryField: 'kept out of app state'
+            },
+            playedAt: new Date(2026, 6, 3).toISOString()
+          }
+        ],
+        favorites: [],
+        imported: [],
+        activity: {sessions: []},
+        settings: {
+          theme: 'green',
+          receiverStyle: 'pulse-grid',
+          volume: 70,
+          enableRadioGarden: false,
+          preferredBackend: 'auto',
+          tuneTimeoutSeconds: 12,
+          skipBrokenStreams: true
+        }
+      }),
+      'utf8'
+    );
+
+    const state = new JsonLibraryStore(file).snapshot();
+
+    expect(state.recent[0]?.station.name).toBe('Extra Field FM');
+    expect(state.settings.enableNearbyLocation).toBe(true);
   });
 
   it('persists every receiver style exposed by the UI cycle', () => {

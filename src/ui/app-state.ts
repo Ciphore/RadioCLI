@@ -266,6 +266,10 @@ export function shouldAnimateReceiver(screen: Screen, playback: PlaybackState): 
   return screen === 'now-playing' && playback.state === 'playing' && playback.ready;
 }
 
+export function shouldToggleNearbyLocationShortcut(input: string, screen: Screen): boolean {
+  return input === 'l' && (screen === 'home' || screen === 'nearby' || screen === 'settings');
+}
+
 export function nextReceiverPulse(pulse: number): number {
   return pulse + 1;
 }

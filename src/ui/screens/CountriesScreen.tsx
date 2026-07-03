@@ -5,6 +5,7 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {visibleWindow} from '../list-window.js';
+import {truncate} from '../format.js';
 
 type CountriesProps = {
   countries: Country[];
@@ -28,6 +29,7 @@ export function CountriesScreen({
   width
 }: CountriesProps): React.ReactElement {
   const window = visibleWindow(countries, selected, pageSize);
+  const rowWidth = Math.max(24, width - 2);
 
   return (
     <Box flexDirection="column">
@@ -48,15 +50,19 @@ export function CountriesScreen({
             items={window.items}
             selected={selected - window.start}
             keyFor={country => country.code}
-            render={(country, _index, active) => (
-              <Box>
-                <Pointer active={active} />
-                <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                  {country.name}
-                </Text>
-                <Text color={textMuted}> · {country.code} · {country.stationCount.toLocaleString()} stations</Text>
-              </Box>
-            )}
+            render={(country, _index, active) => {
+              const meta = ` · ${country.code} · ${country.stationCount.toLocaleString()} stations`;
+              const nameWidth = Math.max(4, rowWidth - 2 - meta.length);
+              return (
+                <Box height={1} width={rowWidth}>
+                  <Pointer active={active} />
+                  <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                    {truncate(country.name, nameWidth)}
+                  </Text>
+                  <Text color={textMuted}>{truncate(meta, Math.max(0, rowWidth - 2 - nameWidth))}</Text>
+                </Box>
+              );
+            }}
           />
         </Box>
       ) : null}

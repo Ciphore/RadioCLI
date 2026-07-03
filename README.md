@@ -76,7 +76,7 @@ Live public radio from around the world
 
 3 recent · 2 favorites · 1 imported
 
-↑/↓ move · Enter open · number jump · : command
+↑/↓ move · Enter open · number jump · l location · : command
 ←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · ? help · q quit
 ```
 

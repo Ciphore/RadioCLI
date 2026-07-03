@@ -58,6 +58,20 @@ describe('page footer shortcuts', () => {
     ).toContain('o output');
   });
 
+  it('advertises the location shortcut on Overview and Nearby', () => {
+    const base = {
+      capturingTransportAction: null,
+      commandMode: false,
+      commandText: '',
+      editingCountryFilter: false,
+      editingSearch: false
+    } as const;
+
+    expect(pageFooterText({...base, screen: 'home'})).toContain('l location');
+    expect(pageFooterText({...base, screen: 'nearby'})).toContain('l location');
+    expect(pageFooterText({...base, screen: 'countries'})).not.toContain('l location');
+  });
+
   it('advertises result navigation while editing search text', () => {
     expect(
       pageFooterText({

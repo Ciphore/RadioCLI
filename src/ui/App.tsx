@@ -92,6 +92,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [screen, setScreen] = useState<Screen>('home');
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
+  const [footerMessage, setFooterMessage] = useState<string | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryFilter, setCountryFilter] = useState('');
   const [editingCountryFilter, setEditingCountryFilter] = useState(false);
@@ -129,6 +130,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const exploreRequestRef = useRef(0);
   const exploreMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transientMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transientFooterMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receiverPulseSnapshotRef = useRef<ReceiverPulseSnapshot | null>(null);
 
   const theme = library.settings.theme;
@@ -215,6 +217,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   displayStationsRef.current = displayStations;
   const sleepLabel = sleepUntil ? `Sleep ${formatTimeLeft(sleepUntil - Date.now())}` : 'Sleep off';
   const showPlaybackFooter = shouldShowPlaybackFooter(playingStation, playback);
+  const footerRows = showPlaybackFooter ? 4 : 3;
   const selectedAirPlayDevice = useMemo(
     () => availableAirPlayDevices.find(device => device.id === library.settings.preferredAirPlayDevice),
     [availableAirPlayDevices, library.settings.preferredAirPlayDevice]
@@ -222,7 +225,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const canEnterAirPlayCode =
     isAirPlayCodePromptActive(playback) ||
     Boolean(isAirPlayBackendAvailable(availableBackends) && selectedAirPlayDevice?.requiresPassword && !selectedAirPlayDevice.local);
-  const layout = computeTerminalLayout(columns, rows, showPlaybackFooter ? 3 : 2);
+  const layout = computeTerminalLayout(columns, rows, footerRows);
   const frameWidth = Math.max(40, layout.columns - 2);
 
   useEffect(() => player.onChange(setPlayback), [player]);
@@ -324,6 +327,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
       if (transientMessageTimerRef.current) {
         clearTimeout(transientMessageTimerRef.current);
+      }
+      if (transientFooterMessageTimerRef.current) {
+        clearTimeout(transientFooterMessageTimerRef.current);
       }
     },
     []
@@ -438,6 +444,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     selectedByScreenRef.current[screenRef.current] = selectedRef.current;
     const remembered = selectedByScreenRef.current[next] ?? 0;
     const nextSelection = options.resetSelection ? 0 : remembered;
+
+    if (next === 'now-playing' && screenRef.current !== 'now-playing') {
+      setPulse(0);
+    }
 
     setScreen(next);
     setSelected(clamp(nextSelection, (itemCountsRef.current[next] ?? 0) - 1));
@@ -645,6 +655,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     go('nearby', {resetSelection: stationContextsRef.current.nearby.stations.length === 0});
     try {
       if (!settingsRef.current.enableNearbyLocation) {
+        if (stationContextsRef.current.nearby.stations.length > 0) {
+          setMessage('Nearby location lookup is off. Showing the last nearby station list.');
+          return;
+        }
+
         setStationContextFor('nearby', {
           title: 'Nearby',
           subtitle: 'IP-based location is off. Enable it in Settings or use :location on.',
@@ -656,6 +671,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       const detected = location ?? (await providers.detectLocation());
       setLocation(detected);
       if (!detected) {
+        if (stationContextsRef.current.nearby.stations.length > 0) {
+          setMessage('Location detection is unavailable. Showing the last nearby station list.');
+          return;
+        }
+
         setStationContextFor('nearby', {
           title: 'Nearby',
           subtitle: 'Location detection was unavailable',
@@ -781,6 +801,18 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [playStation, store]);
   playStationRef.current = playStation;
 
+  const showTransientFooterMessage = useCallback((nextMessage: string) => {
+    if (transientFooterMessageTimerRef.current) {
+      clearTimeout(transientFooterMessageTimerRef.current);
+    }
+
+    setFooterMessage(nextMessage);
+    transientFooterMessageTimerRef.current = setTimeout(() => {
+      setFooterMessage(currentMessage => currentMessage === nextMessage ? null : currentMessage);
+      transientFooterMessageTimerRef.current = null;
+    }, VISUALIZER_MESSAGE_MS);
+  }, []);
+
   const toggleFavorite = useCallback(
     (station: Station | null) => {
       if (!station) {
@@ -790,13 +822,18 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
       const wasFavorite = store.isFavorite(station);
       setLibrary(store.toggleFavorite(station));
-      setMessage(`${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`);
+      const favoriteMessage = `${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`;
+      if (screenRef.current === 'library') {
+        showTransientFooterMessage(favoriteMessage);
+      } else {
+        setMessage(favoriteMessage);
+      }
       if (!wasFavorite) {
         // Best-effort upvote back to the directory; never blocks favoriting.
         void providers.vote(station);
       }
     },
-    [providers, store]
+    [providers, showTransientFooterMessage, store]
   );
 
   const showControlResult = useCallback((result: PlaybackControlResult) => {
@@ -1311,7 +1348,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           {message ? <Text color={themeAccent(theme)}>{truncate(message, frameWidth)}</Text> : null}
         </Box>
       </Box>
-      <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.panel}>
+      <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.app}>
+        <Text color={themeAccent(theme)}>{footerMessage ? truncate(footerMessage, frameWidth) : ' '}</Text>
         {playbackFooter ? <Text color={themeAccent(theme)}>{playbackFooter}</Text> : null}
         <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
           {truncate(pageFooter, frameWidth)}

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-07-03
+
+### Changed
+
+- Nearby station discovery is now enabled by default for new libraries, and the
+  `l` shortcut is limited to Overview, Nearby, and Settings so country lists
+  keep normal letter navigation.
+- Favorite changes from Library now appear in the footer message row instead of
+  displacing the main page status.
+- The listening stats activity graph now uses solid truecolor cell backgrounds
+  with tighter rendering on short terminals and fewer split color runs.
+
+### Fixed
+
+- Nearby keeps showing the last loaded station list when location lookup is
+  turned off or temporarily unavailable.
+- Long country names are truncated to one terminal row so dense country lists do
+  not wrap into nearby entries.
+- Pressing `b` from a country station list now returns to Countries before
+  falling back to Overview.
+
 ## [0.1.8] - 2026-07-02
 
 ### Changed
@@ -178,6 +199,7 @@ Initial public release.
 [0.1.6]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.6
 [0.1.7]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.7
 [0.1.8]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.8
+[0.1.9]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.9
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2
