@@ -73,7 +73,7 @@
     "protobufjs": "^7.5.8"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.1.0",
     "@types/react": "^19.2.15",
     "ink-testing-library": "^4.0.0",
     "knip": "^6.14.2",
