@@ -51,6 +51,8 @@ describe('update checks', () => {
   });
 
   it('uses a 24 hour cache and honors disable flags', () => {
+    vi.stubEnv('CI', 'false');
+
     expect(shouldCheckForUpdate(undefined, Date.parse('2026-07-07T12:00:00.000Z'))).toBe(true);
     expect(
       shouldCheckForUpdate(
@@ -67,6 +69,12 @@ describe('update checks', () => {
 
     vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '1');
     expect(shouldCheckForUpdate(undefined)).toBe(false);
+  });
+
+  it('skips automatic update checks in CI', () => {
+    vi.stubEnv('CI', 'true');
+
+    expect(shouldCheckForUpdate(undefined, Date.parse('2026-07-07T12:00:00.000Z'))).toBe(false);
   });
 
   it('formats update status for settings', () => {

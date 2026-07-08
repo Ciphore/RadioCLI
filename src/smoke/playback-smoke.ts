@@ -21,6 +21,10 @@ try {
     throw new Error('No playback backend found. Install mpv or ffplay.');
   }
 
+  if (process.env.GITHUB_ACTIONS === 'true' && backends.includes('ffplay')) {
+    store.updateSettings({preferredBackend: 'ffplay'});
+  }
+
   const stations = await providers.search('Japan Hits asia DREAM radio', store.snapshot().settings, {limit: 5});
   const station = stations[0];
   if (!station) {
