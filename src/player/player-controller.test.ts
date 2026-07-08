@@ -414,6 +414,32 @@ describe('PlayerController lifecycle', () => {
     await mpvServer.close();
   });
 
+  it('keeps mpv in loading until audio playback has started', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock.mockImplementation((_command, args) => {
+      const ipcPath = mpvIpcPath(args);
+      mpv.current = fakeMpvIpc(ipcPath, {audioStarted: false});
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv', tuneTimeoutSeconds: 3}));
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => mpv.current !== null);
+    const mpvServer = expectFakeMpv(mpv.current);
+    await waitUntil(() => controller.getState().state === 'loading');
+    expect(controller.getState()).toMatchObject({backend: 'mpv', state: 'loading', ready: false});
+
+    mpvServer.setAudioStarted(true);
+    await playing;
+
+    expect(controller.getState()).toMatchObject({backend: 'mpv', state: 'playing', ready: true});
+
+    await controller.stop();
+    await mpvServer.close();
+  });
+
   it('syncs external mpv pause changes from macOS media controls', async () => {
     commandExistsMock.mockImplementation(command => command === 'mpv');
     const child = fakeChildProcess();
@@ -482,6 +508,7 @@ type FakeMpvIpc = {
   close: () => Promise<void>;
   paused: () => boolean;
   setPaused: (paused: boolean) => void;
+  setAudioStarted: (started: boolean) => void;
 };
 
 function expectFakeMpv(mpv: FakeMpvIpc | null): FakeMpvIpc {
@@ -557,12 +584,13 @@ function mpvIpcPath(args: unknown): string {
   return ipcArg.slice('--input-ipc-server='.length);
 }
 
-function fakeMpvIpc(path: string): FakeMpvIpc {
+function fakeMpvIpc(path: string, options: {audioStarted?: boolean} = {}): FakeMpvIpc {
   if (existsSync(path)) {
     unlinkSync(path);
   }
 
   let paused = false;
+  let audioStarted = options.audioStarted ?? true;
   const server = createServer(socket => {
     let buffer = '';
     socket.on('data', chunk => {
@@ -586,7 +614,9 @@ function fakeMpvIpc(path: string): FakeMpvIpc {
         } else if (command[0] === 'get_property' && command[1] === 'metadata') {
           data = {};
         } else if (command[0] === 'get_property' && command[1] === 'time-pos') {
-          data = 12;
+          data = audioStarted ? 12 : null;
+        } else if (command[0] === 'get_property' && command[1] === 'audio-pts') {
+          data = audioStarted ? 12 : null;
         } else if (command[0] === 'cycle' && command[1] === 'pause') {
           paused = !paused;
         }
@@ -602,6 +632,9 @@ function fakeMpvIpc(path: string): FakeMpvIpc {
     paused: () => paused,
     setPaused: next => {
       paused = next;
+    },
+    setAudioStarted: next => {
+      audioStarted = next;
     }
   };
 }

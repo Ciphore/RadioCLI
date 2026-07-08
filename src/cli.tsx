@@ -8,6 +8,7 @@ import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {appVersion} from './version.js';
+import {checkForUpdate, updateCommandForInstall} from './update-check.js';
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
   const args = process.argv.slice(2);
@@ -50,6 +51,20 @@ export async function runCommand(args: string[]): Promise<void> {
     const backends = detectPlaybackBackends();
     console.log(`backends=${backends.join(',') || 'none'}`);
     printPlaybackBackendStatus(backends);
+    return;
+  }
+
+  if (command === 'update') {
+    const updateCheck = await checkForUpdate();
+    const updateCommand = updateCommandForInstall();
+    if (updateCheck.error) {
+      console.log(`update_check=failed ${updateCheck.error}`);
+    } else {
+      console.log(`installed=${appVersion()}`);
+      console.log(`latest=${updateCheck.latestVersion ?? 'unknown'}`);
+      console.log(`available=${updateCheck.updateAvailable ? 'yes' : 'no'}`);
+    }
+    console.log(`command=${updateCommand.command}`);
     return;
   }
 
@@ -136,6 +151,7 @@ Usage:
   radiocli version         Print the installed version
   radiocli check           Show provider/backend health
   radiocli doctor          Show local playback setup guidance
+  radiocli update          Show update availability and install command
   radiocli countries       Print top countries
   radiocli search <query>  Search public stations
   radiocli import <file>   Import .m3u, .pls, or .xspf streams
@@ -157,7 +173,7 @@ export function isDirectRun(entryPath: string | undefined, moduleUrl: string): b
 }
 
 function isKnownCommand(command: string): boolean {
-  return ['check', 'doctor', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
+  return ['check', 'doctor', 'update', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
 }
 
 function printPlaybackBackendStatus(backends: string[]): void {

@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {computeTerminalLayout} from './layout.js';
 import {computeExploreMapLayout} from './explore-map-layout.js';
-import {exploreCursorForMouseCell, parseSgrMouseEvents, primaryMousePress} from './terminal-mouse.js';
+import {exploreCursorForMouseCell, parseSgrMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
 
 describe('terminal mouse helpers', () => {
   it('parses SGR mouse clicks and ignores releases or wheel events as map placements', () => {
@@ -11,6 +11,13 @@ describe('terminal mouse helpers', () => {
 
     expect(primaryMousePress(parseSgrMouseEvents('\u001B[<0;12;9m'))).toBeNull();
     expect(primaryMousePress(parseSgrMouseEvents('\u001B[<64;12;9M'))).toBeNull();
+  });
+
+  it('recognizes vertical wheel events as list scroll deltas', () => {
+    expect(wheelScrollDelta(parseSgrMouseEvents('\u001B[<64;12;9M'))).toBe(-1);
+    expect(wheelScrollDelta(parseSgrMouseEvents('\u001B[<65;12;9M'))).toBe(1);
+    expect(wheelScrollDelta(parseSgrMouseEvents('\u001B[<66;12;9M'))).toBe(0);
+    expect(wheelScrollDelta(parseSgrMouseEvents('\u001B[<65;12;9m'))).toBe(0);
   });
 
   it('maps terminal cells inside the Explore map back to world coordinates', () => {

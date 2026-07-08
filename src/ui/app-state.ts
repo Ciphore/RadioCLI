@@ -1,4 +1,4 @@
-import type {AppSettings, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import type {AppSettings, Country, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import {isPlaybackOutputError} from '../player/player-controller.js';
 import type {TopTab} from './components/TopTabs.js';
 
@@ -6,6 +6,9 @@ export type StationContext = {
   title: string;
   subtitle: string;
   stations: Station[];
+  query?: string;
+  country?: Country;
+  hasMore?: boolean;
 };
 
 export type StationContextKey = 'explore' | 'stations' | 'search' | 'nearby' | 'library';

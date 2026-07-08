@@ -10,7 +10,8 @@ import {
   type LibraryState,
   type ListeningSession,
   type Station,
-  type TrackPlay
+  type TrackPlay,
+  type UpdateCheckState
 } from '../types.js';
 import {backupBadFile} from '../providers/cache.js';
 
@@ -195,6 +196,15 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     )
     .default([]),
   searchHistory: z.array(z.string()).default([]),
+  updateCheck: z
+    .object({
+      checkedAt: z.string(),
+      currentVersion: z.string(),
+      latestVersion: z.string().optional(),
+      updateAvailable: z.boolean(),
+      error: z.string().optional()
+    })
+    .optional(),
   activity: z
     .object({
       sessions: z
@@ -246,6 +256,12 @@ export class JsonLibraryStore {
         receiverStyleVersion: settings.receiverStyle ? 2 : this.state.settings.receiverStyleVersion
       }
     };
+    this.write();
+    return this.snapshot();
+  }
+
+  updateCheckState(updateCheck: UpdateCheckState): LibraryState {
+    this.state = {...this.state, updateCheck};
     this.write();
     return this.snapshot();
   }

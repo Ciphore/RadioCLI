@@ -42,7 +42,9 @@ export function playbackFooterText({
   width,
   spinnerFrame
 }: PlaybackFooterInput): string | null {
-  const stationName = station?.name ?? playback.stationName;
+  const stationName = playback.state === 'loading'
+    ? playback.stationName ?? station?.name
+    : station?.name ?? playback.stationName;
   if (!stationName || !visiblePlaybackStates.has(playback.state)) {
     return null;
   }

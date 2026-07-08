@@ -83,6 +83,7 @@ export const commandHelp: CommandHelp[] = [
   {name: 'map', description: 'Open the world map'},
   {name: 'stats', description: 'Open listening stats'},
   {name: 'settings', description: 'Open settings'},
+  {name: 'update', description: 'Show the install command for the latest release'},
   {name: 'stop', description: 'Stop playback'},
   {name: 'help', description: 'Open this help'}
 ];

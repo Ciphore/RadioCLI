@@ -92,9 +92,10 @@ describe('RadioBrowserProvider', () => {
     });
 
     const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
-    const results = await provider.search('Tokyo Jazz', {limit: 5, codec: 'MP3', language: 'English', minBitrate: 128});
+    const results = await provider.search('Tokyo Jazz', {limit: 5, offset: 10, codec: 'MP3', language: 'English', minBitrate: 128});
 
     expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls.every(([input]) => new URL(String(input)).searchParams.get('offset') === '10')).toBe(true);
     expect(results.map(station => station.id)).toEqual(['tokyo-jazz', 'popular-jazz']);
     expect(results[0]).toMatchObject({
       provider: 'radio-browser',
@@ -179,6 +180,34 @@ describe('RadioBrowserProvider', () => {
       name: 'Cached FM',
       streamUrl: 'https://cached.example.com/live.mp3'
     });
+  });
+
+  it('loads country stations with limit and offset pagination', async () => {
+    const fetch = mockFetch(url => {
+      expect(url.pathname).toBe('/json/stations/search');
+      expect(url.searchParams.get('countrycode')).toBe('US');
+      expect(url.searchParams.get('hidebroken')).toBe('true');
+      expect(url.searchParams.get('limit')).toBe('120');
+      expect(url.searchParams.get('offset')).toBe('240');
+      expect(url.searchParams.get('order')).toBe('clickcount');
+      expect(url.searchParams.get('reverse')).toBe('true');
+
+      return jsonResponse([
+        {
+          stationuuid: 'third-page-fm',
+          name: 'Third Page FM',
+          country: 'United States',
+          countrycode: 'US',
+          clickcount: 10
+        }
+      ]);
+    });
+
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    const stations = await provider.byCountry('us', 120, 240);
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(stations.map(station => station.id)).toEqual(['third-page-fm']);
   });
 
   it('ranks nearby stations from the full geotagged atlas instead of a popular subset', async () => {

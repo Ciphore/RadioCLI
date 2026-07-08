@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-08
+
+### Added
+
+- Added update checks for npm releases, including a `radiocli update` command,
+  a `:update` command, and a Settings entry that reports the latest available
+  version and copies or runs the right npm or Homebrew update command.
+- Added lazy loading for long country station lists and search results, so
+  deeper directories continue loading as you scroll instead of stopping at the
+  first page.
+- Added mouse wheel scrolling across station, country, map, nearby, explore,
+  search, and library lists.
+
+### Changed
+
+- The footer now shows the installed RadioCLI version, and Settings includes
+  the current version beside update status.
+- Retuning now keeps the playback footer focused on the station currently
+  buffering, and mpv playback stays in loading until audio has actually started.
+
 ## [0.1.9] - 2026-07-03
 
 ### Changed
@@ -200,6 +220,7 @@ Initial public release.
 [0.1.7]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.7
 [0.1.8]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.8
 [0.1.9]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.9
+[0.2.0]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.0
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2

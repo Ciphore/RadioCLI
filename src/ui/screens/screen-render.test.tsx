@@ -91,6 +91,8 @@ describe('SettingsScreen rendering', () => {
       <SettingsScreen
         selected={settingsIndex}
         settings={settings}
+        appVersion="0.1.9"
+        updateCheck={{checkedAt: '2026-07-07T00:00:00.000Z', currentVersion: '0.1.9', latestVersion: '0.1.9', updateAvailable: false}}
         storePath="/tmp/radiocli.json"
         playback={playback}
         backends={['mpv']}
@@ -107,6 +109,80 @@ describe('SettingsScreen rendering', () => {
     expect(frame).toContain('ASCII-safe display');
     expect(frame).toContain('Reduce motion');
     expect(frame).toContain('Transparent background');
+  });
+
+  it('changes the update settings row when an update is available', () => {
+    const settingsIndex = Math.max(0, settingsItems.indexOf('Check for updates'));
+    const {lastFrame} = render(
+      <SettingsScreen
+        selected={settingsIndex}
+        settings={settings}
+        appVersion="0.1.9"
+        updateCheck={{checkedAt: '2026-07-07T00:00:00.000Z', currentVersion: '0.1.9', latestVersion: '0.1.10', updateAvailable: true}}
+        storePath="/tmp/radiocli.json"
+        playback={playback}
+        backends={['mpv']}
+        airPlayDevices={[]}
+        providerHealth={{}}
+        theme="green"
+        diagnostics={diagnostics}
+        width={80}
+      />
+    );
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('Install update');
+    expect(frame).toContain('v0.1.10 available');
+  });
+
+  it('keeps the selected update row visible in a constrained Settings pane', () => {
+    const settingsIndex = Math.max(0, settingsItems.indexOf('Check for updates'));
+    const {lastFrame} = render(
+      <SettingsScreen
+        selected={settingsIndex}
+        settings={settings}
+        appVersion="0.1.9"
+        updateCheck={{checkedAt: '2026-07-07T00:00:00.000Z', currentVersion: '0.1.9', latestVersion: '0.1.9', updateAvailable: false}}
+        storePath="/tmp/radiocli.json"
+        playback={playback}
+        backends={['mpv']}
+        airPlayDevices={[]}
+        providerHealth={{}}
+        theme="green"
+        diagnostics={diagnostics}
+        width={80}
+        height={18}
+      />
+    );
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('> Check for updates');
+  });
+
+  it('keeps Reduce motion visible between ASCII-safe display and update checks', () => {
+    const settingsIndex = Math.max(0, settingsItems.indexOf('Reduce motion'));
+    const {lastFrame} = render(
+      <SettingsScreen
+        selected={settingsIndex}
+        settings={settings}
+        appVersion="0.1.9"
+        updateCheck={{checkedAt: '2026-07-07T00:00:00.000Z', currentVersion: '0.1.9', latestVersion: '0.1.9', updateAvailable: false}}
+        storePath="/tmp/radiocli.json"
+        playback={playback}
+        backends={['mpv']}
+        airPlayDevices={[]}
+        providerHealth={{}}
+        theme="green"
+        diagnostics={diagnostics}
+        width={80}
+        height={18}
+      />
+    );
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('  ASCII-safe display');
+    expect(frame).toContain('> Reduce motion');
+    expect(frame).toContain('  Check for updates');
   });
 });
 

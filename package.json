@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",

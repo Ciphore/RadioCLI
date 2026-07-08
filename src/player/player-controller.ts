@@ -19,6 +19,7 @@ export type PlaybackControlResult = {
 };
 
 const minAirPlayTuneTimeoutSeconds = 30;
+const mpvAudioStartFallbackMs = 1500;
 
 export class PlaybackOutputError extends Error {
   constructor(message: string) {
@@ -823,6 +824,7 @@ export class PlayerController {
   private async waitForReady(backend: 'mpv' | 'ffplay' | 'vlc'): Promise<void> {
     const timeoutMs = this.getSettings().tuneTimeoutSeconds * 1000;
     const started = Date.now();
+    let mpvPathReadyAt = 0;
 
     while (Date.now() - started < timeoutMs) {
       if (!this.process) {
@@ -837,7 +839,14 @@ export class PlayerController {
       if (this.ipcPath) {
         try {
           await this.queryMpv({command: ['get_property', 'path']});
-          return;
+          mpvPathReadyAt = mpvPathReadyAt || Date.now();
+          if (await this.hasMpvAudioStarted()) {
+            return;
+          }
+
+          if (Date.now() - mpvPathReadyAt >= mpvAudioStartFallbackMs) {
+            return;
+          }
         } catch {
           // The IPC socket can exist briefly before accepting commands.
         }
@@ -848,6 +857,15 @@ export class PlayerController {
 
     await this.stop();
     throw new Error(`Timed out while opening stream after ${this.getSettings().tuneTimeoutSeconds}s.`);
+  }
+
+  private async hasMpvAudioStarted(): Promise<boolean> {
+    const [timePos, audioPts] = await Promise.all([
+      this.queryMpv<number>({command: ['get_property', 'time-pos']}).catch(() => null),
+      this.queryMpv<number>({command: ['get_property', 'audio-pts']}).catch(() => null)
+    ]);
+
+    return typeof timePos === 'number' || typeof audioPts === 'number';
   }
 
   private startMpvMetadataPolling(): void {

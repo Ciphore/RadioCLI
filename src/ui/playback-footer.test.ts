@@ -61,6 +61,22 @@ describe('playback footer', () => {
     expect(loadingSpinnerFrames).toContain(loadingSpinnerFrame(2));
   });
 
+  it('prefers the loading station name while retuning from another station', () => {
+    const text = playbackFooterText({
+      station,
+      playback: {...playback, state: 'loading', stationName: 'KEXP'},
+      metadata: null,
+      queue: null,
+      favorite: false,
+      sleepLabel: 'Sleep off',
+      width: 240,
+      spinnerFrame: 1
+    });
+
+    expect(text).toBe(`${loadingSpinnerFrame(1)} KEXP · buffering… · vol 70`);
+    expect(text).not.toContain('Radio Paradise');
+  });
+
   it('wraps and normalizes spinner frame indices', () => {
     expect(loadingSpinnerFrame(0)).toBe(loadingSpinnerFrames[0]);
     expect(loadingSpinnerFrame(loadingSpinnerFrames.length)).toBe(loadingSpinnerFrames[0]);

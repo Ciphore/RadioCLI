@@ -16,8 +16,8 @@ export class ProviderManager {
     return this.radioBrowser.popular(limit);
   }
 
-  byCountry(countryCode: string, limit?: number): Promise<Station[]> {
-    return this.radioBrowser.byCountry(countryCode, limit);
+  byCountry(countryCode: string, limit?: number, offset?: number): Promise<Station[]> {
+    return this.radioBrowser.byCountry(countryCode, limit, offset);
   }
 
   nearby(location: LocationGuess, limit?: number): Promise<Station[]> {
@@ -30,7 +30,7 @@ export class ProviderManager {
 
   async search(query: string, settings: AppSettings, options: SearchOptions = {}): Promise<Station[]> {
     const radioBrowser = await this.radioBrowser.search(query, options);
-    if (!settings.enableRadioGarden && !options.includeExperimental) {
+    if ((!settings.enableRadioGarden && !options.includeExperimental) || (options.offset ?? 0) > 0) {
       return radioBrowser;
     }
 

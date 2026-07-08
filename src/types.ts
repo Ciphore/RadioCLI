@@ -167,6 +167,14 @@ export type AppSettings = {
   reduceMotion?: boolean;
 };
 
+export type UpdateCheckState = {
+  checkedAt: string;
+  currentVersion: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  error?: string;
+};
+
 type RecentPlay = {
   station: Station;
   playedAt: string;
@@ -198,6 +206,7 @@ export type LibraryState = {
   activity: ListeningActivity;
   trackHistory: TrackPlay[];
   searchHistory: string[];
+  updateCheck?: UpdateCheckState;
   settings: AppSettings;
 };
 

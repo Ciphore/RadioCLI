@@ -17,7 +17,7 @@ import {
   type ExploreMoveDirection,
   type MediaTransportAction
 } from './app-state.js';
-import {parseSgrMouseEvents, primaryMousePress} from './terminal-mouse.js';
+import {parseSgrMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
 import {completeCommand} from './help-content.js';
 
 type CurrentRef<T> = {
@@ -95,6 +95,7 @@ type AppInputOptions = {
   toggleNearbyLocation: () => void;
   toggleRadioGarden: () => void;
   toggleSkipBrokenStreams: () => void;
+  updateFromSettings: () => Promise<void>;
 };
 
 export function useAppInput({
@@ -162,7 +163,8 @@ export function useAppInput({
   toggleSetting,
   toggleNearbyLocation,
   toggleRadioGarden,
-  toggleSkipBrokenStreams
+  toggleSkipBrokenStreams,
+  updateFromSettings
 }: AppInputOptions): void {
   useEffect(() => {
     const onData = (data: Buffer | string) => {
@@ -184,8 +186,14 @@ export function useAppInput({
 
       const mouseEvents = parseSgrMouseEvents(rawInput);
       if (mouseEvents.length > 0) {
+        const wheelDelta = wheelScrollDelta(mouseEvents);
         const click = primaryMousePress(mouseEvents);
         lastRawTransportAtRef.current = Date.now();
+        if (wheelDelta !== 0 && shouldScrollSelectionWithWheel(screen, commandMode, editingCountryFilter)) {
+          setSelected(value => clamp(value + wheelDelta * 3, currentItemCount(screen) - 1));
+          return;
+        }
+
         if (!commandMode && screen === 'explore' && click) {
           moveExploreCursorToCell(click.x, click.y);
         }
@@ -640,6 +648,8 @@ export function useAppInput({
           toggleSetting('asciiMode');
         } else if (item === 'Reduce motion') {
           toggleSetting('reduceMotion');
+        } else if (item === 'Check for updates') {
+          void updateFromSettings();
         } else if (item === 'Refresh provider health') {
           refreshProviderHealth();
           setMessage('Provider health refreshed.');
@@ -673,6 +683,14 @@ export function useAppInput({
       }
     }
   });
+}
+
+function shouldScrollSelectionWithWheel(screen: Screen, commandMode: boolean, editingCountryFilter: boolean): boolean {
+  if (commandMode || editingCountryFilter) {
+    return false;
+  }
+
+  return ['countries', 'map', 'stations', 'search', 'nearby', 'explore', 'library'].includes(screen);
 }
 
 function exploreMoveForInput(input: string): {direction: ExploreMoveDirection; fast: boolean} | null {

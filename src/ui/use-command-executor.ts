@@ -35,6 +35,7 @@ type UseCommandExecutorOptions = {
   store: JsonLibraryStore;
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
+  updateCommand: () => Promise<void>;
   updateSettings: (settings: Partial<AppSettings>) => LibraryState;
 };
 
@@ -63,6 +64,7 @@ export function useCommandExecutor({
   store,
   toggleFavorite,
   toggleMute,
+  updateCommand,
   updateSettings
 }: UseCommandExecutorOptions): (rawCommand: string) => Promise<void> {
   return useCallback(
@@ -232,6 +234,11 @@ export function useCommandExecutor({
         return;
       }
 
+      if (name === 'update') {
+        await updateCommand();
+        return;
+      }
+
       if (name === 'stop') {
         setLibrary(store.finishActiveListeningSession());
         await player.stop();
@@ -291,6 +298,7 @@ export function useCommandExecutor({
       store,
       toggleFavorite,
       toggleMute,
+      updateCommand,
       updateSettings
     ]
   );

@@ -21,6 +21,8 @@ import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
 import {isAirPlayBackendAvailable} from './airplay-settings.js';
 import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
+import {appVersion} from '../version.js';
+import {checkForUpdate, installUpdate, shouldCheckForUpdate, updateCommandForInstall} from '../update-check.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -65,6 +67,10 @@ const LIVE_RECEIVER_PULSE_MS = 80;
 const AMBIENT_RECEIVER_PULSE_MS = 140;
 const LOADING_SPINNER_MS = 120;
 const VISUALIZER_MESSAGE_MS = 4500;
+const COUNTRY_STATIONS_PAGE_SIZE = 120;
+const COUNTRY_STATIONS_LOAD_AHEAD = 12;
+const SEARCH_RESULTS_PAGE_SIZE = 90;
+const SEARCH_RESULTS_LOAD_AHEAD = 12;
 
 const settingToggleLabel: Record<'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion', string> = {
   resumeOnLaunch: 'Resume on launch',
@@ -80,6 +86,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const {columns, rows} = useWindowSize();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
+  const installedVersion = useMemo(() => appVersion(), []);
 
   const [library, setLibrary] = useState<LibraryState>(() => store.snapshot());
   const settingsRef = useRef(library.settings);
@@ -115,9 +122,14 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [capturingTransportAction, setCapturingTransportAction] = useState<MediaTransportAction | null>(null);
+  const announcedUpdateRef = useRef(false);
+  const installingUpdateRef = useRef(false);
   const displayStationsRef = useRef<Station[]>([]);
   const playbackQueueRef = useRef<PlaybackQueue | null>(null);
   const lastRawTransportAtRef = useRef(0);
+  const loadingStationsRef = useRef(false);
+  const countryPageRequestRef = useRef<string | null>(null);
+  const searchPageRequestRef = useRef<string | null>(null);
   const playStationRef = useRef<(station: Station, options?: PlayStationOptions) => void>(() => undefined);
   const screenRef = useRef<Screen>(screen);
   const selectedRef = useRef(selected);
@@ -164,6 +176,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   screenRef.current = screen;
   selectedRef.current = selected;
+  loadingStationsRef.current = loadingStations;
   stationContextsRef.current = activeStationContexts;
   exploreCursorRef.current = exploreCursor;
 
@@ -246,7 +259,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   );
 
   useEffect(() => {
-    if (screen !== 'explore' || layout.compact || !stdout.isTTY) {
+    if (!stdout.isTTY) {
       return;
     }
 
@@ -254,7 +267,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     return () => {
       stdout.write(disableMouseReporting);
     };
-  }, [layout.compact, screen, stdout]);
+  }, [stdout]);
 
   useEffect(() => {
     selectedByScreenRef.current[screen] = selected;
@@ -376,6 +389,34 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   useEffect(() => {
     refreshProviderHealth();
   }, [refreshProviderHealth]);
+
+  const refreshUpdateCheck = useCallback(async () => {
+    const updateCheck = await checkForUpdate({currentVersion: installedVersion});
+    setLibrary(store.updateCheckState(updateCheck));
+    return updateCheck;
+  }, [installedVersion, store]);
+
+  useEffect(() => {
+    if (!shouldCheckForUpdate(library.updateCheck)) {
+      return;
+    }
+
+    let cancelled = false;
+    void refreshUpdateCheck().then(updateCheck => {
+      if (cancelled) {
+        return;
+      }
+
+      if (updateCheck.updateAvailable && updateCheck.latestVersion && !announcedUpdateRef.current) {
+        announcedUpdateRef.current = true;
+        setMessage(`Update available: v${updateCheck.latestVersion} · run :update`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [library.updateCheck, refreshUpdateCheck]);
 
   const setStationContextFor = useCallback((key: StationContextKey, context: StationContext) => {
     setStationContexts(current => ({...current, [key]: context}));
@@ -571,12 +612,15 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     async (country: Country) => {
       setLoadingStations(true);
       setMessage(null);
+      countryPageRequestRef.current = null;
       try {
-        const stations = await providers.byCountry(country.code, 120);
+        const stations = await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, 0);
         showStationContext({
           title: country.name,
-          subtitle: `${country.code} · ${country.stationCount.toLocaleString()} listed stations`,
-          stations
+          subtitle: formatCountryStationsSubtitle(country, stations.length, stations.length < country.stationCount),
+          stations,
+          country,
+          hasMore: stations.length >= COUNTRY_STATIONS_PAGE_SIZE && stations.length < country.stationCount
         }, 'stations');
       } catch (error) {
         setMessage(error instanceof Error ? error.message : `Could not load ${country.name}.`);
@@ -586,6 +630,66 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     },
     [providers, showStationContext]
   );
+
+  const loadMoreCountryStations = useCallback(async () => {
+    const context = stationContextsRef.current.stations;
+    const country = context.country;
+    if (!country || !context.hasMore || loadingStationsRef.current) {
+      return;
+    }
+
+    const offset = context.stations.length;
+    const requestKey = `${country.code}:${offset}`;
+    if (countryPageRequestRef.current === requestKey) {
+      return;
+    }
+
+    countryPageRequestRef.current = requestKey;
+    setLoadingStations(true);
+    try {
+      const page = await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, offset);
+      const latest = stationContextsRef.current.stations;
+      if (latest.country?.code !== country.code || latest.stations.length !== offset) {
+        return;
+      }
+
+      const stations = appendUniqueStations(latest.stations, page);
+      const hasMore = page.length >= COUNTRY_STATIONS_PAGE_SIZE && stations.length < country.stationCount;
+      setStationContextFor('stations', {
+        ...latest,
+        subtitle: formatCountryStationsSubtitle(country, stations.length, hasMore),
+        stations,
+        hasMore
+      });
+    } catch (error) {
+      if (stationContextsRef.current.stations.country?.code === country.code) {
+        setMessage(error instanceof Error ? error.message : `Could not load more ${country.name} stations.`);
+      }
+    } finally {
+      if (countryPageRequestRef.current === requestKey) {
+        countryPageRequestRef.current = null;
+        setLoadingStations(false);
+      }
+    }
+  }, [providers, setStationContextFor]);
+
+  useEffect(() => {
+    if (
+      screen === 'stations' &&
+      stationContexts.stations.country &&
+      stationContexts.stations.hasMore &&
+      stationContexts.stations.stations.length - selected <= COUNTRY_STATIONS_LOAD_AHEAD
+    ) {
+      void loadMoreCountryStations();
+    }
+  }, [
+    loadMoreCountryStations,
+    screen,
+    selected,
+    stationContexts.stations.country,
+    stationContexts.stations.hasMore,
+    stationContexts.stations.stations.length
+  ]);
 
   const runSearch = useCallback(
     async (query = searchQuery) => {
@@ -598,15 +702,18 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       setMessage(null);
       try {
         const stations = await providers.search(query, settingsRef.current, {
-          limit: 90,
+          limit: SEARCH_RESULTS_PAGE_SIZE,
+          offset: 0,
           codec: filters.codec ?? undefined,
           language: filters.language ?? undefined,
           minBitrate: filters.minBitrate ?? undefined
         });
         setStationContextFor('search', {
           title: `Search: ${query}`,
-          subtitle: 'Matches across enabled public station directories',
-          stations
+          subtitle: formatSearchSubtitle(stations.length, stations.length >= SEARCH_RESULTS_PAGE_SIZE),
+          stations,
+          query: query.trim(),
+          hasMore: stations.length >= SEARCH_RESULTS_PAGE_SIZE
         });
         selectedByScreenRef.current.search = 0;
         lastSubmittedSearchRef.current = query.trim();
@@ -622,6 +729,70 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     },
     [filters, providers, searchQuery, setStationContextFor, store]
   );
+
+  const loadMoreSearchResults = useCallback(async () => {
+    const context = stationContextsRef.current.search;
+    const query = context.query;
+    if (!query || !context.hasMore || loadingStationsRef.current) {
+      return;
+    }
+
+    const offset = context.stations.length;
+    const requestKey = `${query}:${offset}:${filters.codec ?? ''}:${filters.language ?? ''}:${filters.minBitrate ?? ''}`;
+    if (searchPageRequestRef.current === requestKey) {
+      return;
+    }
+
+    searchPageRequestRef.current = requestKey;
+    setLoadingStations(true);
+    try {
+      const page = await providers.search(query, settingsRef.current, {
+        limit: SEARCH_RESULTS_PAGE_SIZE,
+        offset,
+        codec: filters.codec ?? undefined,
+        language: filters.language ?? undefined,
+        minBitrate: filters.minBitrate ?? undefined
+      });
+      const latest = stationContextsRef.current.search;
+      if (latest.query !== query || latest.stations.length !== offset) {
+        return;
+      }
+
+      const stations = appendUniqueStations(latest.stations, page);
+      const hasMore = page.length >= SEARCH_RESULTS_PAGE_SIZE && stations.length > latest.stations.length;
+      setStationContextFor('search', {
+        ...latest,
+        subtitle: formatSearchSubtitle(stations.length, hasMore),
+        stations,
+        hasMore
+      });
+    } catch (error) {
+      if (stationContextsRef.current.search.query === query) {
+        setMessage(error instanceof Error ? error.message : 'Could not load more search results.');
+      }
+    } finally {
+      if (searchPageRequestRef.current === requestKey) {
+        searchPageRequestRef.current = null;
+        setLoadingStations(false);
+      }
+    }
+  }, [filters, providers, setStationContextFor]);
+
+  useEffect(() => {
+    if (
+      screen === 'search' &&
+      stationContexts.search.hasMore &&
+      stationContexts.search.stations.length - selected <= SEARCH_RESULTS_LOAD_AHEAD
+    ) {
+      void loadMoreSearchResults();
+    }
+  }, [
+    loadMoreSearchResults,
+    screen,
+    selected,
+    stationContexts.search.hasMore,
+    stationContexts.search.stations.length
+  ]);
 
   const recallSearchHistory = useCallback(
     (direction: 'older' | 'newer') => {
@@ -738,7 +909,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const playStation = useCallback(
     async (station: Station, options: PlayStationOptions = {}) => {
       const queue = options.queue ?? queueFromCurrentList(station);
-      setMessage(`Tuning ${station.name}...`);
       setNowPlaying(null);
 
       try {
@@ -1135,6 +1305,63 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     [openScreen, screen]
   );
 
+  const handleUpdateCommand = useCallback(async () => {
+    const updateCheck = library.updateCheck;
+    if (!updateCheck || shouldCheckForUpdate(updateCheck)) {
+      setMessage('Checking for updates...');
+      const latest = await refreshUpdateCheck();
+      if (latest.error) {
+        setMessage(`Update check failed: ${latest.error}`);
+        return;
+      }
+    }
+
+    const command = updateCommandForInstall();
+    const copied = copyToClipboard(command.command);
+    const latestVersion = store.snapshot().updateCheck?.latestVersion ?? updateCheck?.latestVersion;
+    const prefix = latestVersion ? `Latest v${latestVersion}. ` : '';
+    const method = command.method === 'homebrew' ? 'Homebrew' : command.method === 'npm' ? 'npm' : 'your install method';
+    setMessage(`${prefix}${copied ? 'Copied' : 'Run'} ${method} update: ${command.command}`);
+  }, [library.updateCheck, refreshUpdateCheck, store]);
+
+  const updateFromSettings = useCallback(async () => {
+    if (installingUpdateRef.current) {
+      setMessage('Update install already running.');
+      return;
+    }
+
+    const currentUpdateCheck = store.snapshot().updateCheck ?? library.updateCheck;
+    if (!currentUpdateCheck?.updateAvailable) {
+      setMessage('Checking for updates...');
+      const latest = await refreshUpdateCheck();
+      if (latest.error) {
+        setMessage(`Update check failed: ${latest.error}`);
+        return;
+      }
+
+      if (latest.updateAvailable && latest.latestVersion) {
+        setMessage(`Update available: v${latest.latestVersion}. Press Enter on Install update.`);
+        return;
+      }
+
+      setMessage(`RadioCLI is up to date at v${installedVersion}.`);
+      return;
+    }
+
+    const command = updateCommandForInstall();
+    installingUpdateRef.current = true;
+    setMessage(`Installing update with ${command.method === 'homebrew' ? 'Homebrew' : 'npm'}...`);
+    const result = await installUpdate(command.command);
+    installingUpdateRef.current = false;
+    if (result.ok) {
+      setMessage(`Update installed. Restart RadioCLI to use the new version.`);
+      return;
+    }
+
+    const detail = result.output ? ` ${result.output.split('\n').at(-1)}` : '';
+    setMessage(`Update install failed. Run manually: ${result.command}.${detail}`);
+  }, [installedVersion, library.updateCheck, refreshUpdateCheck, store]);
+
   const executeCommand = useCommandExecutor({
     beginLearningTransportKey,
     countries,
@@ -1160,6 +1387,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     store,
     toggleFavorite,
     toggleMute,
+    updateCommand: handleUpdateCommand,
     updateSettings
   });
 
@@ -1260,7 +1488,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     toggleSetting,
     toggleNearbyLocation,
     toggleRadioGarden,
-    toggleSkipBrokenStreams
+    toggleSkipBrokenStreams,
+    updateFromSettings
   });
 
   function currentItemCount(currentScreen: Screen): number {
@@ -1313,6 +1542,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         <AppContent
           airPlayDevices={availableAirPlayDevices}
           airPlayCode={airPlayCode}
+          appVersion={installedVersion}
           backends={availableBackends}
           countryFilter={countryFilter}
           diagnostics={diagnostics}
@@ -1343,6 +1573,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           stationTime={stationApproximateTime(playingStation)}
           storePath={store.filePath}
           theme={theme}
+          updateCheck={library.updateCheck}
         />
         <Box height={1}>
           {message ? <Text color={themeAccent(theme)}>{truncate(message, frameWidth)}</Text> : null}
@@ -1354,7 +1585,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
           {truncate(pageFooter, frameWidth)}
         </Text>
-        <Text color={textDim}>{truncate(globalFooter, frameWidth)}</Text>
+        <Box>
+          <Text color={textDim}>{truncate(globalFooter, Math.max(1, frameWidth - installedVersion.length - 3))}</Text>
+          <Box flexGrow={1} />
+          <Text color={textDim}>v{installedVersion}</Text>
+        </Box>
       </Box>
     </Box>
     </DisplayContext.Provider>
@@ -1395,6 +1630,35 @@ function exploreCursorLocation(cursor: ExploreCursor): LocationGuess {
     longitude: cursor.longitude,
     source: 'explore cursor'
   };
+}
+
+function appendUniqueStations(current: Station[], page: Station[]): Station[] {
+  const stations = [...current];
+  const seen = new Set(current.map(stationKey));
+  for (const station of page) {
+    const key = stationKey(station);
+    if (!seen.has(key)) {
+      seen.add(key);
+      stations.push(station);
+    }
+  }
+
+  return stations;
+}
+
+function formatCountryStationsSubtitle(country: Country, loaded: number, hasMore: boolean): string {
+  const total = country.stationCount.toLocaleString();
+  const loadedLabel = loaded.toLocaleString();
+  return hasMore
+    ? `${country.code} · ${loadedLabel} of ${total} listed stations loaded`
+    : `${country.code} · ${loadedLabel} of ${total} listed stations`;
+}
+
+function formatSearchSubtitle(loaded: number, hasMore: boolean): string {
+  const count = loaded.toLocaleString();
+  return hasMore
+    ? `Matches across enabled public station directories · ${count}+ loaded`
+    : `Matches across enabled public station directories · ${count} loaded`;
 }
 
 function formatExploreSubtitle(cursor: ExploreCursor, stations: Station[]): string {

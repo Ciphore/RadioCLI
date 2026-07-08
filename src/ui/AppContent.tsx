@@ -9,7 +9,8 @@ import type {
   PlaybackState,
   Screen,
   Station,
-  ThemeName
+  ThemeName,
+  UpdateCheckState
 } from '../types.js';
 import {textMuted, themeAccent} from './theme.js';
 import {HomeScreen} from './screens/HomeScreen.js';
@@ -32,6 +33,7 @@ import {playbackBackendLabel} from '../player/backend-install.js';
 type AppContentProps = {
   airPlayDevices: AirPlayDevice[];
   airPlayCode: string;
+  appVersion: string;
   backends: string[];
   countryFilter: string;
   diagnostics: PlaybackDiagnostics;
@@ -62,11 +64,13 @@ type AppContentProps = {
   stationTime: string;
   storePath: string;
   theme: ThemeName;
+  updateCheck?: UpdateCheckState;
 };
 
 export function AppContent({
   airPlayDevices,
   airPlayCode,
+  appVersion,
   backends,
   countryFilter,
   diagnostics,
@@ -96,7 +100,8 @@ export function AppContent({
   stationFavorite,
   stationTime,
   storePath,
-  theme
+  theme,
+  updateCheck
 }: AppContentProps): React.ReactElement {
   if (layout.compact) {
     return (
@@ -229,6 +234,8 @@ export function AppContent({
       <SettingsScreen
         selected={selected}
         settings={library.settings}
+        appVersion={appVersion}
+        updateCheck={updateCheck}
         storePath={storePath}
         playback={playback}
         backends={backends}
@@ -237,6 +244,7 @@ export function AppContent({
         theme={theme}
         diagnostics={diagnostics}
         width={frameWidth}
+        height={layout.contentRows}
       />
     );
   }

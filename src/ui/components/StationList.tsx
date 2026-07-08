@@ -39,7 +39,7 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
         items={window.items}
         selected={selected - window.start}
         keyFor={station => `${station.provider}:${station.id}`}
-        render={(station, index, active) => {
+        render={(station, _index, active) => {
           const favorite = favorites.has(`${station.provider}:${station.id}`);
           const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);
           const titleWidth = nameWidth + 2;
@@ -62,7 +62,7 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
               {active ? (
                 <Box marginLeft={4}>
                   <Text color={textMuted}>
-                    #{window.start + index + 1} · {truncate(stationTags(station), rowWidth - 8)}
+                    {truncate(stationTags(station), rowWidth - 4)}
                   </Text>
                 </Box>
               ) : null}

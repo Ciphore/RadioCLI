@@ -1,6 +1,6 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import type {AirPlayDevice, AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName} from '../../types.js';
+import type {AirPlayDevice, AppSettings, PlaybackDiagnostics, PlaybackState, ThemeName, UpdateCheckState} from '../../types.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
@@ -9,10 +9,13 @@ import {textMuted, themeAccent} from '../theme.js';
 import {playbackBackendCapabilities} from '../../player/backend-install.js';
 import {airPlayReceiverSettingValue} from '../airplay-settings.js';
 import {audioOutputLabel, audioOutputSettingValue} from '../audio-output.js';
+import {updateStatusText} from '../../update-check.js';
 
 type SettingsScreenProps = {
   selected: number;
   settings: AppSettings;
+  appVersion: string;
+  updateCheck?: UpdateCheckState;
   storePath: string;
   playback: PlaybackState;
   backends: string[];
@@ -21,11 +24,14 @@ type SettingsScreenProps = {
   theme: ThemeName;
   diagnostics: PlaybackDiagnostics;
   width: number;
+  height?: number;
 };
 
 export function SettingsScreen({
   selected,
   settings,
+  appVersion,
+  updateCheck,
   storePath,
   playback,
   backends,
@@ -33,11 +39,13 @@ export function SettingsScreen({
   providerHealth,
   theme,
   diagnostics,
-  width
+  width,
+  height
 }: SettingsScreenProps): React.ReactElement {
   const accent = themeAccent(theme);
   const lineWidth = Math.max(32, width - 4);
   const health = Object.entries(providerHealth);
+  const menuWindow = settingsMenuWindow(selected, height);
 
   return (
     <Box flexDirection="column">
@@ -49,16 +57,17 @@ export function SettingsScreen({
       />
       <Box marginTop={1} flexDirection="column">
         <Menu
-          items={settingsItems}
-          selected={selected}
-          keyFor={item => item}
+          items={menuWindow.items}
+          selected={selected - menuWindow.start}
+          keyFor={({item}) => item}
           render={(item, _index, active) => {
-            const value = settingValue(item, settings, diagnostics, backends, airPlayDevices);
+            const label = settingLabel(item.item, updateCheck);
+            const value = settingValue(item.item, settings, diagnostics, backends, airPlayDevices, updateCheck);
             return (
               <Box>
                 <Pointer active={active} />
                 <Text color={active ? accent : undefined} bold={active}>
-                  {item}
+                  {label}
                 </Text>
                 {value ? (
                   <>
@@ -83,6 +92,9 @@ export function SettingsScreen({
         <Text color={textMuted}>
           Provider health: {health.length ? health.map(([provider, status]) => `${provider} ${status}`).join(' · ') : 'not checked yet'}
         </Text>
+        <Text color={textMuted}>
+          Version: <Text color={accent}>v{appVersion}</Text> · Update: {updateStatusText(updateCheck)}
+        </Text>
         <Text color={textMuted}>Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>
         <Text color={textMuted}>Library: {truncate(storePath, lineWidth - 9)}</Text>
       </Box>
@@ -90,12 +102,35 @@ export function SettingsScreen({
   );
 }
 
+function settingsMenuWindow(selected: number, height: number | undefined): {start: number; items: Array<{item: string}>} {
+  if (!height) {
+    return {start: 0, items: settingsItems.map(item => ({item}))};
+  }
+
+  const reservedRows = 10;
+  const maxRows = Math.max(5, height - reservedRows);
+  if (settingsItems.length <= maxRows) {
+    return {start: 0, items: settingsItems.map(item => ({item}))};
+  }
+
+  const clampedSelected = Math.min(Math.max(selected, 0), settingsItems.length - 1);
+  const start = Math.min(
+    Math.floor(clampedSelected / maxRows) * maxRows,
+    Math.max(0, settingsItems.length - maxRows)
+  );
+  return {
+    start,
+    items: settingsItems.slice(start, start + maxRows).map(item => ({item}))
+  };
+}
+
 function settingValue(
   item: string,
   settings: AppSettings,
   diagnostics: PlaybackDiagnostics,
   backends: string[],
-  airPlayDevices: AirPlayDevice[]
+  airPlayDevices: AirPlayDevice[],
+  updateCheck: UpdateCheckState | undefined
 ): string | undefined {
   switch (item) {
     case 'Cycle display color':
@@ -125,9 +160,19 @@ function settingValue(
       return settings.asciiMode ? 'on' : 'off';
     case 'Reduce motion':
       return settings.reduceMotion ? 'on' : 'off';
+    case 'Check for updates':
+      return updateStatusText(updateCheck);
     case 'Reset learned media keys':
       return `prev ${settings.mediaKeys.previous.length} · play ${settings.mediaKeys.playPause.length} · next ${settings.mediaKeys.next.length}`;
     default:
       return undefined;
   }
+}
+
+function settingLabel(item: string, updateCheck: UpdateCheckState | undefined): string {
+  if (item === 'Check for updates' && updateCheck?.updateAvailable) {
+    return 'Install update';
+  }
+
+  return item;
 }

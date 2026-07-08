@@ -102,13 +102,14 @@ export class RadioBrowserProvider {
     return this.normalizeStations(rows);
   }
 
-  async byCountry(countryCode: string, limit = 100): Promise<Station[]> {
+  async byCountry(countryCode: string, limit = 100, offset = 0): Promise<Station[]> {
     const rows = await this.request<unknown[]>(
       '/json/stations/search',
       {
         countrycode: countryCode.toUpperCase(),
         hidebroken: 'true',
         limit: String(limit),
+        offset: String(Math.max(0, offset)),
         order: 'clickcount',
         reverse: 'true'
       },
@@ -128,6 +129,7 @@ export class RadioBrowserProvider {
     const baseParams = {
       hidebroken: 'true',
       limit: String(limit),
+      offset: String(Math.max(0, options.offset ?? 0)),
       order: 'clickcount',
       reverse: 'true',
       ...(options.codec ? {codec: options.codec} : {}),

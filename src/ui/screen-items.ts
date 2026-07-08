@@ -24,6 +24,7 @@ export const settingsItems = [
   'Transparent background',
   'ASCII-safe display',
   'Reduce motion',
+  'Check for updates',
   'Refresh provider health',
   'Learn previous media key',
   'Learn play/pause media key',

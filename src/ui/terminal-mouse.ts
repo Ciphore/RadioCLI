@@ -28,6 +28,25 @@ export function primaryMousePress(events: TerminalMouseEvent[]): TerminalMouseEv
   return events.find(event => event.pressed && (event.button & 3) === 0 && (event.button & 96) === 0) ?? null;
 }
 
+export function wheelScrollDelta(events: TerminalMouseEvent[]): number {
+  return events.reduce((delta, event) => {
+    if (!event.pressed) {
+      return delta;
+    }
+
+    const button = event.button & 127;
+    if (button === 64) {
+      return delta - 1;
+    }
+
+    if (button === 65) {
+      return delta + 1;
+    }
+
+    return delta;
+  }, 0);
+}
+
 export function exploreCursorForMouseCell(
   x: number,
   y: number,
