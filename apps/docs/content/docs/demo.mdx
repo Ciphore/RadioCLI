@@ -3,11 +3,13 @@ title: Demo
 description: The recommended recording loop and scripted transcript for RadioCLI.
 ---
 
-## Recorded GIFs
+## Recorded demos
 
 These clips are generated from the built TUI, not mocked screenshots.
 
-![Now Playing cycling receiver visualizers and display colors](/demo/radiocli-now-playing.gif)
+<video controls autoPlay muted loop playsInline preload="metadata" poster="/demo/radiocli-fullscreen.png" aria-label="Now Playing cycling receiver visualizers and display colors">
+  <source src="/demo/radiocli-now-playing.webm" type="video/webm" />
+</video>
 
 ![Library with favorites, recent stations, and imported streams](/demo/radiocli-library.gif)
 
@@ -15,7 +17,7 @@ These clips are generated from the built TUI, not mocked screenshots.
 
 ![Search results for tokyo jazz](/demo/radiocli-search.gif)
 
-![Nearby stations after opt-in approximate location lookup](/demo/radiocli-nearby.gif)
+![Nearby stations using approximate location lookup](/demo/radiocli-nearby.gif)
 
 ![Stats screen cycling display colors](/demo/radiocli-stats-colors.gif)
 
@@ -26,8 +28,8 @@ npm run build
 npm run demo:assets
 ```
 
-The recorder expects `vhs`, ImageMagick's `magick`, `mpv`, and network access.
-It writes the GIFs and full-screen screenshot to `apps/docs/public/demo`.
+The recorder expects `vhs`, ImageMagick's `magick`, FFmpeg, `mpv`, and network access.
+It writes the demo assets and full-screen screenshot to `apps/docs/public/demo`.
 
 ## Manual Demo Flow
 

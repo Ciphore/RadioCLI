@@ -70,6 +70,24 @@ describe('CLI command dispatch', () => {
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 
+  it('prints a machine-readable, state-free doctor report', async () => {
+    await runCommand(['doctor', '--json']);
+
+    const report = JSON.parse(logs.join('\n')) as {
+      radioCliVersion: string;
+      platform: string;
+      backends: string[];
+      commands: Record<string, string | null>;
+      guidance: string[];
+    };
+    expect(report.radioCliVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(report.platform).toBe(process.platform);
+    expect(report.backends).toEqual([]);
+    expect(report.commands).toHaveProperty('mpv');
+    expect(report.guidance).toContain('playback=missing');
+    expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
   it('rejects unknown commands with the help hint', async () => {
     await expect(runCommand(['wat'])).rejects.toThrow('Unknown command: wat\nRun radiocli help.');
   });

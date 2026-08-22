@@ -1,6 +1,10 @@
 import type {AppSettings, Country, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import {isPlaybackOutputError} from '../player/player-controller.js';
+import {isProviderUnavailableError} from '../providers/radio-browser.js';
 import type {TopTab} from './components/TopTabs.js';
+import {receiverStyleMetadata} from './visualizers/receiver-style-registry.js';
+import {removeLastGrapheme} from './format.js';
+import {primaryScreens, screenMetadata} from './screen-meta.js';
 
 export type StationContext = {
   title: string;
@@ -86,7 +90,7 @@ export const initialStationContexts: Record<StationContextKey, StationContext> =
   },
   nearby: {
     title: 'Nearby',
-    subtitle: 'Opt-in approximate location for local stations',
+    subtitle: 'Approximate IP location for local stations',
     stations: []
   },
   library: {
@@ -96,17 +100,10 @@ export const initialStationContexts: Record<StationContextKey, StationContext> =
   }
 };
 
-export const topTabs: TopTab[] = [
-  {screen: 'home', label: 'Overview'},
-  {screen: 'now-playing', label: 'Playing'},
-  {screen: 'library', label: 'Library'},
-  {screen: 'explore', label: 'Explore'},
-  {screen: 'search', label: 'Search'},
-  {screen: 'countries', label: 'Countries'},
-  {screen: 'nearby', label: 'Nearby'},
-  {screen: 'stats', label: 'Stats'},
-  {screen: 'settings', label: 'Settings'}
-];
+export const topTabs: TopTab[] = primaryScreens.map(screen => ({
+  screen,
+  label: screenMetadata[screen].tabLabel
+}));
 
 export function clamp(value: number, max: number): number {
   return Math.min(Math.max(value, 0), Math.max(max, 0));
@@ -236,7 +233,12 @@ export function favoriteTarget(screen: Screen, selectedStation: Station | null, 
 }
 
 export function shouldSkipAfterTuneError(error: unknown, skipBrokenStreams: boolean, nextStation: Station | undefined): nextStation is Station {
-  return Boolean(skipBrokenStreams && nextStation && !isPlaybackOutputError(error));
+  return Boolean(
+    skipBrokenStreams &&
+    nextStation &&
+    !isPlaybackOutputError(error) &&
+    !isProviderUnavailableError(error)
+  );
 }
 
 export function activeTabForScreen(screen: Screen): Screen {
@@ -278,7 +280,8 @@ export function nextReceiverPulse(pulse: number): number {
 }
 
 export function shouldResetReceiverPulse(previous: ReceiverPulseSnapshot | null, current: ReceiverPulseSnapshot): boolean {
-  if (current.receiverStyle !== 'ultracode') {
+  const style = receiverStyleMetadata[current.receiverStyle];
+  if (!('resetPulse' in style) || !style.resetPulse) {
     return false;
   }
 
@@ -290,9 +293,21 @@ export function shouldResetReceiverPulse(previous: ReceiverPulseSnapshot | null,
     return false;
   }
 
+  // Every receiver except Ultracode resumes from its frozen pause frame.
+  // Ultracode intentionally retains its active-signal restart behavior.
+  if (
+    current.receiverStyle !== 'ultracode' &&
+    previous?.screen === 'now-playing' &&
+    previous.receiverStyle === current.receiverStyle &&
+    previous.playbackState === 'paused' &&
+    previous.playbackReady
+  ) {
+    return false;
+  }
+
   return !(
     previous?.screen === 'now-playing' &&
-    previous.receiverStyle === 'ultracode' &&
+    previous.receiverStyle === current.receiverStyle &&
     previous.playbackState === 'playing' &&
     previous.playbackReady
   );
@@ -308,7 +323,7 @@ export function applyTextInput(
   key: {backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean}
 ): string {
   if (key.backspace || key.delete || (key.ctrl && input === 'h')) {
-    return value.slice(0, -1);
+    return removeLastGrapheme(value);
   }
 
   if (key.ctrl || key.meta) {

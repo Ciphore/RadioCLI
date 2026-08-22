@@ -30,4 +30,12 @@ describe('toAsciiSafe', () => {
     expect(toAsciiSafe('a · b')).toBe('a . b');
     expect(toAsciiSafe('Loading…')).toBe('Loading.');
   });
+
+  it('preserves direction in visualizer geometry', () => {
+    expect(toAsciiSafe('╱╲╳ ▲▼ ◢◣◤◥ ⋖⋗ ⌁ ◉◒ ˙')).toBe('/\\X ^v /\\\\/ <> ~ oo .');
+  });
+
+  it('preserves international station names', () => {
+    expect(toAsciiSafe('Rádio 東京')).toBe('Rádio 東京');
+  });
 });

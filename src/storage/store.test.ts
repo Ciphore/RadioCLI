@@ -1,4 +1,4 @@
-import {mkdtempSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
@@ -24,7 +24,9 @@ describe('JsonLibraryStore', () => {
     roots.push(root);
     const file = join(root, 'library.json');
 
-    expect(new JsonLibraryStore(file).snapshot().settings.enableNearbyLocation).toBe(true);
+    const settings = new JsonLibraryStore(file).snapshot().settings;
+    expect(settings.enableNearbyLocation).toBe(true);
+    expect(settings.mouseSupport).toBe(true);
   });
 
   it('persists recents, favorites, and settings', () => {
@@ -64,6 +66,97 @@ describe('JsonLibraryStore', () => {
     expect(reloaded.settings.preferredBackend).toBe('auto');
     expect(reloaded.settings.preferredAirPlayDevice).toBe('5CAAFD0046D4@Office');
     expect(reloaded.settings.mediaKeys.next).toEqual(['next']);
+  });
+
+  it('recovers interrupted listening at the last heartbeat instead of the next launch', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const firstStation: Station = {id: 'first', provider: 'radio-browser', name: 'First FM', tags: []};
+    const nextStation: Station = {id: 'next', provider: 'radio-browser', name: 'Next FM', tags: []};
+    const store = new JsonLibraryStore(file);
+
+    store.startListeningSession(firstStation, new Date('2026-08-09T12:00:00.000Z'));
+    store.checkpointActiveListeningSession(new Date('2026-08-09T12:04:00.000Z'));
+    store.startListeningSession(nextStation, new Date('2026-08-09T20:00:00.000Z'));
+
+    const recovered = store.snapshot().activity.sessions[1];
+    expect(recovered?.endedAt).toBe('2026-08-09T12:04:00.000Z');
+    expect(recovered?.lastActiveAt).toBe('2026-08-09T12:04:00.000Z');
+    expect(recovered?.listenedSeconds).toBe(240);
+  });
+
+  it('exports and restores the complete preferences and library backup', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const backupFile = join(root, 'portable-backup.json');
+    const station: Station = {id: 'favorite', provider: 'radio-browser', name: 'Favorite FM', tags: ['jazz']};
+    const store = new JsonLibraryStore(file);
+
+    store.toggleFavorite(station);
+    store.addRecent(station);
+    store.addImported([{...station, id: 'custom', provider: 'playlist', streamUrl: 'https://example.com/live'}]);
+    store.recordTrack(station, 'Artist - Track');
+    store.addSearch('late night jazz');
+    store.startListeningSession(station, new Date('2026-07-20T20:00:00.000Z'));
+    store.finishActiveListeningSession(new Date('2026-07-20T20:05:00.000Z'));
+    store.updateSettings({theme: 'ruby', receiverStyle: 'skyline', volume: 42});
+
+    expect(store.exportBackup(backupFile)).toBe(backupFile);
+    expect(JSON.parse(readFileSync(backupFile, 'utf8'))).toMatchObject({
+      format: 'radiocli-backup',
+      version: 1,
+      library: {settings: {theme: 'ruby', receiverStyle: 'skyline', volume: 42}}
+    });
+
+    store.toggleFavorite(station);
+    store.updateSettings({theme: 'green', volume: 70});
+    const imported = store.importBackup(backupFile);
+
+    expect(imported.state.favorites.map(item => item.id)).toContain('favorite');
+    expect(imported.state.imported.map(item => item.id)).toContain('custom');
+    expect(imported.state.trackHistory[0]?.title).toBe('Artist - Track');
+    expect(imported.state.searchHistory).toContain('late night jazz');
+    expect(imported.state.activity.sessions[0]?.listenedSeconds).toBe(300);
+    expect(imported.state.settings).toMatchObject({theme: 'ruby', receiverStyle: 'skyline', volume: 42});
+    expect(imported.safetyBackupPath && existsSync(imported.safetyBackupPath)).toBe(true);
+    expect(new JsonLibraryStore(file).snapshot().favorites.map(item => item.id)).toContain('favorite');
+  });
+
+  it('rejects invalid imports without replacing the current library', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const backupFile = join(root, 'invalid-backup.json');
+    const station: Station = {id: 'kept', provider: 'radio-browser', name: 'Keep FM', tags: []};
+    const store = new JsonLibraryStore(file);
+    store.toggleFavorite(station);
+    writeFileSync(backupFile, JSON.stringify({not: 'a RadioCLI backup'}), 'utf8');
+
+    expect(() => store.importBackup(backupFile)).toThrow();
+    expect(store.snapshot().favorites.map(item => item.id)).toEqual(['kept']);
+    expect(new JsonLibraryStore(file).snapshot().favorites.map(item => item.id)).toEqual(['kept']);
+  });
+
+  it('merges independent writers without losing library or setting changes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const first = new JsonLibraryStore(file);
+    const second = new JsonLibraryStore(file);
+    const jazz: Station = {id: 'jazz', provider: 'radio-browser', name: 'Jazz FM', tags: []};
+    const news: Station = {id: 'news', provider: 'radio-browser', name: 'News FM', tags: []};
+
+    first.toggleFavorite(jazz);
+    second.toggleFavorite(news);
+    first.updateSettings({theme: 'amber'});
+    second.updateSettings({volume: 35});
+
+    const merged = new JsonLibraryStore(file).snapshot();
+    expect(merged.favorites.map(station => station.id).sort()).toEqual(['jazz', 'news']);
+    expect(merged.settings.theme).toBe('amber');
+    expect(merged.settings.volume).toBe(35);
   });
 
   it('records track history per station, deduping consecutive repeats, and persists it', () => {
@@ -151,7 +244,7 @@ describe('JsonLibraryStore', () => {
     expect(readdirSync(root).some(name => name.startsWith('library.json.bad-'))).toBe(true);
   });
 
-  it.each(['scope', 'spectrum', 'oscilloscope', 'motion-bars', 'radar', 'tuning-dial', 'cassette', `${'term'}${'flix'}-plasma`, 'sierpinksi'])(
+  it.each(['scope', 'spectrum', 'oscilloscope', 'motion-bars', 'radar', 'dual-ripple', 'perspective-floor', 'bloom-bars', 'running-horse', 'starlink', 'tuning-dial', 'cassette', `${'term'}${'flix'}-plasma`, 'sierpinksi', 'voronoi', 'orbits', 'chromatic', 'ferro-crown', 'origami-tide', 'tv-static', 'sunspot', 'plasma', 'metaballs', 'motion-blob', 'clifford', 'paris', 'kyoto', 'sahara'])(
     'migrates removed receiver style %s to the default receiver style',
     receiverStyle => {
       const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
@@ -183,6 +276,28 @@ describe('JsonLibraryStore', () => {
       expect(state.settings.receiverStyle).toBe(defaultReceiverStyle);
       expect(state.settings.receiverStyleVersion).toBe(2);
       expect(state.settings.mediaKeys).toEqual({previous: [], playPause: [], next: []});
+    }
+  );
+
+  it.each(['sumi-mountains', 'moonlit-tide'])(
+    'migrates replaced receiver style %s to sumi-ocean',
+    receiverStyle => {
+      const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+      roots.push(root);
+      const file = join(root, 'library.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          recent: [],
+          favorites: [],
+          imported: [],
+          activity: {sessions: []},
+          settings: {receiverStyle, receiverStyleVersion: 2}
+        }),
+        'utf8'
+      );
+
+      expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe('sumi-ocean');
     }
   );
 

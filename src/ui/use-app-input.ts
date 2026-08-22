@@ -17,7 +17,7 @@ import {
   type ExploreMoveDirection,
   type MediaTransportAction
 } from './app-state.js';
-import {parseSgrMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
+import {parseTerminalMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
 import {completeCommand} from './help-content.js';
 
 type CurrentRef<T> = {
@@ -37,6 +37,7 @@ type AppInputOptions = {
   capturingTransportAction: MediaTransportAction | null;
   commandMode: boolean;
   commandText: string;
+  confirmCtrlCExit: () => void;
   copyStationUrl: (station: Station | null) => Promise<void>;
   openStationHomepage: (station: Station | null) => void;
   currentItemCount: (screen: Screen) => number;
@@ -91,8 +92,9 @@ type AppInputOptions = {
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
   togglePause: () => void;
-  toggleSetting: (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion') => void;
+  toggleSetting: (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport') => void;
   toggleNearbyLocation: () => void;
+  toggleDirectoryVoting: () => void;
   toggleRadioGarden: () => void;
   toggleSkipBrokenStreams: () => void;
   updateFromSettings: () => Promise<void>;
@@ -106,6 +108,7 @@ export function useAppInput({
   capturingTransportAction,
   commandMode,
   commandText,
+  confirmCtrlCExit,
   copyStationUrl,
   openStationHomepage,
   currentItemCount,
@@ -162,6 +165,7 @@ export function useAppInput({
   togglePause,
   toggleSetting,
   toggleNearbyLocation,
+  toggleDirectoryVoting,
   toggleRadioGarden,
   toggleSkipBrokenStreams,
   updateFromSettings
@@ -184,7 +188,7 @@ export function useAppInput({
         return;
       }
 
-      const mouseEvents = parseSgrMouseEvents(rawInput);
+      const mouseEvents = parseTerminalMouseEvents(data);
       if (mouseEvents.length > 0) {
         const wheelDelta = wheelScrollDelta(mouseEvents);
         const click = primaryMousePress(mouseEvents);
@@ -244,7 +248,7 @@ export function useAppInput({
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
-      shutdown();
+      confirmCtrlCExit();
       return;
     }
 
@@ -506,8 +510,8 @@ export function useAppInput({
       return;
     }
 
-    if (screen === 'home' && (/^[1-9]$/.test(input) || input === '0')) {
-      const menuIndex = input === '0' ? 9 : Number(input) - 1;
+    if (screen === 'home' && /^[1-8]$/.test(input)) {
+      const menuIndex = Number(input) - 1;
       setSelected(menuIndex);
       const target = homeItems[menuIndex]?.screen;
       if (target) {
@@ -628,6 +632,8 @@ export function useAppInput({
           cycleReceiverStyle();
         } else if (item === 'Toggle nearby location lookup') {
           toggleNearbyLocation();
+        } else if (item === 'Share favorite votes with Radio Browser') {
+          toggleDirectoryVoting();
         } else if (item === 'Audio output') {
           cycleAudioOutput();
         } else if (item === 'AirPlay receiver') {
@@ -648,6 +654,14 @@ export function useAppInput({
           toggleSetting('asciiMode');
         } else if (item === 'Reduce motion') {
           toggleSetting('reduceMotion');
+        } else if (item === 'Mouse and trackpad scrolling') {
+          toggleSetting('mouseSupport');
+        } else if (item === 'Export preferences and library') {
+          setCommandText('export ');
+          setCommandMode(true);
+        } else if (item === 'Import preferences and library') {
+          setCommandText('import ');
+          setCommandMode(true);
         } else if (item === 'Check for updates') {
           void updateFromSettings();
         } else if (item === 'Refresh provider health') {
@@ -690,7 +704,10 @@ function shouldScrollSelectionWithWheel(screen: Screen, commandMode: boolean, ed
     return false;
   }
 
-  return ['countries', 'map', 'stations', 'search', 'nearby', 'explore', 'library'].includes(screen);
+  return [
+    'home', 'countries', 'map', 'stations', 'search', 'nearby', 'explore',
+    'library', 'settings', 'help', 'airplay-settings'
+  ].includes(screen);
 }
 
 function exploreMoveForInput(input: string): {direction: ExploreMoveDirection; fast: boolean} | null {

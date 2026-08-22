@@ -1,26 +1,27 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { getHomeJsonLd, serializeJsonLd } from '@/lib/seo';
 
 const homeDescription =
-  'Explore live public stations around the world, tune real streams through local playback backends, and keep your radio library close to the command line.';
+  'A free, open-source terminal internet radio player for exploring live stations worldwide with resilient local playback and a private, local-first library.';
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'RadioCLI',
+    absolute: 'RadioCLI — Terminal Internet Radio Player',
   },
   description: homeDescription,
   alternates: {
     canonical: '/',
   },
   openGraph: {
-    title: 'RadioCLI',
+    title: 'RadioCLI — Terminal Internet Radio Player',
     description: homeDescription,
     images: ['/demo/radiocli-fullscreen.png'],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RadioCLI',
+    title: 'RadioCLI — Terminal Internet Radio Player',
     description: homeDescription,
     images: ['/demo/radiocli-fullscreen.png'],
   },
@@ -41,7 +42,7 @@ const specs = [
   },
   {
     label: 'Privacy',
-    body: 'No account, no proxy, no secrets. Nearby discovery is opt-in and approximate.',
+    body: 'No account, no proxy, no secrets. Nearby uses controllable approximate location.',
   },
 ];
 
@@ -56,7 +57,7 @@ const features = [
   },
   {
     title: 'A receiver, not a wrapper',
-    body: 'Now Playing has 50 signal-gated receiver styles, stream diagnostics, ICY metadata cleanup, mpv-backed controls, favorites, and a sleep timer.',
+    body: 'Now Playing has signal-gated receiver styles, stream diagnostics, ICY metadata cleanup, mpv-backed controls, favorites, and a sleep timer.',
   },
   {
     title: 'Local-first library',
@@ -73,9 +74,16 @@ const features = [
 ];
 
 export default function HomePage() {
+  const jsonLd = getHomeJsonLd();
+
   return (
-    <main className="rc-home">
-      <div className="rc-shell">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
+      />
+      <main className="rc-home">
+        <div className="rc-shell">
         <section className="rc-hero">
           <div className="rc-hero-copy">
             <p className="rc-eyebrow">terminal receiver for public radio</p>
@@ -98,10 +106,22 @@ export default function HomePage() {
                 GitHub
               </Link>
             </div>
-            <p className="rc-install">
-              <span className="rc-prompt">$</span>
-              <code>brew install ciphore/tap/radiocli &amp;&amp; radiocli</code>
-            </p>
+            <div className="rc-install-options" aria-label="RadioCLI installation commands">
+              <div className="rc-install-option">
+                <span className="rc-install-label">Universal · npm</span>
+                <p className="rc-install">
+                  <span className="rc-prompt">$</span>
+                  <code>npm install -g @ciphore/radiocli</code>
+                </p>
+              </div>
+              <div className="rc-install-option">
+                <span className="rc-install-label">macOS · Homebrew + playback tools</span>
+                <p className="rc-install">
+                  <span className="rc-prompt">$</span>
+                  <code>brew install ciphore/tap/radiocli</code>
+                </p>
+              </div>
+            </div>
           </div>
 
           <figure className="rc-terminal-preview" aria-label="RadioCLI full-screen Now Playing screenshot">
@@ -159,7 +179,8 @@ export default function HomePage() {
             </Link>
           </div>
         </section>
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }

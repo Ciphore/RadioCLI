@@ -36,6 +36,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     volume: 70,
     enableRadioGarden: false,
     enableNearbyLocation: false,
+    shareDirectoryVotes: true,
     preferredBackend: 'auto',
     tuneTimeoutSeconds: 12,
     skipBrokenStreams: true,

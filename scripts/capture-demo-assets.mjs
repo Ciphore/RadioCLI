@@ -179,6 +179,7 @@ main().catch(error => {
 async function main() {
   requireCommand('vhs');
   requireCommand('magick');
+  requireCommand('ffmpeg');
 
   if (!existsSync(distCli)) {
     run('npm', ['run', 'build', '--silent']);
@@ -210,9 +211,27 @@ async function main() {
   }
 
   if (selectedTapeNames.size === 0 || selectedTapeNames.has('radiocli-now-playing')) {
+    const nowPlayingGif = join(outputDir, 'radiocli-now-playing.gif');
     run('magick', [
-      `${join(outputDir, 'radiocli-now-playing.gif')}[0]`,
+      `${nowPlayingGif}[0]`,
       join(outputDir, 'radiocli-fullscreen.png')
+    ]);
+    run('ffmpeg', [
+      '-y',
+      '-i',
+      nowPlayingGif,
+      '-vf',
+      'format=yuv420p',
+      '-c:v',
+      'libvpx-vp9',
+      '-crf',
+      '36',
+      '-b:v',
+      '0',
+      '-an',
+      '-row-mt',
+      '1',
+      join(outputDir, 'radiocli-now-playing.webm')
     ]);
   }
 }

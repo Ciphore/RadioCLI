@@ -1,5 +1,6 @@
 import {spawn} from 'node:child_process';
 import {resolveCommand} from '../player/command.js';
+import {safeExternalHttpUrl} from '../safety.js';
 
 type SystemCommand = {
   command: string;
@@ -13,8 +14,8 @@ export function openExternalCommand(platform: NodeJS.Platform = process.platform
   }
 
   if (platform === 'win32') {
-    // The empty "" is the window title argument `start` expects before the URL.
-    return {command: 'cmd', args: ['/c', 'start', '']};
+    // Direct invocation avoids cmd.exe interpreting URL query characters.
+    return {command: 'explorer', args: []};
   }
 
   return {command: 'xdg-open', args: []};
@@ -38,14 +39,21 @@ export function clipboardCommands(platform: NodeJS.Platform = process.platform):
   ];
 }
 
-export function openExternal(url: string, platform: NodeJS.Platform = process.platform): void {
+export function openExternal(url: string, platform: NodeJS.Platform = process.platform): boolean {
+  const safeUrl = safeExternalHttpUrl(url);
+  if (!safeUrl) {
+    return false;
+  }
+
   const {command, args} = openExternalCommand(platform);
   try {
-    const child = spawn(resolveCommand(command) ?? command, [...args, url], {stdio: 'ignore', detached: true});
+    const child = spawn(resolveCommand(command) ?? command, [...args, safeUrl], {stdio: 'ignore', detached: true});
     child.on('error', () => undefined);
     child.unref();
+    return true;
   } catch {
     // Opening a browser is best-effort; never crash the TUI over it.
+    return false;
   }
 }
 

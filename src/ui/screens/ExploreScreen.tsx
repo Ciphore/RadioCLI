@@ -93,16 +93,17 @@ export function ExploreScreen({
           <Box height={1} flexShrink={0}>
             <Text color={textMuted}>{loading ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…') : ' '}</Text>
           </Box>
-          {!loading ? (
-            <StationList
+          <StationList
               stations={stations}
               selected={selected}
               theme={theme}
               favorites={favorites}
               pageSize={listPageSize}
               width={Math.max(42, listPanelWidth - 2)}
+              showCount={false}
+              emptyTitle={loading ? 'Loading stations…' : 'No stations near this point.'}
+              emptyHint="Move the map cursor to explore another area."
             />
-          ) : null}
         </Box>
       </Box>
     </Box>

@@ -174,9 +174,21 @@ function runDnsSd(args: string[], timeoutMs: number, maxOutputBytes: number): Pr
     const child = spawn('dns-sd', args, {stdio: ['ignore', 'pipe', 'pipe']});
     let output = '';
     let killedForLimit = false;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      resolve(output);
+    };
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
+      setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 250).unref();
     }, timeoutMs);
+    const forceTimer = setTimeout(finish, timeoutMs + 750);
     const appendOutput = (chunk: Buffer) => {
       if (Buffer.byteLength(output, 'utf8') >= maxOutputBytes) {
         if (!killedForLimit) {
@@ -198,12 +210,10 @@ function runDnsSd(args: string[], timeoutMs: number, maxOutputBytes: number): Pr
       appendOutput(chunk as Buffer);
     });
     child.once('error', () => {
-      clearTimeout(timer);
-      resolve(output);
+      finish();
     });
     child.once('exit', () => {
-      clearTimeout(timer);
-      resolve(output);
+      finish();
     });
   });
 }

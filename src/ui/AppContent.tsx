@@ -1,5 +1,5 @@
 import React from 'react';
-import {Box, Text} from 'ink';
+import {Text} from 'ink';
 import type {
   AirPlayDevice,
   Country,
@@ -12,7 +12,6 @@ import type {
   ThemeName,
   UpdateCheckState
 } from '../types.js';
-import {textMuted, themeAccent} from './theme.js';
 import {HomeScreen} from './screens/HomeScreen.js';
 import {CountriesScreen} from './screens/CountriesScreen.js';
 import {MapScreen} from './screens/MapScreen.js';
@@ -28,7 +27,7 @@ import {AirPlayCodeScreen} from './screens/AirPlayCodeScreen.js';
 import {selectedAirPlayDevice} from './airplay-settings.js';
 import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
-import {playbackBackendLabel} from '../player/backend-install.js';
+import {AdaptiveContent} from './AdaptiveContent.js';
 
 type AppContentProps = {
   airPlayDevices: AirPlayDevice[];
@@ -105,18 +104,41 @@ export function AppContent({
 }: AppContentProps): React.ReactElement {
   if (layout.compact) {
     return (
-      <Box flexDirection="column">
-        <Text bold>RadioCLI</Text>
-        <Text color={themeAccent(theme)}>Terminal too small: {layout.columns}x{layout.rows}</Text>
-        <Text color={textMuted}>Resize to at least 64x18 for the full receiver UI.</Text>
-        <Text color={textMuted}>Playback: {playback.state} · {playbackBackendLabel(playback.backend)}</Text>
-        <Text color={textMuted}>q quit · Ctrl+C always exits</Text>
-      </Box>
+      <AdaptiveContent
+        mode={layout.mode === 'micro' ? 'micro' : 'compact'}
+        screen={screen}
+        selected={selected}
+        height={layout.contentRows}
+        width={frameWidth}
+        theme={theme}
+        playback={playback}
+        playingStation={playingStation}
+        nowPlaying={nowPlaying}
+        stations={displayStations}
+        countries={filteredCountries}
+        airPlayDevices={airPlayDevices}
+        airPlayCode={airPlayCode}
+        searchQuery={searchQuery}
+        editingSearch={editingSearch}
+        countryFilter={countryFilter}
+        editingCountryFilter={editingCountryFilter}
+        loadingCountries={loadingCountries}
+        loadingStations={loadingStations}
+        library={library}
+        diagnostics={diagnostics}
+        backends={backends}
+        updateCheck={updateCheck}
+        favoriteKeys={favoriteKeys}
+        stationTitle={stationContext.title}
+        filterLabel={filterLabel}
+        pulse={pulse}
+        sleepLabel={sleepLabel}
+      />
     );
   }
 
   if (screen === 'home') {
-    return <HomeScreen selected={selected} theme={theme} library={library} playback={playback} />;
+    return <HomeScreen selected={selected} theme={theme} library={library} />;
   }
 
   if (screen === 'countries') {
@@ -162,7 +184,7 @@ export function AppContent({
         favorites={favoriteKeys}
         experimentalOn={library.settings.enableRadioGarden}
         filterLabel={filterLabel}
-        pageSize={layout.stationRows}
+        pageSize={Math.max(1, layout.contentRows - 8)}
         width={frameWidth}
       />
     );
@@ -214,7 +236,6 @@ export function AppContent({
         favorite={stationFavorite}
         pulse={pulse}
         diagnostics={diagnostics}
-        sleepLabel={sleepLabel}
         showDiagnostics={showDiagnostics}
         stationTime={stationTime}
         receiverStyle={library.settings.receiverStyle}
@@ -258,6 +279,7 @@ export function AppContent({
         devices={airPlayDevices}
         theme={theme}
         width={frameWidth}
+        height={layout.contentRows}
       />
     );
   }
@@ -275,7 +297,7 @@ export function AppContent({
   }
 
   if (screen === 'help') {
-    return <HelpScreen theme={theme} width={frameWidth} />;
+    return <HelpScreen theme={theme} width={frameWidth} height={layout.contentRows} selected={selected} />;
   }
 
   return <Text>Unknown screen.</Text>;

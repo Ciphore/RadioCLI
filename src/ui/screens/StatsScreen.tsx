@@ -2,7 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {LibraryState, ThemeName} from '../../types.js';
 import {computeListeningStats, type DailyListening} from '../../activity/stats.js';
-import {panelBorder, textHighlight, textMuted, themeAccent, themeContributionColors} from '../theme.js';
+import {panelBorder, textMuted, themeAccent, themeContributionColors} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
@@ -16,13 +16,11 @@ type StatsScreenProps = {
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dayLabelWidth = 5;
-const heatmapCellOptions = [
-  {cell: '  ', gap: ''},
-  {cell: ' ', gap: ''}
-] as const;
-const compactHeatmapCell = ' ';
-const compactHeatmapGap = '';
-const tallHeatmapMinHeight = 26;
+// Two terminal columns are approximately one row high in common monospace
+// fonts, so 2x1 cells remain visually square. Narrow screens show fewer recent
+// weeks instead of distorting the cells.
+const heatmapCell = '  ';
+const heatmapGap = '';
 
 type ContributionCell = {
   key: string;
@@ -59,10 +57,10 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
         subtitle="Local listening history · never leaves this machine"
         width={width}
         theme={theme}
-        right={`${formatHours(totalHours)} · ${stats.sessions.toLocaleString()} sessions`}
       />
       <Box
         marginTop={1}
+        paddingBottom={1}
         borderStyle={panelBorderStyle(ascii, 'single')}
         borderColor={panelBorder}
         borderBackgroundColor={panelBackground}
@@ -106,7 +104,7 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           {metricPair('Favorite station', truncate(favorite, favoriteWidth), 'Total hours listened', formatHours(totalHours), metricWidth, theme)}
           {metricPair('Sessions', stats.sessions.toLocaleString(), 'Longest streak', formatDays(stats.longestStreak), metricWidth, theme)}
           {metricPair('Current streak', formatDays(stats.currentStreak), 'Stations listened', stats.listenedStationCount.toLocaleString(), metricWidth, theme)}
-          {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Station threshold', '>= 120s total', metricWidth, theme)}
+          {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Stations counted after', '2 min', metricWidth, theme)}
         </Box>
         <Box marginTop={1}>
           <Text color={textMuted}>Less · </Text>
@@ -118,14 +116,6 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           ))}
           <Text color={textMuted}>More</Text>
         </Box>
-        {!compact ? (
-        <Box marginTop={1}>
-          <Text color={textHighlight}>{stats.totalSeconds > 0
-            ? `Your total listening time is ${formatHours(totalHours)} across public radio streams.`
-            : 'Start a station to begin filling the listening graph.'}
-          </Text>
-        </Box>
-        ) : null}
       </Box>
     </Box>
   );
@@ -210,20 +200,17 @@ function metricPair(
   );
 }
 
-export function buildContributionGraph(days: DailyListening[], width: number, height = tallHeatmapMinHeight): ContributionGraph {
+export function buildContributionGraph(days: DailyListening[], width: number, _height = 26): ContributionGraph {
   const year = graphYear(days);
-  const weeks = calendarYearWeeks(year);
-  const largestCell = heatmapCellOptions.find(option => dayLabelWidth + weeks.length * (option.cell.length + option.gap.length) <= width);
-  const selectedCell = largestCell ?? {cell: compactHeatmapCell, gap: compactHeatmapGap};
-  const largeCellWidth = selectedCell.cell.length + selectedCell.gap.length;
-  const compactCellWidth = compactHeatmapCell.length + compactHeatmapGap.length;
-  const cellWidth = largeCellWidth > 0 ? largeCellWidth : compactCellWidth;
-  const cellText = selectedCell.cell;
-  const cellGap = selectedCell.gap;
-  const tileHeight = cellText.trim().length === 0 && height >= tallHeatmapMinHeight ? 2 : 1;
+  const endDate = days.length > 0 ? parseLocalDay(days[days.length - 1]!.date) : new Date();
+  const availableWeekCount = Math.max(1, Math.floor((width - dayLabelWidth) / heatmapCell.length));
+  const weeks = rollingCalendarWeeks(endDate, availableWeekCount);
+  const cellWidth = heatmapCell.length;
+  const cellText = heatmapCell;
+  const cellGap = heatmapGap;
+  const tileHeight = 1;
   const secondsByDate = new Map(days.map(day => [day.date, day.seconds]));
-  const yearDays = days.filter(day => parseLocalDay(day.date).getFullYear() === year);
-  const scaleSeconds = contributionScaleSeconds(yearDays);
+  const scaleSeconds = contributionScaleSeconds(days);
   const labels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
   const rows = Array.from({length: 7}, (_, dayIndex) => ({
@@ -242,11 +229,11 @@ export function buildContributionGraph(days: DailyListening[], width: number, he
 
       const date = localDay(day.date);
       const level = day.visible ? contributionLevel(secondsByDate.get(date) ?? 0, scaleSeconds) : 0;
-      return {key: date, level, text: cellText, visible: true};
+      return {key: date, level, text: cellText, visible: day.visible};
     })
   }));
 
-  return {year, months: monthLine(weeks, cellWidth, year), cellText, cellGap, tileHeight, rows};
+  return {year, months: monthLine(weeks, cellWidth), cellText, cellGap, tileHeight, rows};
 }
 
 export function contributionScaleSeconds(days: DailyListening[]): number {
@@ -294,34 +281,33 @@ function graphYear(days: DailyListening[]): number {
   return lastDay ? parseLocalDay(lastDay.date).getFullYear() : new Date().getFullYear();
 }
 
-function calendarYearWeeks(year: number): CalendarDay[][] {
-  const yearStart = new Date(year, 0, 1);
-  const yearEnd = new Date(year, 11, 31);
-  const gridStart = addLocalDays(yearStart, -yearStart.getDay());
-  const gridEnd = addLocalDays(yearEnd, 6 - yearEnd.getDay());
-  const weeks: CalendarDay[][] = [];
+function rollingCalendarWeeks(endDate: Date, availableWeekCount: number): CalendarDay[][] {
+  const gridEnd = addLocalDays(endDate, 6 - endDate.getDay());
+  const weekCount = Math.min(53, availableWeekCount);
+  const gridStart = addLocalDays(gridEnd, -(weekCount * 7 - 1));
 
-  for (let cursor = gridStart; cursor.getTime() <= gridEnd.getTime(); cursor = addLocalDays(cursor, 7)) {
-    weeks.push(Array.from({length: 7}, (_, dayIndex) => {
-      const date = addLocalDays(cursor, dayIndex);
-      return {date, visible: date.getFullYear() === year};
-    }));
-  }
-
-  return weeks;
+  return Array.from({length: weekCount}, (_, weekIndex) =>
+    Array.from({length: 7}, (_, dayIndex) => {
+      const date = addLocalDays(gridStart, weekIndex * 7 + dayIndex);
+      return {
+        date,
+        visible: true
+      };
+    })
+  );
 }
 
-function monthLine(weeks: CalendarDay[][], cellWidth: number, year: number): string {
+function monthLine(weeks: CalendarDay[][], cellWidth: number): string {
   const cells = Array.from({length: weeks.length * cellWidth}, () => ' ');
 
-  for (let month = 0; month < 12; month += 1) {
-    const label = monthLabels[month]!;
-    const firstOfMonth = localDay(new Date(year, month, 1));
-    const weekIndex = weeks.findIndex(week => week.some(day => localDay(day.date) === firstOfMonth));
-    if (weekIndex < 0) {
+  for (let weekIndex = 0; weekIndex < weeks.length; weekIndex += 1) {
+    const week = weeks[weekIndex];
+    const firstOfMonth = week?.find(day => day.date.getDate() === 1);
+    if (!firstOfMonth) {
       continue;
     }
 
+    const label = monthLabels[firstOfMonth.date.getMonth()]!;
     const start = weekIndex * cellWidth;
     for (let index = 0; index < label.length && start + index < cells.length; index += 1) {
       cells[start + index] = label[index]!;

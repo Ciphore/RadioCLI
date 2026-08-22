@@ -29,6 +29,20 @@ function asciiGlyph(code: number): string {
     return '#';
   }
 
+  // Diagonal box strokes need to retain their direction for wireframes,
+  // routes, folds, and other receiver geometry.
+  if (code === 0x2571) {
+    return '/';
+  }
+
+  if (code === 0x2572) {
+    return '\\';
+  }
+
+  if (code === 0x2573) {
+    return 'X';
+  }
+
   // Box drawing.
   if (code >= 0x2500 && code <= 0x257f) {
     if (code === 0x2500 || code === 0x2501 || code === 0x2504 || code === 0x2505) {
@@ -64,6 +78,42 @@ function asciiGlyph(code: number): string {
     return '*';
   }
 
+  if (code === 0x25c9 || code === 0x25d2) {
+    return 'o'; // ◉ ◒
+  }
+
+  if (code === 0x25b2) {
+    return '^'; // ▲
+  }
+
+  if (code === 0x25bc) {
+    return 'v'; // ▼
+  }
+
+  if (code === 0x25e2 || code === 0x25e5) {
+    return '/'; // ◢ ◥
+  }
+
+  if (code === 0x25e3 || code === 0x25e4) {
+    return '\\'; // ◣ ◤
+  }
+
+  if (code === 0x22d6) {
+    return '<'; // ⋖
+  }
+
+  if (code === 0x22d7) {
+    return '>'; // ⋗
+  }
+
+  if (code === 0x2301) {
+    return '~'; // ⌁
+  }
+
+  if (code === 0x02d9) {
+    return '.'; // ˙
+  }
+
   if (code === 0x2605) {
     return '*'; // ★
   }
@@ -81,7 +131,10 @@ function asciiGlyph(code: number): string {
     return '';
   }
 
-  return '*';
+  // Unknown Unicode is user/content data more often than decoration. Preserve
+  // it instead of destroying international station names; known terminal-art
+  // ranges above still receive ASCII fallbacks.
+  return String.fromCodePoint(code);
 }
 
 function popcount(value: number): number {

@@ -26,12 +26,13 @@ describe('computeListeningStats', () => {
     expect(stats.favoriteStation?.name).toBe('Night FM');
   });
 
-  it('includes an active session up to now', () => {
+  it('includes an active session up to its last persisted heartbeat', () => {
     const sessions: ListeningSession[] = [
       {
         id: 'active',
         station,
         startedAt: new Date(2026, 4, 24, 17).toISOString(),
+        lastActiveAt: new Date(2026, 4, 24, 17, 30).toISOString(),
         listenedSeconds: 0
       }
     ];

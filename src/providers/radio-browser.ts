@@ -2,6 +2,7 @@ import {z} from 'zod';
 import type {Country, LocationGuess, ResolvedStream, SearchOptions, Station} from '../types.js';
 import {ProviderCache} from './cache.js';
 import {userAgent} from '../version.js';
+import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -54,6 +55,17 @@ const geoAtlasLimit = 100_000;
 const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
 const geoAtlasTimeoutMs = 20_000;
 
+class ProviderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProviderUnavailableError';
+  }
+}
+
+export function isProviderUnavailableError(error: unknown): boolean {
+  return error instanceof ProviderUnavailableError;
+}
+
 export class RadioBrowserProvider {
   readonly id = 'radio-browser' as const;
   readonly label = 'Radio Browser';
@@ -74,9 +86,11 @@ export class RadioBrowserProvider {
 
   async countries(limit = 240): Promise<Country[]> {
     const rows = await this.request<unknown[]>('/json/countries', {hidebroken: 'true'}, {maxAgeMs: 24 * 60 * 60 * 1000});
-    return z
-      .array(countrySchema)
-      .parse(rows)
+    return rows
+      .flatMap(row => {
+        const parsed = countrySchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      })
       .map(row => ({
         name: row.name,
         code: row.iso_3166_1.toUpperCase(),
@@ -126,10 +140,13 @@ export class RadioBrowserProvider {
     }
 
     const limit = options.limit ?? 60;
+    const offset = Math.max(0, options.offset ?? 0);
     const baseParams = {
       hidebroken: 'true',
-      limit: String(limit),
-      offset: String(Math.max(0, options.offset ?? 0)),
+      // Build a stable merged result set before slicing the requested page;
+      // using the merged count as four independent provider offsets skips data.
+      limit: String(limit + offset),
+      offset: '0',
       order: 'clickcount',
       reverse: 'true',
       ...(options.codec ? {codec: options.codec} : {}),
@@ -137,70 +154,81 @@ export class RadioBrowserProvider {
       ...(options.countryCode ? {countrycode: options.countryCode.toUpperCase()} : {})
     };
 
-    const variants = await Promise.allSettled([
+    const primary = await Promise.allSettled([
       this.request<unknown[]>('/json/stations/search', {...baseParams, name: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
-      this.request<unknown[]>('/json/stations/search', {...baseParams, tag: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
-      this.request<unknown[]>('/json/stations/search', {...baseParams, country: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
-      this.request<unknown[]>('/json/stations/search', {...baseParams, language: trimmed}, {maxAgeMs: 10 * 60 * 1000})
+      this.request<unknown[]>('/json/stations/search', {...baseParams, tag: trimmed}, {maxAgeMs: 10 * 60 * 1000})
     ]);
 
-    let rows = variants.flatMap(result => (result.status === 'fulfilled' ? result.value : []));
-    const failures = variants.filter(result => result.status === 'rejected');
-    if (failures.length === variants.length) {
-      const firstError = failures[0]?.reason;
-      const message = firstError instanceof Error ? firstError.message : String(firstError ?? 'all search requests failed');
-      throw new Error(`${this.label} search failed: ${message}`);
+    let attempts = [...primary];
+    let rows = fulfilledRows(primary);
+    if (rows.length < Math.min(12, limit + offset)) {
+      const secondary = await Promise.allSettled([
+        this.request<unknown[]>('/json/stations/search', {...baseParams, country: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
+        this.request<unknown[]>('/json/stations/search', {...baseParams, language: trimmed}, {maxAgeMs: 10 * 60 * 1000})
+      ]);
+      attempts = [...attempts, ...secondary];
+      rows.push(...fulfilledRows(secondary));
     }
     const tokens = trimmed.split(/\s+/).filter(token => token.length > 2).slice(0, 4);
 
     if (rows.length === 0 && tokens.length > 1) {
       const tokenResults = await Promise.allSettled(
-        tokens.flatMap(token => [
+        tokens.slice(0, 3).flatMap(token => [
           this.request<unknown[]>('/json/stations/search', {...baseParams, name: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000}),
-          this.request<unknown[]>('/json/stations/search', {...baseParams, tag: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000}),
-          this.request<unknown[]>('/json/stations/search', {...baseParams, country: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000}),
-          this.request<unknown[]>('/json/stations/search', {...baseParams, language: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000})
+          this.request<unknown[]>('/json/stations/search', {...baseParams, tag: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000})
         ])
       );
-      rows = tokenResults.flatMap(result => (result.status === 'fulfilled' ? result.value : []));
+      attempts.push(...tokenResults);
+      rows = fulfilledRows(tokenResults);
+    }
+
+    if (attempts.every(result => result.status === 'rejected')) {
+      const firstError = attempts[0]?.status === 'rejected' ? attempts[0].reason : 'all search requests failed';
+      const message = firstError instanceof Error ? firstError.message : String(firstError);
+      throw new Error(`${this.label} search failed: ${message}`);
     }
 
     return filterStations(dedupeStations(this.normalizeStations(rows)), options)
       .sort((a, b) => scoreStation(b, trimmed, tokens) - scoreStation(a, trimmed, tokens))
-      .slice(0, limit);
+      .slice(offset, offset + limit);
   }
 
   async nearby(location: LocationGuess, limit = 80): Promise<Station[]> {
     const stations = await this.geotaggedAtlas();
-    return stations
-      .map(station => ({
-        ...station,
-        distanceKm: haversineKm(location.latitude, location.longitude, station.latitude!, station.longitude!)
-      }))
-      .sort(compareNearbyStations)
-      .slice(0, limit);
+    return nearestStations(stations, location, limit);
   }
 
   async resolve(station: Station): Promise<ResolvedStream> {
     if (station.provider !== this.id) {
-      if (!station.streamUrl) {
+      const streamUrl = station.streamUrl ? safeMediaTarget(station.streamUrl) : null;
+      if (!streamUrl) {
         throw new Error(`Station ${station.name} does not expose a stream URL.`);
       }
 
-      return {url: station.streamUrl, name: station.name};
+      return {url: streamUrl, name: station.name};
     }
 
-    const result = clickResolveSchema.parse(
-      await this.request<unknown>(`/json/url/${encodeURIComponent(station.id)}`, {}, {maxAgeMs: 24 * 60 * 60 * 1000})
-    );
-    if (!result.ok || !result.url) {
-      if (station.streamUrl) {
-        return {url: station.streamUrl, name: station.name};
+    try {
+      // Click URLs can rotate and the endpoint records directory engagement, so
+      // do not reuse a day-old resolution from the general provider cache.
+      const result = clickResolveSchema.parse(
+        await this.request<unknown>(`/json/url/${encodeURIComponent(station.id)}`, {}, {timeoutMs: 6000})
+      );
+      const resolvedUrl = result.url ? safeMediaTarget(result.url) : null;
+      if (result.ok && resolvedUrl) {
+        return {url: resolvedUrl, name: sanitizeTerminalText(result.name) ?? station.name};
       }
-      throw new Error(result.message ?? `Radio Browser could not resolve ${station.name}.`);
+    } catch {
+      // A directory outage should not discard a validated URL already supplied
+      // with the station row.
     }
 
-    return {url: result.url, name: result.name};
+    const fallbackUrl = station.streamUrl ? safeMediaTarget(station.streamUrl) : null;
+    if (fallbackUrl) {
+      return {url: fallbackUrl, name: station.name};
+    }
+
+    throw new Error(`Radio Browser could not resolve ${station.name}.`);
   }
 
   // Give back to the directory: an upvote on favorite helps surface good
@@ -255,9 +283,11 @@ export class RadioBrowserProvider {
   }
 
   private normalizeStations(rows: unknown[]): Station[] {
-    return z
-      .array(stationSchema)
-      .parse(rows)
+    return rows
+      .flatMap(row => {
+        const parsed = stationSchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      })
       .map(row => ({
         id: row.stationuuid,
         provider: this.id,
@@ -270,9 +300,9 @@ export class RadioBrowserProvider {
         tags: splitCsv(row.tags ?? undefined).slice(0, 8),
         codec: cleanText(row.codec ?? undefined),
         bitrate: row.bitrate ?? undefined,
-        homepage: cleanText(row.homepage ?? undefined),
-        favicon: cleanText(row.favicon ?? undefined),
-        streamUrl: cleanText(row.url_resolved ?? row.url ?? undefined),
+        homepage: safeOptionalExternalUrl(row.homepage),
+        favicon: safeOptionalExternalUrl(row.favicon),
+        streamUrl: safeOptionalMediaTarget(row.url_resolved ?? row.url),
         votes: row.votes ?? undefined,
         clickCount: row.clickcount ?? undefined,
         latitude: row.geo_lat ?? undefined,
@@ -328,22 +358,32 @@ export class RadioBrowserProvider {
     }
 
     let lastError: Error | null = null;
-    for (const baseUrl of preferActiveMirror(this.baseUrls, this.activeBaseUrl)) {
+    const mirrors = preferActiveMirror(this.baseUrls, this.activeBaseUrl);
+    const totalTimeoutMs = options.timeoutMs ?? 9000;
+    const deadline = Date.now() + totalTimeoutMs;
+    for (let mirrorIndex = 0; mirrorIndex < mirrors.length; mirrorIndex += 1) {
+      const baseUrl = mirrors[mirrorIndex]!;
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
       const url = new URL(`${baseUrl}${path}`);
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
+      for (const [key, value] of Object.entries(params)) {
+        url.searchParams.set(key, value);
+      }
 
       try {
-        const response = await fetchWithTimeout(url, options.timeoutMs ?? 9000);
-        if (!response.ok) {
-          throw new Error(`${this.label} request failed: ${response.status} ${response.statusText}`);
-        }
-
-        const value = (await response.json()) as T;
+        const mirrorsLeft = mirrors.length - mirrorIndex;
+        const attemptTimeoutMs = Math.max(1, Math.floor(remainingMs / mirrorsLeft));
+        const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs);
         this.activeBaseUrl = baseUrl;
         if (options.maxAgeMs) {
-          this.cache.set(cacheKey, value);
+          try {
+            this.cache.set(cacheKey, value);
+          } catch {
+            // A read-only or full cache directory must not turn live data into
+            // an apparent provider outage.
+          }
         }
         return value;
       } catch (error) {
@@ -356,7 +396,7 @@ export class RadioBrowserProvider {
       return stale;
     }
 
-    throw lastError ?? new Error(`${this.label} request failed.`);
+    throw new ProviderUnavailableError(lastError?.message ?? `${this.label} request failed.`);
   }
 }
 
@@ -378,17 +418,23 @@ function buildCacheKey(path: string, params: Record<string, string>): string {
   return `${path}?${new URLSearchParams(pairs).toString()}`;
 }
 
-async function fetchWithTimeout(url: URL, timeoutMs: number): Promise<Response> {
+async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       signal: controller.signal,
       headers: {
         'User-Agent': userAgent(' (+https://radio-browser.info)'),
         Accept: 'application/json'
       }
     });
+    if (!response.ok) {
+      throw new Error(`Radio Browser request failed: ${response.status} ${response.statusText}`);
+    }
+
+    // Keep the abort timer alive while consuming the body as well as headers.
+    return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
   }
@@ -423,8 +469,17 @@ function splitCsv(value?: string | null): string[] {
 }
 
 function cleanText(value?: string | null): string | undefined {
-  const cleaned = value?.replace(/\s+/g, ' ').trim();
-  return cleaned ? cleaned : undefined;
+  return sanitizeTerminalText(value);
+}
+
+function safeOptionalExternalUrl(value?: string | null): string | undefined {
+  const cleaned = cleanText(value);
+  return cleaned ? safeExternalHttpUrl(cleaned) ?? undefined : undefined;
+}
+
+function safeOptionalMediaTarget(value?: string | null): string | undefined {
+  const cleaned = cleanText(value);
+  return cleaned ? safeMediaTarget(cleaned) ?? undefined : undefined;
 }
 
 function hasValidCoordinates(station: Station): station is Station & {latitude: number; longitude: number} {
@@ -452,6 +507,32 @@ function compareNearbyStations(a: Station, b: Station): number {
   return a.name.localeCompare(b.name);
 }
 
+function nearestStations(stations: Station[], location: LocationGuess, limit: number): Station[] {
+  const nearest: Station[] = [];
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  if (boundedLimit === 0) return nearest;
+
+  for (const station of stations) {
+    if (!hasValidCoordinates(station)) continue;
+    const candidate: Station = {
+      ...station,
+      distanceKm: haversineKm(location.latitude, location.longitude, station.latitude, station.longitude)
+    };
+    let low = 0;
+    let high = nearest.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (compareNearbyStations(nearest[middle]!, candidate) <= 0) low = middle + 1;
+      else high = middle;
+    }
+    if (low < boundedLimit) {
+      nearest.splice(low, 0, candidate);
+      if (nearest.length > boundedLimit) nearest.pop();
+    }
+  }
+  return nearest;
+}
+
 function nearbyQualityScore(station: Station): number {
   return (
     (station.lastCheckedOk ? 100 : 0) +
@@ -473,6 +554,10 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 function toRad(value: number): number {
   return (value * Math.PI) / 180;
+}
+
+function fulfilledRows(results: PromiseSettledResult<unknown[]>[]): unknown[] {
+  return results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
 }
 
 function scoreStation(station: Station, query: string, tokens: string[]): number {
@@ -499,14 +584,13 @@ function filterStations(stations: Station[], options: SearchOptions): Station[] 
       return false;
     }
 
-    if (options.codec && station.codec && station.codec.toLowerCase() !== options.codec.toLowerCase()) {
+    if (options.codec && (!station.codec || station.codec.toLowerCase() !== options.codec.toLowerCase())) {
       return false;
     }
 
     if (
       options.language &&
-      station.language &&
-      !station.language.toLowerCase().includes(options.language.toLowerCase())
+      (!station.language || !station.language.toLowerCase().includes(options.language.toLowerCase()))
     ) {
       return false;
     }

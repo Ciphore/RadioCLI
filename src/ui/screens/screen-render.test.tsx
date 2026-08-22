@@ -5,11 +5,13 @@ import {DisplayContext, resolveDisplayMode} from '../display-context.js';
 import {HelpScreen} from './HelpScreen.js';
 import {NowPlayingScreen} from './NowPlayingScreen.js';
 import {SettingsScreen} from './SettingsScreen.js';
+import {HomeScreen} from './HomeScreen.js';
 import {ExploreScreen} from './ExploreScreen.js';
 import {CountriesScreen} from './CountriesScreen.js';
 import {buildContributionGraph, contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
-import {settingsItems} from '../screen-items.js';
+import {settingsGroups, settingsItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
+import {StationList} from '../components/StationList.js';
 
 const station: Station = {
   id: 'station-1',
@@ -56,7 +58,6 @@ function renderNowPlaying(asciiMode: boolean, showDiagnostics: boolean) {
         favorite
         pulse={0}
         diagnostics={diagnostics}
-        sleepLabel="Sleep off"
         showDiagnostics={showDiagnostics}
         stationTime="12:00"
         receiverStyle="pulse-grid"
@@ -74,6 +75,7 @@ const settings: AppSettings = {
   volume: 70,
   enableRadioGarden: false,
   enableNearbyLocation: false,
+  shareDirectoryVotes: true,
   preferredBackend: 'auto',
   tuneTimeoutSeconds: 12,
   skipBrokenStreams: true,
@@ -84,7 +86,98 @@ const settings: AppSettings = {
   transparentBackground: false
 };
 
+const library: LibraryState = {
+  recent: [],
+  favorites: [station],
+  imported: [],
+  activity: {sessions: []},
+  trackHistory: [],
+  searchHistory: [],
+  settings
+};
+
+describe('HomeScreen rendering', () => {
+  it('does not repeat playback status already shown in the app header', () => {
+    const frame = render(<HomeScreen selected={0} theme="green" library={library} />).lastFrame() ?? '';
+
+    expect(frame).not.toContain('Receiver:');
+    expect(frame).not.toContain('paused · mpv');
+  });
+});
+
+describe('StationList rendering', () => {
+  it('replaces standard metadata with selected-station tags on the same row', () => {
+    const frame = render(
+      <StationList
+        stations={[station]}
+        selected={0}
+        theme="green"
+        favorites={new Set<string>()}
+        pageSize={1}
+        width={80}
+        showCount={false}
+      />
+    ).lastFrame() ?? '';
+
+    expect(frame.split('\n')).toHaveLength(1);
+    expect(frame).toContain('indie');
+    expect(frame).not.toContain('United States');
+    expect(frame).not.toContain('MP3');
+  });
+});
+
 describe('SettingsScreen rendering', () => {
+  it('orders settings into a user-centered hierarchy', () => {
+    expect(settingsGroups.map(group => group.label)).toEqual([
+      'Playback',
+      'Display',
+      'Discovery & privacy',
+      'Data',
+      'Media keys',
+      'Maintenance'
+    ]);
+    expect(settingsItems.indexOf('Audio output')).toBeLessThan(settingsItems.indexOf('Cycle display color'));
+    expect(settingsItems.indexOf('Export preferences and library')).toBeLessThan(settingsItems.indexOf('Check for updates'));
+  });
+
+  it('shows export and import together in the Data section', () => {
+    const settingsIndex = Math.max(0, settingsItems.indexOf('Export preferences and library'));
+    const frame = render(
+      <SettingsScreen
+        selected={settingsIndex}
+        settings={settings}
+        appVersion="0.1.9"
+        storePath="/tmp/radiocli.json"
+        playback={playback}
+        backends={['mpv']}
+        airPlayDevices={[]}
+        providerHealth={{}}
+        theme="green"
+        diagnostics={diagnostics}
+        width={80}
+        height={18}
+      />
+    ).lastFrame() ?? '';
+
+    expect(frame).toContain('Data');
+    expect(frame).toMatch(/> Export preferences and library\s+JSON backup/);
+    expect(frame).toMatch(/Import preferences and library\s+restore JSON backup/);
+    expect(frame).not.toMatch(/Export preferences and library {8,}JSON backup/);
+    const valueColumns = ([
+      ['ASCII-safe display', 'on'],
+      ['Reduce motion', 'off'],
+      ['Mouse and trackpad scrolling', 'auto'],
+      ['Nearby location', 'off'],
+      ['Radio Garden adapter', 'off'],
+      ['Export preferences and library', 'JSON backup'],
+      ['Import preferences and library', 'restore JSON backup']
+    ] as const).map(([label, value]) => {
+      const line = frame.split('\n').find(candidate => candidate.includes(label)) ?? '';
+      return line.lastIndexOf(value);
+    });
+    expect(new Set(valueColumns)).toEqual(new Set([39]));
+  });
+
   it('renders the new display and playback toggles with their values', () => {
     const settingsIndex = Math.max(0, settingsItems.indexOf('Resume last station on launch'));
     const {lastFrame} = render(
@@ -159,7 +252,7 @@ describe('SettingsScreen rendering', () => {
     expect(frame).toContain('> Check for updates');
   });
 
-  it('keeps Reduce motion visible between ASCII-safe display and update checks', () => {
+  it('keeps the mouse compatibility control beside the display controls', () => {
     const settingsIndex = Math.max(0, settingsItems.indexOf('Reduce motion'));
     const {lastFrame} = render(
       <SettingsScreen
@@ -182,7 +275,7 @@ describe('SettingsScreen rendering', () => {
 
     expect(frame).toContain('  ASCII-safe display');
     expect(frame).toContain('> Reduce motion');
-    expect(frame).toContain('  Check for updates');
+    expect(frame).toMatch(/  Mouse and trackpad scrolling\s+auto/);
   });
 });
 
@@ -209,6 +302,13 @@ function renderExplore(asciiMode: boolean) {
 }
 
 describe('Explore world map rendering', () => {
+  it('keeps one gutter row between the subtitle and the map/list panels', () => {
+    const lines = (renderExplore(false).lastFrame() ?? '').split('\n');
+
+    expect(lines[2]).toBe('');
+    expect(lines[3]).toContain('┌');
+  });
+
   it('rasterizes land with braille glyphs by default', () => {
     const frame = renderExplore(false).lastFrame() ?? '';
     expect(/[⠀-⣿]/.test(frame)).toBe(true);
@@ -244,6 +344,7 @@ describe('CountriesScreen rendering', () => {
     expect(frame).toContain('>');
     expect(frame).toContain('…');
     expect(frame).not.toContain('Very Long Name');
+    expect(frame).toMatch(/\(TL\) {2}123,456,789 stations/);
   });
 });
 
@@ -276,29 +377,24 @@ describe('StatsScreen rendering', () => {
 
     expect(frame).toContain('Jan');
     expect(frame).not.toContain('██');
+
+    const lines = frame.split('\n');
+    const activityTitle = lines.findIndex(line => line.includes('Activity —'));
+    const activityBorderEnd = lines.findIndex((line, index) => index > activityTitle && line.startsWith('└'));
+    expect(activityBorderEnd - activityTitle).toBe(10);
   });
 
-  it('starts the contribution graph at January and uses large cells when space allows', () => {
+  it('keeps gapless square contribution cells at every width', () => {
     const graph = buildContributionGraph([
       {date: '2026-01-01', seconds: 3600},
       {date: '2026-12-31', seconds: 0}
     ], 170);
 
-    expect(graph.months.startsWith('Jan')).toBe(true);
+    expect(graph.months).toContain('Jan');
     expect(graph.months).toContain('Dec');
     expect(graph.cellText).toBe('  ');
     expect(graph.cellGap).toBe('');
-    expect(graph.tileHeight).toBe(2);
-    expect(graph.rows[4]?.cells[0]).toMatchObject({
-      level: 4,
-      text: '  ',
-      visible: true
-    });
-    expect(graph.rows[0]?.cells[0]).toMatchObject({
-      level: 0,
-      text: '  ',
-      visible: true
-    });
+    expect(graph.tileHeight).toBe(1);
     expect(graph.rows[6]?.cells.at(-1)).toMatchObject({
       level: 0,
       text: '  ',
@@ -316,8 +412,21 @@ describe('StatsScreen rendering', () => {
       {date: '2026-01-01', seconds: 3600},
       {date: '2026-12-31', seconds: 0}
     ], 80);
-    expect(compactWidthGraph.cellText).toBe(' ');
+    expect(compactWidthGraph.cellText).toBe('  ');
     expect(compactWidthGraph.cellGap).toBe('');
+    expect(compactWidthGraph.rows[0]?.cells.length).toBeLessThan(normalWidthGraph.rows[0]?.cells.length ?? 0);
+  });
+
+  it('uses a rolling prior-year activity window instead of anchoring to January', () => {
+    const graph = buildContributionGraph([
+      {date: '2025-08-01', seconds: 1800},
+      {date: '2026-07-16', seconds: 3600}
+    ], 170);
+
+    expect(graph.year).toBe(2026);
+    expect(graph.months).toMatch(/^\s*Aug/);
+    expect(graph.months).toContain('Jul');
+    expect(graph.rows.every(row => row.cells.every(cell => cell.visible))).toBe(true);
   });
 
   it('uses one-line heatmap cells when the stats panel is height constrained', () => {
@@ -347,18 +456,34 @@ describe('StatsScreen rendering', () => {
 
 describe('HelpScreen rendering', () => {
   it('lists keybinding sections and : commands', () => {
-    const {lastFrame} = render(<HelpScreen theme="green" width={80} />);
-    const frame = lastFrame() ?? '';
+    const firstPage = render(<HelpScreen theme="green" width={80} height={24} selected={0} />).lastFrame() ?? '';
+    const commandPage = render(<HelpScreen theme="green" width={80} height={24} selected={40} />).lastFrame() ?? '';
 
-    expect(frame).toContain('Navigation');
-    expect(frame).toContain('Playback');
-    expect(frame).toContain(':search');
-    expect(frame).toContain(':doctor');
-    expect(frame).toContain('Toggle this help');
+    expect(firstPage).toContain('Navigation');
+    expect(firstPage).toContain('Playback');
+    expect(firstPage).toContain('Toggle this help');
+    expect(commandPage).toContain(':doctor');
+    expect(commandPage).toContain('Show playback backend status');
   });
 });
 
 describe('NowPlayingScreen rendering', () => {
+  it('keeps station identity in the receiver header instead of repeating it below', () => {
+    const frame = renderNowPlaying(false, false).lastFrame() ?? '';
+    const stationLines = frame.split('\n').filter(line => line.includes('KEXP 90.3 FM'));
+
+    expect(stationLines).toHaveLength(1);
+    expect(stationLines[0]).toContain('UNITED STATES');
+    expect(frame).not.toContain('NET 128K MP3');
+  });
+
+  it('omits redundant receiver branding and stream summary rows', () => {
+    const frame = renderNowPlaying(false, false).lastFrame() ?? '';
+
+    expect(frame).not.toContain('RADIOCLI');
+    expect(frame).not.toContain('MP3 · indie');
+  });
+
   it('shows recent tracks for the tuned station when diagnostics are open', () => {
     const {lastFrame} = renderNowPlaying(false, true);
     const frame = lastFrame() ?? '';

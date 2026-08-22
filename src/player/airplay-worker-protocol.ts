@@ -7,6 +7,7 @@ const maxPasscodeBytes = 64;
 
 export type AirPlayWorkerStart = {
   streamUrl: string;
+  ffmpegPath: string;
   stationName: string;
   volume: number;
   muted: boolean;
@@ -75,6 +76,7 @@ function validateWorkerStart(value: unknown): AirPlayWorkerStart {
 
   return {
     streamUrl: boundedHttpUrl(value.streamUrl, 'streamUrl'),
+    ffmpegPath: boundedString(value.ffmpegPath, 'ffmpegPath', 4096),
     stationName: boundedText(value.stationName, 'stationName', maxWorkerTextBytes),
     volume: clampVolume(Number(value.volume)),
     muted: typeof value.muted === 'boolean' ? value.muted : false,

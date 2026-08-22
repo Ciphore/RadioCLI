@@ -5,7 +5,32 @@ describe('computeTerminalLayout', () => {
   it('switches to compact mode for tiny terminals', () => {
     const layout = computeTerminalLayout(50, 12);
     expect(layout.compact).toBe(true);
-    expect(layout.stationRows).toBe(0);
+    expect(layout.mode).toBe('compact');
+    expect(layout.stationRows).toBeGreaterThan(0);
+  });
+
+  it('uses a purpose-built micro layout without exceeding the terminal', () => {
+    for (const [columns, rows] of [[20, 8], [33, 9], [1, 1]] as const) {
+      const layout = computeTerminalLayout(columns, rows, 4);
+      expect(layout.mode).toBe('micro');
+      expect(layout.frameWidth).toBeLessThanOrEqual(columns);
+      expect(layout.contentRows + layout.topRows + layout.footerRows).toBeLessThanOrEqual(rows);
+      expect(layout.contentRows).toBeGreaterThan(0);
+    }
+  });
+
+  it('enters the full layout only when both dimensions can hold it', () => {
+    expect(computeTerminalLayout(67, 40).mode).toBe('compact');
+    expect(computeTerminalLayout(100, 21).mode).toBe('compact');
+    expect(computeTerminalLayout(68, 22).mode).toBe('full');
+  });
+
+  it('never manufactures width that the terminal does not have', () => {
+    for (const columns of [1, 2, 20, 33, 34, 67, 68, 120]) {
+      const layout = computeTerminalLayout(columns, 24);
+      expect(layout.frameWidth + layout.horizontalPadding * 2).toBe(columns);
+      expect(layout.receiverWidth).toBe(layout.frameWidth);
+    }
   });
 
   it('scales list rows with height', () => {
@@ -13,15 +38,21 @@ describe('computeTerminalLayout', () => {
     const tall = computeTerminalLayout(100, 42);
     expect(tall.stationRows).toBeGreaterThan(short.stationRows);
     expect(tall.countryRows).toBeGreaterThan(short.countryRows);
-    expect(short.stationRows).toBe(12);
-    expect(short.countryRows).toBe(13);
-    expect(computeTerminalLayout(124, 33).stationRows).toBe(21);
-    expect(computeTerminalLayout(159, 45).countryRows).toBe(34);
+    expect(short.stationRows).toBe(13);
+    expect(short.countryRows).toBe(14);
+    expect(computeTerminalLayout(124, 33).stationRows).toBe(22);
+    expect(computeTerminalLayout(159, 45).countryRows).toBe(35);
   });
 
   it('expands receiver width with wide terminals', () => {
-    expect(computeTerminalLayout(200, 40).receiverWidth).toBe(196);
-    expect(computeTerminalLayout(72, 24).receiverWidth).toBe(68);
+    expect(computeTerminalLayout(200, 40).receiverWidth).toBe(198);
+    expect(computeTerminalLayout(72, 24).receiverWidth).toBe(70);
+  });
+
+  it('aligns the receiver panel with the shared top-navigation frame', () => {
+    for (const columns of [64, 80, 120, 200]) {
+      expect(computeTerminalLayout(columns, 40).receiverWidth).toBe(columns - 2);
+    }
   });
 
   it('uses compact map mode when space is limited', () => {
@@ -30,21 +61,21 @@ describe('computeTerminalLayout', () => {
   });
 
   it('expands receiver rows with terminal height', () => {
-    expect(computeTerminalLayout(120, 24).receiverRows).toBe(17);
-    expect(computeTerminalLayout(120, 45).receiverRows).toBe(38);
+    expect(computeTerminalLayout(120, 24).receiverRows).toBe(18);
+    expect(computeTerminalLayout(120, 45).receiverRows).toBe(39);
   });
 
   it('reserves fixed rows for tabs and footer', () => {
     const layout = computeTerminalLayout(140, 34);
-    expect(layout.topRows).toBe(4);
+    expect(layout.topRows).toBe(3);
     expect(layout.footerRows).toBe(2);
-    expect(layout.contentRows).toBe(28);
+    expect(layout.contentRows).toBe(29);
   });
 
   it('can reserve a live playback row above shortcuts', () => {
     const layout = computeTerminalLayout(140, 34, 3);
     expect(layout.footerRows).toBe(3);
-    expect(layout.contentRows).toBe(27);
-    expect(layout.stationRows).toBe(21);
+    expect(layout.contentRows).toBe(28);
+    expect(layout.stationRows).toBe(22);
   });
 });

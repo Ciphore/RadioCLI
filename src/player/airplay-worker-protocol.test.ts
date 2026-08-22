@@ -5,6 +5,7 @@ describe('AirPlay worker protocol', () => {
   it('round-trips worker start payloads through a CLI-safe token', () => {
     const start = {
       streamUrl: 'https://streams.example.com/live.mp3',
+      ffmpegPath: '/usr/local/bin/ffmpeg',
       stationName: 'Test FM',
       volume: 35,
       muted: false,
@@ -38,6 +39,7 @@ describe('AirPlay worker protocol', () => {
   it('rejects unsafe worker start payloads and oversized messages', () => {
     const unsafeStart = {
       streamUrl: 'file:///Users/me/secret.mp3',
+      ffmpegPath: '/usr/local/bin/ffmpeg',
       stationName: 'Test FM',
       volume: 35,
       muted: false,

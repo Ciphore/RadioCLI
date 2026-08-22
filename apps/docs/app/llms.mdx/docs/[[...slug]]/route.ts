@@ -16,7 +16,8 @@ export async function GET(_request: Request, { params }: LLMRouteContext) {
 
   return new Response(await getLLMText(page), {
     headers: {
-      'Content-Type': 'text/markdown',
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400',
+      'Content-Type': 'text/markdown; charset=utf-8',
     },
   });
 }

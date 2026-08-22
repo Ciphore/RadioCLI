@@ -11,6 +11,7 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 import {textDim, textMuted, themeAccent} from '../theme.js';
+import {visibleWindow} from '../list-window.js';
 
 type AirPlaySettingsScreenProps = {
   selected: number;
@@ -19,6 +20,7 @@ type AirPlaySettingsScreenProps = {
   devices: AirPlayDevice[];
   theme: ThemeName;
   width: number;
+  height?: number;
 };
 
 export function AirPlaySettingsScreen({
@@ -27,7 +29,8 @@ export function AirPlaySettingsScreen({
   backends,
   devices,
   theme,
-  width
+  width,
+  height
 }: AirPlaySettingsScreenProps): React.ReactElement {
   const accent = themeAccent(theme);
   const availability = airPlayAvailability(backends, devices);
@@ -36,6 +39,7 @@ export function AirPlaySettingsScreen({
   const canEnterCode = availability.ready && selectedDevice?.requiresPassword && !selectedDevice.local;
   const lineWidth = Math.max(24, width - 4);
   const preferredOutput = audioOutputLabel(settings.preferredBackend);
+  const deviceWindow = visibleWindow(devices, selected, height ? Math.max(1, height - 9) : Math.max(1, devices.length));
 
   return (
     <Box flexDirection="column">
@@ -75,8 +79,8 @@ export function AirPlaySettingsScreen({
         </Text>
         {devices.length > 0 ? (
           <Menu
-            items={devices}
-            selected={selected}
+            items={deviceWindow.items}
+            selected={selected - deviceWindow.start}
             keyFor={device => device.id}
             render={(device, _index, active) => {
               const isSelected = device.id === settings.preferredAirPlayDevice;

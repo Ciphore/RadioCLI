@@ -92,10 +92,10 @@ describe('RadioBrowserProvider', () => {
     });
 
     const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
-    const results = await provider.search('Tokyo Jazz', {limit: 5, offset: 10, codec: 'MP3', language: 'English', minBitrate: 128});
+    const results = await provider.search('Tokyo Jazz', {limit: 5, codec: 'MP3', language: 'English', minBitrate: 128});
 
     expect(fetch).toHaveBeenCalledTimes(4);
-    expect(fetch.mock.calls.every(([input]) => new URL(String(input)).searchParams.get('offset') === '10')).toBe(true);
+    expect(fetch.mock.calls.every(([input]) => new URL(String(input)).searchParams.get('offset') === '0')).toBe(true);
     expect(results.map(station => station.id)).toEqual(['tokyo-jazz', 'popular-jazz']);
     expect(results[0]).toMatchObject({
       provider: 'radio-browser',
@@ -115,6 +115,35 @@ describe('RadioBrowserProvider', () => {
       longitude: 139.6503
     });
     expect(results[0]?.tags).toEqual(['jazz', 'tokyo', 'city', 'late night', 'piano', 'live', 'public', 'fm']);
+  });
+
+  it('builds a stable merged search page before applying the requested offset', async () => {
+    const rows = Array.from({length: 12}, (_, index) => ({
+      stationuuid: `station-${index}`,
+      name: `Jazz Station ${index}`,
+      url: `https://stream.example.com/${index}.mp3`,
+      clickcount: 12 - index
+    }));
+    const fetch = mockFetch(url => {
+      expect(url.searchParams.get('offset')).toBe('0');
+      expect(url.searchParams.get('limit')).toBe('12');
+      return jsonResponse(rows);
+    });
+
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    const results = await provider.search('Jazz', {limit: 2, offset: 10});
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(results.map(station => station.id)).toEqual(['station-10', 'station-11']);
+  });
+
+  it('bounds broad multi-word searches to ten directory requests', async () => {
+    const fetch = mockFetch(() => jsonResponse([]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+
+    await provider.search('late night public jazz radio', {limit: 20});
+
+    expect(fetch).toHaveBeenCalledTimes(10);
   });
 
   it('falls back across mirrors and reuses fresh cached responses', async () => {

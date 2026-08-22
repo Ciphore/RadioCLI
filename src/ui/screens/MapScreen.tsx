@@ -7,7 +7,7 @@ import {toAsciiSafe} from '../ascii.js';
 import {visibleWindow} from '../list-window.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {truncate} from '../format.js';
+import {padDisplayEnd, truncate} from '../format.js';
 import {buildWorldMap, type MapCellKind, type MapRow} from '../world-map.js';
 
 type MapScreenProps = {
@@ -50,12 +50,12 @@ export function MapScreen({
         subtitle={editingFilter ? 'Filtering country list — type to narrow' : 'Station density by country'}
         width={contentWidth}
         theme={theme}
-        right={`filter: ${filter || 'all'}`}
+        right={filter ? `filter: ${filter}` : undefined}
       />
       {loading ? <Text color={textMuted}>{asciify('Loading country density…')}</Text> : null}
       <Box marginTop={1} flexDirection="column">
-        {graph.rows.map(row => (
-          <MapLine key={row.cells.map(cell => cell.char).join('')} row={row} theme={theme} />
+        {graph.rows.map((row, index) => (
+          <MapLine key={`map-row-${index}`} row={row} theme={theme} />
         ))}
       </Box>
       <Text color={textMuted}>
@@ -67,18 +67,12 @@ export function MapScreen({
           {topCountries.map(country => (
             <Text key={country.code}>
               <Text color={themeAccent(theme)}>{country.code.padEnd(3)}</Text>
-              <Text>{truncate(country.name, 30).padEnd(31)}</Text>
+              <Text>{padDisplayEnd(truncate(country.name, 30), 31)}</Text>
               <Text color={textMuted}>{country.stationCount.toLocaleString().padStart(7)}</Text>
             </Text>
           ))}
         </Box>
         <Box marginLeft={mode === 'full' ? 3 : 0} marginTop={mode === 'full' ? 0 : 1} width={listWidth} flexDirection="column">
-          <Text>
-            Selected:{' '}
-            <Text color={themeAccent(theme)}>
-              {selectedCountry ? asciify(`${selectedCountry.name} · ${selectedCountry.stationCount.toLocaleString()}`) : 'none'}
-            </Text>
-          </Text>
           <Menu
             items={window.items}
             selected={selected - window.start}

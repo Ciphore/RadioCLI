@@ -1,6 +1,6 @@
 ---
 title: Design
-description: Product rationale for Ink, mpv, provider adapters, opt-in location, and the receiver UI.
+description: Product rationale for Ink, mpv, provider adapters, location behavior, and the receiver UI.
 ---
 
 RadioCLI is meant to feel like a product, not a terminal proof of concept.
@@ -31,14 +31,18 @@ Radio Browser is primary because it is public and has broad station metadata.
 Radio Garden stays experimental because its public web experience does not mean
 its API is stable for terminal clients.
 
-## Why Location Is Opt-In
+## Why Location Is Controllable
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
-RadioCLI requires explicit opt-in through Settings or `:location on`.
+The feature is enabled for new libraries and performs no lookup until Nearby is
+opened. It remains directly controllable through Settings, `l`, or
+`:location off`, and that local choice persists.
 
 ## Receiver Aesthetic
 
-![RadioCLI Now Playing visualizer demo](/demo/radiocli-now-playing.gif)
+<video controls autoPlay muted loop playsInline preload="metadata" poster="/demo/radiocli-fullscreen.png" aria-label="RadioCLI Now Playing visualizer demo">
+  <source src="/demo/radiocli-now-playing.webm" type="video/webm" />
+</video>
 
 The UI borrows from old receiver and car head-unit displays: direct labels,
 compact hierarchy, visible status, and no fake copy. The app should be usable in
@@ -50,8 +54,8 @@ visually cohesive across terminal themes.
 
 The Now Playing screen supports multiple visualizer styles so the display can
 feel like a receiver without locking the product into one animation. The default
-pulse-grid style is fast and direct, while the retained alternates include the
-restored spinning ASCII cube plus generated ASCII fire, fireworks, plasma,
+Ultracode style is fast and direct, while the retained alternates include the
+restored spinning ASCII cube plus generated multi-flame fire, fireworks,
 spinning donut, starfield, high-resolution braille visuals, and generative
 motion scenes. Every retained style is deterministic, pure-frame terminal
 rendering and still freezes to a truthful zero-signal frame when playback is
@@ -67,8 +71,9 @@ terminals. That layout keeps global discovery spatial without forcing the user
 to switch away from the playable list. The map has one movable scan cursor
 instead of many station pins; clicking the map places it directly, WASD makes
 fine nudges, Shift+WASD makes larger jumps, and the station list reloads around
-that coordinate. Mouse reporting is scoped to Explore so the rest of the terminal
-app keeps ordinary selection behavior.
+that coordinate. Mouse reporting is activated only for Explore and overflowing
+menus or lists, then released on other screens so native terminal scrollback
+continues to work.
 
 The Explore list is distance-truthful rather than popularity-first. RadioCLI
 builds a cached atlas from all available Radio Browser stations with coordinates
@@ -84,7 +89,7 @@ wide terminals the full rail is visible; on narrower terminals it keeps the
 active tab and nearby tabs in view.
 
 Listening stats use the same direct, boxed language as the rest of the app. The
-contribution graph shows the last 53 weeks (371 days) of local listening activity, while
+contribution graph begins in January and shows the current local calendar year, while
 the numeric stats report real locally persisted sessions, including favorite
 station, thresholded stations listened, sessions, streaks, active days, and total
 hours listened.

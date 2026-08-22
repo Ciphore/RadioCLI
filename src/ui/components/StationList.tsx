@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
-import {stationLocation, stationTags, stationTech, truncate} from '../format.js';
+import {displayWidth, stationLocation, stationTags, stationTech, truncate} from '../format.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {Menu, Pointer} from './Menu.js';
 import {visibleWindow} from '../list-window.js';
@@ -13,14 +13,27 @@ type StationListProps = {
   favorites: Set<string>;
   pageSize: number;
   width: number;
+  emptyTitle?: string;
+  emptyHint?: string;
+  showCount?: boolean;
 };
 
-export function StationList({stations, selected, theme, favorites, pageSize, width}: StationListProps): React.ReactElement {
+export function StationList({
+  stations,
+  selected,
+  theme,
+  favorites,
+  pageSize,
+  width,
+  emptyTitle = 'No stations found.',
+  emptyHint = 'Try another view or clear active filters.',
+  showCount = true
+}: StationListProps): React.ReactElement {
   if (stations.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text color={textMuted}>No stations here yet.</Text>
-        <Text color={textMuted}>Try a different search or country, or clear active filters with :clear.</Text>
+        <Text color={textMuted}>{emptyTitle}</Text>
+        <Text color={textMuted}>{emptyHint}</Text>
       </Box>
     );
   }
@@ -32,9 +45,11 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
 
   return (
     <Box flexDirection="column">
-      <Text color={textMuted}>
-        Showing {window.start + 1}-{window.end} of {stations.length}
-      </Text>
+      {showCount ? (
+        <Text color={textMuted}>
+          {window.start + 1}-{window.end} of {stations.length}
+        </Text>
+      ) : null}
       <Menu
         items={window.items}
         selected={selected - window.start}
@@ -43,29 +58,22 @@ export function StationList({stations, selected, theme, favorites, pageSize, wid
           const favorite = favorites.has(`${station.provider}:${station.id}`);
           const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);
           const titleWidth = nameWidth + 2;
-          const titleUsed = stationName.length + (favorite ? 2 : 0);
+          const titleUsed = displayWidth(stationName) + (favorite ? 2 : 0);
           const titlePadding = ' '.repeat(Math.max(1, titleWidth - titleUsed));
+          const standardMetadata = `${stationLocation(station)} · ${stationTech(station)}`;
+          const selectedMetadata = station.tags.length > 0 ? stationTags(station) : standardMetadata;
 
           return (
-            <Box flexDirection="column">
-              <Box>
-                <Pointer active={active} />
-                <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                  {stationName}
-                </Text>
-                {favorite ? <Text color="yellow"> ★</Text> : null}
-                <Text>{titlePadding}</Text>
-                <Text color={textMuted}>
-                  {truncate(`${stationLocation(station)} · ${stationTech(station)}`, metaWidth)}
-                </Text>
-              </Box>
-              {active ? (
-                <Box marginLeft={4}>
-                  <Text color={textMuted}>
-                    {truncate(stationTags(station), rowWidth - 4)}
-                  </Text>
-                </Box>
-              ) : null}
+            <Box>
+              <Pointer active={active} />
+              <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                {stationName}
+              </Text>
+              {favorite ? <Text color="yellow"> ★</Text> : null}
+              <Text>{titlePadding}</Text>
+              <Text color={active ? themeAccent(theme) : textMuted}>
+                {truncate(active ? selectedMetadata : standardMetadata, metaWidth)}
+              </Text>
             </Box>
           );
         }}

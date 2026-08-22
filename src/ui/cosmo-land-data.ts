@@ -1,5 +1,5 @@
 // Natural Earth 110m land polygons as packaged by cosmo-tui.
-// Source: /Users/ciphore/Downloads/cosmo-tui-master/src/cosmo/data/ne_110m_land.geojson
+// Source: irahulstomar/cosmo-tui, src/cosmo/data/ne_110m_land.geojson
 // cosmo-tui is MIT licensed, copyright (c) 2026 Rahul. Natural Earth data is public domain.
 
 export type CosmoLandPolygon = [[number, number, number, number], number[][][]];

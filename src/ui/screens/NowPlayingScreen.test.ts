@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import type {Station, TrackPlay} from '../../types.js';
-import {receiverDialLabel, recentTracksForStation} from './NowPlayingScreen.js';
+import {receiverStationIdentity, recentTracksForStation} from './NowPlayingScreen.js';
 
 const station: Station = {
   id: 'station-1',
@@ -26,17 +26,25 @@ describe('recentTracksForStation', () => {
   });
 });
 
-describe('receiverDialLabel', () => {
-  it('uses a station frequency when the station name exposes one', () => {
-    expect(receiverDialLabel({...station, name: 'KCRW 89.9 FM', codec: 'AAC'})).toBe('FM 89.9');
-    expect(receiverDialLabel({...station, name: 'KNX 1070 News'})).toBe('AM 1070');
+describe('receiverStationIdentity', () => {
+  it('puts station name and location together in the receiver header', () => {
+    expect(receiverStationIdentity({...station, city: 'Sausalito', state: 'California', country: 'United States'}, 60)).toEqual({
+      name: 'Test FM',
+      location: 'SAUSALITO, CALIFORNIA, UNITED STATES'
+    });
   });
 
-  it('uses codec instead of a broken placeholder when bitrate is unavailable', () => {
-    expect(receiverDialLabel({...station, codec: 'AAC'})).toBe('FM AAC');
+  it('truncates the location after preserving a station name that fits', () => {
+    expect(receiverStationIdentity({...station, country: 'The United States Of America'}, 20)).toEqual({
+      name: 'Test FM',
+      location: 'THE UNITE…'
+    });
   });
 
-  it('keeps the compact bitrate and codec dial when both are available', () => {
-    expect(receiverDialLabel({...station, codec: 'MP3', bitrate: 64})).toBe('FM 064.M');
+  it('uses the full identity width for a long station name', () => {
+    expect(receiverStationIdentity({...station, name: 'A Very Long Station Name', country: 'Canada'}, 12)).toEqual({
+      name: 'A Very Long…',
+      location: ''
+    });
   });
 });

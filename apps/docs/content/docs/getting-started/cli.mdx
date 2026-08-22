@@ -13,6 +13,7 @@ It also supports command mode for scriptable tasks:
 
 ```bash
 radiocli doctor
+radiocli doctor --json
 radiocli check
 radiocli countries
 radiocli search "japan hits"
@@ -29,6 +30,8 @@ Use `radiocli doctor` after installation to confirm whether `mpv` or `ffplay` is
 available, whether playback controls are `full`, `limited`, or `missing`, and to
 print the recommended native install command for your OS. `mpv` is the full-control
 backend; `ffplay` is reported as fallback playback with limited controls.
+Use `radiocli doctor --json` for a machine-readable support report; paths under
+your home directory are redacted to `~`.
 
 Use `radiocli check` when debugging playback or provider issues. It reports local
 store paths, playback backends, and provider health. Include that output when filing

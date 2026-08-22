@@ -15,12 +15,12 @@ export const keyHelpSections: HelpSection[] = [
       {keys: '↑/↓ or n/p', description: 'Move selection'},
       {keys: '←/→ or Tab', description: 'Switch tabs'},
       {keys: '[ / ]', description: 'Page selection by 10'},
-      {keys: '1-9, 0', description: 'Jump to home menu item'},
+      {keys: '1-8', description: 'Jump to an Overview option'},
       {keys: 'Enter', description: 'Open / tune the selection'},
       {keys: 'b or Esc', description: 'Back to home'},
       {keys: ': ', description: 'Command palette'},
       {keys: '?', description: 'Toggle this help'},
-      {keys: 'q or Ctrl+C', description: 'Quit'}
+      {keys: 'q / Ctrl+C twice', description: 'Quit cleanly'}
     ]
   },
   {
@@ -83,10 +83,17 @@ export const commandHelp: CommandHelp[] = [
   {name: 'map', description: 'Open the world map'},
   {name: 'stats', description: 'Open listening stats'},
   {name: 'settings', description: 'Open settings'},
+  {name: 'export', args: '[backup.json]', description: 'Export preferences and library'},
+  {name: 'import', args: '<backup.json>', description: 'Restore preferences and library'},
   {name: 'update', description: 'Show the install command for the latest release'},
   {name: 'stop', description: 'Stop playback'},
   {name: 'help', description: 'Open this help'}
 ];
+
+export const helpItemCount =
+  keyHelpSections.reduce((total, section) => total + 1 + section.entries.length, 0) +
+  1 +
+  commandHelp.length;
 
 // Primary command names plus the aliases the executor accepts, used for
 // command-mode tab completion.
@@ -103,6 +110,8 @@ export const commandNames: string[] = [
   'key',
   'airplay-code',
   'airplay-settings',
+  'backup',
+  'restore',
   ...commandHelp.map(entry => entry.name)
 ].sort((a, b) => a.localeCompare(b));
 

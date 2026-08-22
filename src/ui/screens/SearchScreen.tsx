@@ -62,8 +62,19 @@ export function SearchScreen({
         <Text color={editing ? themeAccent(theme) : textMuted}>{editing ? '› ' : '  '}</Text>
         <Text color={query ? themeAccent(theme) : textMuted}>{truncate(query || 'Search stations, genres, languages, places…', inputTextWidth)}</Text>
       </Box>
-      {loading ? <Text color={textMuted}>Searching public station directories…</Text> : null}
-      {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
+      {loading ? <Text color={textMuted}>Searching station directories…</Text> : null}
+      {!loading || stations.length > 0 ? (
+        <StationList
+          stations={stations}
+          selected={selected}
+          theme={theme}
+          favorites={favorites}
+          pageSize={pageSize}
+          width={width}
+          emptyTitle={query ? `No matches for “${query}”.` : 'Search for a station, genre, language, or place.'}
+          emptyHint={query ? 'Try fewer words or clear active filters.' : 'Type above and press Enter.'}
+        />
+      ) : null}
     </Box>
   );
 }

@@ -31,3 +31,10 @@ SOFTWARE.
 
 The land polygon data is derived from Natural Earth 110m land data. Natural
 Earth vector data is public domain.
+
+## node-airtunes2
+
+AirPlay support is provided as an optional integration with `node-airtunes2`
+2.5.0, distributed under the GNU Affero General Public License v3. Its source,
+license text, and attribution are available in the installed dependency and at
+<https://github.com/bertrandda/node-airtunes2>.

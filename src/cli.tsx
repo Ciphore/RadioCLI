@@ -7,6 +7,8 @@ import {PlayerController} from './player/player-controller.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
+import {resolveCommand} from './player/command.js';
+import {airPlaySenderHealth} from './player/airplay-sender-health.js';
 import {appVersion} from './version.js';
 import {checkForUpdate, updateCommandForInstall} from './update-check.js';
 
@@ -21,7 +23,8 @@ if (isDirectRun(process.argv[1], import.meta.url)) {
   } else {
     const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
     render(<App />, {
-      exitOnCtrlC: true,
+      // App owns Ctrl+C so it can confirm before performing a clean shutdown.
+      exitOnCtrlC: false,
       kittyKeyboard: {
         mode: 'auto',
         flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']
@@ -49,6 +52,10 @@ export async function runCommand(args: string[]): Promise<void> {
 
   if (command === 'doctor') {
     const backends = detectPlaybackBackends();
+    if (rest.includes('--json')) {
+      console.log(JSON.stringify(doctorReport(backends), null, 2));
+      return;
+    }
     console.log(`backends=${backends.join(',') || 'none'}`);
     printPlaybackBackendStatus(backends);
     return;
@@ -150,7 +157,7 @@ Usage:
   radiocli                 Start the TUI
   radiocli version         Print the installed version
   radiocli check           Show provider/backend health
-  radiocli doctor          Show local playback setup guidance
+  radiocli doctor [--json] Show local playback setup guidance
   radiocli update          Show update availability and install command
   radiocli countries       Print top countries
   radiocli search <query>  Search public stations
@@ -180,4 +187,34 @@ function printPlaybackBackendStatus(backends: string[]): void {
   for (const line of playbackBackendStatusLines(backends)) {
     console.log(line);
   }
+}
+
+function doctorReport(backends: string[]): Record<string, unknown> {
+  const commands = Object.fromEntries(
+    ['mpv', 'ffplay', 'vlc', 'cvlc', 'ffmpeg', 'dns-sd'].map(command => [command, redactHome(resolveCommand(command))])
+  );
+  const airPlay = airPlaySenderHealth();
+  return {
+    radioCliVersion: appVersion(),
+    nodeVersion: process.version,
+    platform: process.platform,
+    architecture: process.arch,
+    backends,
+    commands,
+    airPlay: {
+      available: airPlay.available,
+      safe: airPlay.safe,
+      package: airPlay.packageName,
+      version: airPlay.version ?? null,
+      vulnerablePackages: airPlay.vulnerablePackages,
+      warningPackages: airPlay.warningPackages
+    },
+    guidance: playbackBackendStatusLines(backends)
+  };
+}
+
+function redactHome(path: string | null): string | null {
+  if (!path) return null;
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }

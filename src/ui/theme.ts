@@ -11,7 +11,6 @@ export const panelBorder = '#28313c';
 // named gray maps to terminal-palette "bright black" and can become unreadable.
 export const textMuted = '#aab4c2';
 export const textDim = '#8a96a8';
-export const textHighlight = '#d8c66f';
 export const mapLand = '#33414f';
 export const mapWater = '#1a2430';
 export const mapMarker = '#7dd3fc';

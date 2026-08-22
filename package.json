@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",
@@ -73,7 +73,7 @@
     "protobufjs": "^7.5.8"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^22.15.0",
     "@types/react": "^19.2.15",
     "ink-testing-library": "^4.0.0",
     "knip": "^6.14.2",

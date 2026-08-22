@@ -4,7 +4,7 @@ import {clipboardCommands, openExternalCommand} from './system-actions.js';
 describe('system actions', () => {
   it('opens URLs with the platform default handler', () => {
     expect(openExternalCommand('darwin')).toEqual({command: 'open', args: []});
-    expect(openExternalCommand('win32')).toEqual({command: 'cmd', args: ['/c', 'start', '']});
+    expect(openExternalCommand('win32')).toEqual({command: 'explorer', args: []});
     expect(openExternalCommand('linux')).toEqual({command: 'xdg-open', args: []});
   });
 

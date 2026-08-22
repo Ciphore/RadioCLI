@@ -234,6 +234,37 @@ export function useCommandExecutor({
         return;
       }
 
+      if (name === 'export' || name === 'backup') {
+        try {
+          const backupPath = store.exportBackup(value || undefined);
+          setMessage(`Backup exported: ${backupPath}`);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : 'Could not export the RadioCLI backup.');
+        }
+        return;
+      }
+
+      if (name === 'import' || name === 'restore') {
+        if (!value.trim()) {
+          setMessage('Usage: :import <backup.json>');
+          return;
+        }
+
+        try {
+          const result = store.importBackup(value);
+          settingsRef.current = result.state.settings;
+          setLibrary(result.state);
+          setMessage(
+            result.safetyBackupPath
+              ? `Backup imported. Previous library saved to ${result.safetyBackupPath}`
+              : `Backup imported: ${result.sourcePath}`
+          );
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : 'Could not import the RadioCLI backup.');
+        }
+        return;
+      }
+
       if (name === 'update') {
         await updateCommand();
         return;

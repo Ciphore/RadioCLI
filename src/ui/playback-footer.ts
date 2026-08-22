@@ -5,7 +5,7 @@ import {truncate} from './format.js';
 // Square braille spinner: a filled 2x4 dot cell that appears to rotate. Reads as
 // a small spinning block in the terminal, which suits RadioCLI better than a
 // thin circular spinner.
-export const loadingSpinnerFrames = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'] as const;
+export const loadingSpinnerFrames = ['⣾', '⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽'] as const;
 
 export function loadingSpinnerFrame(frame: number): string {
   const count = loadingSpinnerFrames.length;
@@ -32,6 +32,17 @@ export function shouldShowPlaybackFooter(station: Station | null, playback: Play
   // During loading the React-side station may not be set yet, but the player
   // already knows the station name, so fall back to that.
   return Boolean((station || playback.stationName) && visiblePlaybackStates.has(playback.state));
+}
+
+export function playbackStateForPendingStation(playback: PlaybackState, pendingStation: Station | null): PlaybackState {
+  if (!pendingStation) return playback;
+  return {
+    ...playback,
+    state: 'loading',
+    ready: false,
+    stationName: pendingStation.name,
+    message: `Opening ${pendingStation.name}`
+  };
 }
 
 export function playbackFooterText({

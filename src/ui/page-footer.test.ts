@@ -1,7 +1,37 @@
 import {describe, expect, it} from 'vitest';
-import {pageFooterText} from './page-footer.js';
+import {fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, pageFooterText} from './page-footer.js';
 
 describe('page footer shortcuts', () => {
+  it('reuses the Now Playing station-status row for transient display notices', () => {
+    expect(fullFooterRowCount('now-playing')).toBe(3);
+    expect(fullStatusFooterRows('now-playing', 'Display color: ruby', null, null)).toEqual([
+      {key: 'playback', text: 'Display color: ruby'}
+    ]);
+    expect(fullStatusFooterRows('now-playing', null, null, null)).toEqual([{key: 'playback', text: ' '}]);
+  });
+
+  it('keeps separate notice and station-status rows on other full-size tabs', () => {
+    expect(fullFooterRowCount('library')).toBe(4);
+    expect(fullStatusFooterRows('library', 'Display color: ruby', null, 'KEXP · playing')).toEqual([
+      {key: 'notice', text: 'Display color: ruby'},
+      {key: 'playback', text: 'KEXP · playing'}
+    ]);
+  });
+
+  it('places exit confirmation in the station-status row', () => {
+    expect(fullStatusFooterRows('library', null, 'Ctrl+C again to exit', 'KEXP · playing')).toEqual([
+      {key: 'notice', text: ' '},
+      {key: 'playback', text: 'Ctrl+C again to exit'}
+    ]);
+  });
+
+  it('keeps essential playback controls visible in micro layouts', () => {
+    expect(microPlaybackControlsText('mpv')).toContain('space pause');
+    expect(microPlaybackControlsText('mpv')).toContain('+/- volume');
+    expect(microPlaybackControlsText('mpv')).toContain(',/. station');
+    expect(microPlaybackControlsText('airplay')).not.toContain('space pause');
+  });
+
   it('advertises full now-playing controls for mpv', () => {
     expect(
       pageFooterText({
@@ -27,7 +57,7 @@ describe('page footer shortcuts', () => {
         playbackBackend: 'ffplay',
         screen: 'now-playing'
       })
-    ).toBe('ffplay fallback: install mpv for pause/mute/media keys · f favorite · s sleep · d diagnostics · b home');
+    ).toBe('ffplay fallback: install mpv for pause/mute/media keys · f favorite · s sleep · d diagnostics · b Overview');
   });
 
   it('does not advertise pause for AirPlay on now-playing', () => {
@@ -41,7 +71,7 @@ describe('page footer shortcuts', () => {
         playbackBackend: 'airplay',
         screen: 'now-playing'
       })
-    ).toBe('AirPlay: +/- volume · m mute · f favorite · s sleep · d diagnostics · b home');
+    ).toBe('AirPlay: +/- volume · m mute · f favorite · s sleep · d diagnostics · b Overview');
   });
 
   it('labels the Settings output shortcut without backend jargon', () => {

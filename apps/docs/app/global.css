@@ -253,6 +253,20 @@ body {
   }
 }
 
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .rc-lede {
   max-width: 42rem;
   margin: 0;
@@ -301,13 +315,35 @@ body {
   background: var(--rc-accent-tint);
 }
 
+.rc-install-options {
+  display: grid;
+  gap: 0.7rem;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.rc-install-option {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.rc-install-label {
+  color: var(--rc-muted);
+  font-family: var(--rc-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
 .rc-install {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  margin-top: 0.4rem;
+  margin: 0;
   border: 1px solid var(--rc-line);
   border-radius: 7px;
   padding: 0.55rem 0.85rem;
@@ -563,10 +599,6 @@ body {
 
   .rc-actions .rc-btn:first-child {
     grid-column: 1 / -1;
-  }
-
-  .rc-install {
-    width: 100%;
   }
 
   .rc-strip {

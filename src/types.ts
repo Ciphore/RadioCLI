@@ -1,58 +1,13 @@
+import {
+  defaultReceiverStyle,
+  receiverStyleNames,
+  type ReceiverStyleId
+} from './ui/visualizers/receiver-style-registry.js';
+
+export {defaultReceiverStyle, receiverStyleNames};
+
 const providerIds = ['radio-browser', 'radio-garden', 'playlist'] as const;
 export const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper', 'cyan', 'lime', 'coral', 'rose', 'slate', 'mono'] as const;
-export const receiverStyleNames = [
-  'ultracode',
-  'motion-blob',
-  'motion-area',
-  'motion-contour',
-  'leds',
-  'matrix',
-  'hologram',
-  'cube',
-  'fire',
-  'fireworks',
-  'plasma',
-  'spinning-donut',
-  'starfield',
-  'mesh',
-  'ribbon',
-  'orbits',
-  'mirror',
-  'tunnel',
-  'kaleidoscope',
-  'constellation',
-  'pulse-grid',
-  'lissajous',
-  'braille-wave',
-  'radial-eq',
-  'spectrogram',
-  'nebula',
-  'silk',
-  'ripple-tank',
-  'phyllotaxis',
-  'harmonograph',
-  'bloom-bars',
-  'moire',
-  'galaxy',
-  'caustics',
-  'lorenz',
-  'fern',
-  'chladni',
-  'tesseract',
-  'torus-knot',
-  'rotozoomer',
-  'fractal-tree',
-  'julia',
-  'clifford',
-  'goniometer',
-  'copper-bars',
-  'twister',
-  'coral',
-  'cyclone',
-  'lava-lamp',
-  'newton'
-] as const;
-
 type ProviderId = (typeof providerIds)[number];
 
 export type Screen =
@@ -73,8 +28,7 @@ export type Screen =
 
 export type ThemeName = (typeof themeNames)[number];
 
-export type ReceiverStyle = (typeof receiverStyleNames)[number];
-export const defaultReceiverStyle = 'pulse-grid' as const satisfies ReceiverStyle;
+export type ReceiverStyle = ReceiverStyleId;
 
 export type Country = {
   name: string;
@@ -156,6 +110,7 @@ export type AppSettings = {
   volume: number;
   enableRadioGarden: boolean;
   enableNearbyLocation: boolean;
+  shareDirectoryVotes: boolean;
   preferredBackend: 'auto' | 'mpv' | 'ffplay' | 'vlc' | 'airplay';
   preferredAirPlayDevice?: string;
   tuneTimeoutSeconds: number;
@@ -165,6 +120,7 @@ export type AppSettings = {
   transparentBackground?: boolean;
   asciiMode?: boolean;
   reduceMotion?: boolean;
+  mouseSupport?: boolean;
 };
 
 export type UpdateCheckState = {
@@ -185,6 +141,7 @@ export type ListeningSession = {
   station: Station;
   startedAt: string;
   endedAt?: string;
+  lastActiveAt?: string;
   listenedSeconds: number;
 };
 

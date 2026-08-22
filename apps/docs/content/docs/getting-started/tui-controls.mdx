@@ -21,7 +21,7 @@ volume or mute state, and an active sleep timer.
 | `O` | Open the station homepage in your browser |
 | `y` | Copy the station stream URL to the clipboard |
 | `?` | Toggle the Help screen |
-| `q` or `Ctrl+C` | Quit cleanly |
+| `q` or `Ctrl+C` twice | Quit cleanly |
 
 Pause, mute, volume, and play/pause media-key control require the `mpv` backend.
 When only `ffplay` is active, RadioCLI keeps playback and station skipping
@@ -32,7 +32,7 @@ available but labels interactive playback controls as limited and shows an
 
 | Screen | Controls |
 | --- | --- |
-| Home | `Up` / `Down` move, `Enter` open, number jump, `:` command |
+| Overview | `Up` / `Down` move, `Enter` open, number jump, `:` command |
 | Search input | type query, `Up` / `Down` move results, `Ctrl+Up` / `Ctrl+Down` recall search history, `Enter` search or tune, `Esc` finish |
 | Search results | `/` edit query, `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
 | Explore | click map, `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
@@ -49,9 +49,11 @@ available but labels interactive playback controls as limited and shows an
 Press `?` from any screen to open Help, a full reference of keybindings and
 `:` commands. In the command palette, `Tab` completes the command name.
 
-Explore mouse clicks use terminal mouse reporting while the Explore tab is
-active. If your terminal or tmux setup does not pass those events through, the
-WASD cursor controls stay fully available.
+Mouse and trackpad scrolling enables terminal mouse reporting only while Explore
+or an overflowing menu/list is active, leaving native scrollback available on
+other screens. Settings can disable mouse support completely. Keyboard controls
+and Explore's WASD movement remain available when a terminal or tmux setup does
+not pass mouse events through.
 
 ## Command Palette
 

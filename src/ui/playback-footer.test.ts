@@ -3,6 +3,7 @@ import type {PlaybackState, Station} from '../types.js';
 import {
   loadingSpinnerFrame,
   loadingSpinnerFrames,
+  playbackStateForPendingStation,
   playbackFooterText,
   shouldShowPlaybackFooter
 } from './playback-footer.js';
@@ -45,6 +46,25 @@ describe('playback footer', () => {
     ).toBe(true);
   });
 
+  it('keeps the selected station visible while stop and resolve are between player states', () => {
+    const pending = {...station, id: 'kexp', name: 'KEXP'};
+    const stopped = {...playback, state: 'stopped' as const, ready: false, stationName: undefined};
+    const optimistic = playbackStateForPendingStation(stopped, pending);
+
+    expect(optimistic).toMatchObject({state: 'loading', ready: false, stationName: 'KEXP'});
+    expect(shouldShowPlaybackFooter(pending, optimistic)).toBe(true);
+    expect(playbackFooterText({
+      station: pending,
+      playback: optimistic,
+      metadata: null,
+      queue: null,
+      favorite: false,
+      sleepLabel: 'Sleep off',
+      width: 80,
+      spinnerFrame: 0
+    })).toContain('KEXP · buffering…');
+  });
+
   it('prefixes the station name with a square spinner frame while loading', () => {
     const text = playbackFooterText({
       station: null,
@@ -78,6 +98,7 @@ describe('playback footer', () => {
   });
 
   it('wraps and normalizes spinner frame indices', () => {
+    expect(loadingSpinnerFrames).toEqual(['⣾', '⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽']);
     expect(loadingSpinnerFrame(0)).toBe(loadingSpinnerFrames[0]);
     expect(loadingSpinnerFrame(loadingSpinnerFrames.length)).toBe(loadingSpinnerFrames[0]);
     expect(loadingSpinnerFrame(-1)).toBe(loadingSpinnerFrames[loadingSpinnerFrames.length - 1]);

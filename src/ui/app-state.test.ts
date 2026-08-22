@@ -193,4 +193,19 @@ describe('app state helpers', () => {
     expect(shouldResetReceiverPulse(activeUltracode, activeUltracode)).toBe(false);
     expect(shouldResetReceiverPulse(null, {...activeUltracode, receiverStyle: 'pulse-grid'})).toBe(false);
   });
+
+  it('resets liftoff on Now Playing re-entry but resumes its frozen pause frame', () => {
+    const activeLiftoff = {
+      screen: 'now-playing',
+      receiverStyle: 'liftoff',
+      playbackState: 'playing',
+      playbackReady: true
+    } as const;
+
+    expect(shouldResetReceiverPulse(null, activeLiftoff)).toBe(true);
+    expect(shouldResetReceiverPulse({...activeLiftoff, screen: 'home'}, activeLiftoff)).toBe(true);
+    expect(shouldResetReceiverPulse({...activeLiftoff, playbackState: 'paused'}, activeLiftoff)).toBe(false);
+    expect(shouldResetReceiverPulse(activeLiftoff, activeLiftoff)).toBe(false);
+    expect(shouldResetReceiverPulse(null, {...activeLiftoff, receiverStyle: 'fire'})).toBe(false);
+  });
 });

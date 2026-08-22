@@ -29,14 +29,22 @@ export class ProviderManager {
   }
 
   async search(query: string, settings: AppSettings, options: SearchOptions = {}): Promise<Station[]> {
-    const radioBrowser = await this.radioBrowser.search(query, options);
-    if ((!settings.enableRadioGarden && !options.includeExperimental) || (options.offset ?? 0) > 0) {
-      return radioBrowser;
+    const includeGarden = (settings.enableRadioGarden || options.includeExperimental) && (options.offset ?? 0) === 0;
+    if (!includeGarden) {
+      return this.radioBrowser.search(query, options);
     }
 
-    const experimental = await Promise.allSettled([this.radioGarden.search(query, options)]);
-    const radioGarden = experimental.flatMap(result => (result.status === 'fulfilled' ? result.value : []));
-    return dedupeStations([...radioBrowser, ...radioGarden]).slice(0, options.limit ?? 80);
+    const [browserResult, gardenResult] = await Promise.allSettled([
+      this.radioBrowser.search(query, options),
+      this.radioGarden.search(query, options)
+    ]);
+    const radioBrowser = browserResult.status === 'fulfilled' ? browserResult.value : [];
+    const radioGarden = gardenResult.status === 'fulfilled' ? gardenResult.value : [];
+    if (radioBrowser.length === 0 && radioGarden.length === 0 && browserResult.status === 'rejected') {
+      throw browserResult.reason;
+    }
+
+    return dedupeStations(interleave(radioBrowser, radioGarden)).slice(0, options.limit ?? 80);
   }
 
   async resolve(station: Station): Promise<ResolvedStream> {
@@ -64,4 +72,16 @@ export class ProviderManager {
       'Radio Garden': radioGarden
     };
   }
+}
+
+function interleave(primary: Station[], secondary: Station[]): Station[] {
+  const merged: Station[] = [];
+  const length = Math.max(primary.length, secondary.length);
+  for (let index = 0; index < length; index += 1) {
+    const primaryStation = primary[index];
+    const secondaryStation = secondary[index];
+    if (primaryStation) merged.push(primaryStation);
+    if (secondaryStation) merged.push(secondaryStation);
+  }
+  return merged;
 }

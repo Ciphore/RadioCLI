@@ -1,40 +1,61 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
+import { getSiteUrl, siteDescription } from '@/lib/seo';
 import './global.css';
-
-function normalizeSiteUrl(value: string) {
-  const trimmedValue = value.trim();
-  const siteUrl =
-    trimmedValue.startsWith('http://') || trimmedValue.startsWith('https://')
-      ? trimmedValue
-      : `https://${trimmedValue}`;
-
-  return new URL(siteUrl);
-}
-
-function getSiteUrl() {
-  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (configuredUrl) return normalizeSiteUrl(configuredUrl);
-
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  if (vercelUrl) return normalizeSiteUrl(vercelUrl);
-
-  const cloudflarePagesUrl = process.env.CF_PAGES_URL?.trim();
-  if (cloudflarePagesUrl) return normalizeSiteUrl(cloudflarePagesUrl);
-
-  return new URL('http://localhost:3000');
-}
 
 export const metadata: Metadata = {
   title: {
     default: 'RadioCLI',
     template: '%s | RadioCLI',
   },
-  description:
-    'A terminal-first world radio receiver with resilient public-radio providers, local-first listening history, and docs for the full CLI workflow.',
+  description: siteDescription,
   metadataBase: getSiteUrl(),
+  applicationName: 'RadioCLI',
+  category: 'technology',
+  creator: 'Ciphore',
+  publisher: 'Ciphore',
+  manifest: '/manifest.webmanifest',
+  alternates: {
+    types: {
+      'text/plain': '/llms.txt',
+    },
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION
+      ? { google: process.env.GOOGLE_SITE_VERIFICATION }
+      : {}),
+    ...(process.env.BING_SITE_VERIFICATION
+      ? {
+          other: {
+            'msvalidate.01': process.env.BING_SITE_VERIFICATION,
+          },
+        }
+      : {}),
+  },
   openGraph: {
+    title: 'RadioCLI',
+    description:
+      'Terminal-first public radio discovery, playback, favorites, stats, and provider resilience.',
+    images: ['/demo/radiocli-fullscreen.png'],
+    locale: 'en_US',
+    siteName: 'RadioCLI',
+    type: 'website',
+    url: '/',
+  },
+  twitter: {
+    card: 'summary_large_image',
     title: 'RadioCLI',
     description:
       'Terminal-first public radio discovery, playback, favorites, stats, and provider resilience.',
@@ -46,7 +67,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
-        <RootProvider theme={{ defaultTheme: 'dark', enableSystem: false }}>
+        <RootProvider theme={{ defaultTheme: 'system', enableSystem: true }}>
           {children}
         </RootProvider>
       </body>

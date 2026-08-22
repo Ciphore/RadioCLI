@@ -1,5 +1,4 @@
-import {spawnSync} from 'node:child_process';
-import {existsSync} from 'node:fs';
+import {accessSync, constants, existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
@@ -13,26 +12,34 @@ export function commandExists(command: string): boolean {
 // package-manager shim looks "missing" to a bare PATH lookup. We therefore fall
 // back to probing well-known install locations before giving up.
 export function resolveCommand(command: string): string | null {
-  return lookupOnPath(command) ?? probeKnownLocations(command);
+  const cached = commandCache.get(command);
+  if (cached && Date.now() - cached.checkedAt < commandCacheTtlMs) {
+    return cached.path;
+  }
+
+  const path = lookupOnPath(command) ?? probeKnownLocations(command);
+  commandCache.set(command, {path, checkedAt: Date.now()});
+  return path;
 }
 
 function lookupOnPath(command: string): string | null {
-  const lookup = process.platform === 'win32' ? 'where' : 'which';
-  const result = spawnSync(lookup, [command], {encoding: 'utf8'});
-  if (result.status !== 0 || typeof result.stdout !== 'string') {
-    return null;
+  if (command.includes('/') || command.includes('\\')) {
+    return isRunnable(command) ? command : null;
   }
 
-  const first = result.stdout
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .find(Boolean);
-  return first ?? null;
+  const pathEntries = (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean);
+  for (const directory of pathEntries) {
+    for (const name of candidateNames(command)) {
+      const candidate = join(directory.replace(/^"|"$/g, ''), name);
+      if (isRunnable(candidate)) return candidate;
+    }
+  }
+  return null;
 }
 
 function probeKnownLocations(command: string): string | null {
   for (const candidate of candidatePaths(command)) {
-    if (existsSync(candidate)) {
+    if (isRunnable(candidate)) {
       return candidate;
     }
   }
@@ -55,10 +62,25 @@ function candidatePaths(command: string): string[] {
 
 function candidateNames(command: string): string[] {
   if (process.platform === 'win32' && !/\.[a-z0-9]+$/i.test(command)) {
-    return [`${command}.exe`, `${command}.com`, `${command}.bat`, `${command}.cmd`, command];
+    const extensions = (process.env.PATHEXT ?? '.EXE;.COM;.BAT;.CMD').split(';').filter(Boolean);
+    return [...extensions.map(extension => `${command}${extension.toLowerCase()}`), command];
   }
 
   return [command];
+}
+
+const commandCacheTtlMs = 5000;
+const commandCache = new Map<string, {path: string | null; checkedAt: number}>();
+
+function isRunnable(path: string): boolean {
+  if (!existsSync(path)) return false;
+  if (process.platform === 'win32') return true;
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function knownBinaryDirs(): string[] {

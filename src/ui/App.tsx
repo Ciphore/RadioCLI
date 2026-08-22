@@ -10,11 +10,11 @@ import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
 import {TopTabs} from './components/TopTabs.js';
-import {computeTerminalLayout} from './layout.js';
+import {computeTerminalLayout, type TerminalLayout} from './layout.js';
 import {truncate} from './format.js';
-import {playbackFooterText, shouldShowPlaybackFooter} from './playback-footer.js';
-import {pageFooterText} from './page-footer.js';
-import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell} from './terminal-mouse.js';
+import {playbackFooterText, playbackStateForPendingStation} from './playback-footer.js';
+import {fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, pageFooterText} from './page-footer.js';
+import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell, shouldEnableMouseReporting} from './terminal-mouse.js';
 import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
 import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
@@ -23,6 +23,8 @@ import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
 import {appVersion} from '../version.js';
 import {checkForUpdate, installUpdate, shouldCheckForUpdate, updateCommandForInstall} from '../update-check.js';
+import {helpItemCount} from './help-content.js';
+import {EXIT_CONFIRMATION_MS, ctrlCExitDecision} from './exit-confirmation.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -64,19 +66,24 @@ type AppProps = {
 
 const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>(receiverStyleNames);
 const LIVE_RECEIVER_PULSE_MS = 80;
+const SKYLINE_RECEIVER_PULSE_MS = 120;
 const AMBIENT_RECEIVER_PULSE_MS = 140;
 const LOADING_SPINNER_MS = 120;
 const VISUALIZER_MESSAGE_MS = 4500;
+const LISTENING_HEARTBEAT_MS = 30_000;
 const COUNTRY_STATIONS_PAGE_SIZE = 120;
 const COUNTRY_STATIONS_LOAD_AHEAD = 12;
 const SEARCH_RESULTS_PAGE_SIZE = 90;
 const SEARCH_RESULTS_LOAD_AHEAD = 12;
 
-const settingToggleLabel: Record<'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion', string> = {
+type BooleanSetting = 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport';
+
+const settingToggleLabel: Record<BooleanSetting, string> = {
   resumeOnLaunch: 'Resume on launch',
   transparentBackground: 'Transparent background',
   asciiMode: 'ASCII-safe display',
-  reduceMotion: 'Reduce motion'
+  reduceMotion: 'Reduce motion',
+  mouseSupport: 'Mouse and trackpad scrolling'
 };
 
 export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
@@ -109,6 +116,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSearch, setEditingSearch] = useState(true);
   const [playingStation, setPlayingStation] = useState<Station | null>(null);
+  const [tuningStation, setTuningStation] = useState<Station | null>(null);
   const [nowPlaying, setNowPlaying] = useState<IcyNowPlaying | null>(null);
   const [location, setLocation] = useState<LocationGuess | null>(null);
   const [exploreCursor, setExploreCursor] = useState<ExploreCursor>(defaultExploreCursor);
@@ -143,7 +151,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const exploreMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transientMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transientFooterMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitConfirmationUntilRef = useRef(0);
   const receiverPulseSnapshotRef = useRef<ReceiverPulseSnapshot | null>(null);
+  const helpReturnScreenRef = useRef<Screen>('home');
+  const countriesLoadAttemptedRef = useRef(false);
+  const tuneRequestRef = useRef(0);
+  const searchRequestRef = useRef(0);
+  const countryRequestRef = useRef(0);
+  const nearbyRequestRef = useRef(0);
+  const skipBrokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volumeRequestRef = useRef(0);
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
@@ -207,7 +224,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'airplay-settings': 0,
     'airplay-code': 1,
     settings: settingsItems.length,
-    help: 0
+    help: helpItemCount
   });
   itemCountsRef.current = {
     home: homeItems.length,
@@ -223,14 +240,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'airplay-settings': availableAirPlayDevices.length,
     'airplay-code': 1,
     settings: settingsItems.length,
-    help: 0
+    help: helpItemCount
   };
 
   const displayStations = useMemo(() => applyStationFilters(stationContext.stations, filters), [filters, stationContext.stations]);
   displayStationsRef.current = displayStations;
   const sleepLabel = sleepUntil ? `Sleep ${formatTimeLeft(sleepUntil - Date.now())}` : 'Sleep off';
-  const showPlaybackFooter = shouldShowPlaybackFooter(playingStation, playback);
-  const footerRows = showPlaybackFooter ? 4 : 3;
+  const footerStation = tuningStation ?? playingStation;
+  const footerPlayback = playbackStateForPendingStation(playback, tuningStation);
+  // Now Playing already owns the station identity, so its transient notice can
+  // reuse the playback-status row that other full-size screens need.
+  const footerRows = fullFooterRowCount(screen);
   const selectedAirPlayDevice = useMemo(
     () => availableAirPlayDevices.find(device => device.id === library.settings.preferredAirPlayDevice),
     [availableAirPlayDevices, library.settings.preferredAirPlayDevice]
@@ -239,12 +259,52 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     isAirPlayCodePromptActive(playback) ||
     Boolean(isAirPlayBackendAvailable(availableBackends) && selectedAirPlayDevice?.requiresPassword && !selectedAirPlayDevice.local);
   const layout = computeTerminalLayout(columns, rows, footerRows);
-  const frameWidth = Math.max(40, layout.columns - 2);
+  const frameWidth = layout.frameWidth;
+  const mouseReportingActive =
+    !commandMode &&
+    !capturingTransportAction &&
+    !editingCountryFilter &&
+    shouldEnableMouseReporting(
+      screen,
+      itemCountsRef.current[screen] ?? 0,
+      mouseVisibleRows(screen, layout),
+      library.settings.mouseSupport !== false
+    );
 
   useEffect(() => player.onChange(setPlayback), [player]);
 
   const playingStationRef = useRef<Station | null>(null);
   playingStationRef.current = playingStation;
+  const activeListeningStationRef = useRef<string | null>(null);
+  const lastRecordedTrackRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const station = playingStationRef.current;
+    const isAudible = playback.state === 'playing' && playback.ready && station;
+    if (isAudible) {
+      const key = stationKey(station);
+      if (activeListeningStationRef.current !== key) {
+        activeListeningStationRef.current = key;
+        setLibrary(store.startListeningSession(station));
+      }
+      return;
+    }
+
+    if (activeListeningStationRef.current) {
+      activeListeningStationRef.current = null;
+      setLibrary(store.finishActiveListeningSession());
+    }
+  }, [playback.ready, playback.state, playingStation, store]);
+
+  useEffect(() => {
+    if (playback.state !== 'playing' || !playback.ready || !playingStation) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setLibrary(store.checkpointActiveListeningSession());
+    }, LISTENING_HEARTBEAT_MS);
+    return () => clearInterval(timer);
+  }, [playback.ready, playback.state, playingStation, store]);
 
   useEffect(
     () =>
@@ -252,6 +312,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setNowPlaying(metadata);
         const station = playingStationRef.current;
         if (station && metadata.title) {
+          const trackKey = `${stationKey(station)}:${metadata.title}`;
+          if (lastRecordedTrackRef.current === trackKey) return;
+          lastRecordedTrackRef.current = trackKey;
           setLibrary(store.recordTrack(station, metadata.title));
         }
       }),
@@ -259,7 +322,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   );
 
   useEffect(() => {
-    if (!stdout.isTTY) {
+    if (!stdout.isTTY || !mouseReportingActive) {
       return;
     }
 
@@ -267,7 +330,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     return () => {
       stdout.write(disableMouseReporting);
     };
-  }, [stdout]);
+  }, [mouseReportingActive, stdout]);
 
   useEffect(() => {
     selectedByScreenRef.current[screen] = selected;
@@ -302,14 +365,18 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       return;
     }
 
-    const intervalMs = LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle) ? LIVE_RECEIVER_PULSE_MS : AMBIENT_RECEIVER_PULSE_MS;
+    const intervalMs = library.settings.receiverStyle === 'skyline'
+      ? SKYLINE_RECEIVER_PULSE_MS
+      : LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle)
+        ? LIVE_RECEIVER_PULSE_MS
+        : AMBIENT_RECEIVER_PULSE_MS;
     const timer = setInterval(() => setPulse(nextReceiverPulse), intervalMs);
     return () => clearInterval(timer);
   }, [library.settings.receiverStyle, library.settings.reduceMotion, playback.ready, playback.state, screen]);
 
   useEffect(() => {
     if (
-      playback.state !== 'loading' ||
+      footerPlayback.state !== 'loading' ||
       library.settings.reduceMotion ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
@@ -320,10 +387,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
     const timer = setInterval(() => setSpinnerFrame(value => (value + 1) % 1000), LOADING_SPINNER_MS);
     return () => clearInterval(timer);
-  }, [library.settings.reduceMotion, playback.state]);
+  }, [footerPlayback.state, library.settings.reduceMotion]);
 
   useEffect(() => {
-    if ((screen === 'countries' || screen === 'map') && countries.length === 0 && !loadingCountries) {
+    if (
+      (screen === 'countries' || screen === 'map') &&
+      countries.length === 0 &&
+      !loadingCountries &&
+      !countriesLoadAttemptedRef.current
+    ) {
+      countriesLoadAttemptedRef.current = true;
       setLoadingCountries(true);
       providers
         .countries()
@@ -344,6 +417,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       if (transientFooterMessageTimerRef.current) {
         clearTimeout(transientFooterMessageTimerRef.current);
       }
+      if (skipBrokenTimerRef.current) {
+        clearTimeout(skipBrokenTimerRef.current);
+      }
     },
     []
   );
@@ -359,6 +435,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
     const delayMs = sleepUntil - Date.now();
     if (delayMs <= 0) {
+      tuneRequestRef.current += 1;
       setLibrary(store.finishActiveListeningSession());
       void player.stop();
       setSleepUntil(null);
@@ -366,6 +443,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
 
     const timer = setTimeout(() => {
+      tuneRequestRef.current += 1;
       setLibrary(store.finishActiveListeningSession());
       void player.stop();
       setSleepUntil(null);
@@ -482,16 +560,22 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   );
 
   const go = useCallback((next: Screen, options: NavigationOptions = {}) => {
+    if (next === 'help' && screenRef.current !== 'help') {
+      helpReturnScreenRef.current = screenRef.current;
+    }
+    const destination = screenRef.current === 'help' && next === 'home'
+      ? helpReturnScreenRef.current
+      : next;
     selectedByScreenRef.current[screenRef.current] = selectedRef.current;
-    const remembered = selectedByScreenRef.current[next] ?? 0;
+    const remembered = selectedByScreenRef.current[destination] ?? 0;
     const nextSelection = options.resetSelection ? 0 : remembered;
 
-    if (next === 'now-playing' && screenRef.current !== 'now-playing') {
+    if (destination === 'now-playing' && screenRef.current !== 'now-playing') {
       setPulse(0);
     }
 
-    setScreen(next);
-    setSelected(clamp(nextSelection, (itemCountsRef.current[next] ?? 0) - 1));
+    setScreen(destination);
+    setSelected(clamp(nextSelection, (itemCountsRef.current[destination] ?? 0) - 1));
     if (options.clearMessage !== false) {
       setMessage(null);
     }
@@ -509,9 +593,23 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [openAirPlayCode, playback.backend, playback.message]);
 
   const shutdown = useCallback(() => {
+    tuneRequestRef.current += 1;
     store.finishActiveListeningSession();
     player.stop().finally(exit);
   }, [exit, player, store]);
+
+  useEffect(() => {
+    const finishForSignal = () => {
+      store.finishActiveListeningSession();
+      void player.stop().finally(() => process.exit(0));
+    };
+    process.once('SIGTERM', finishForSignal);
+    process.once('SIGHUP', finishForSignal);
+    return () => {
+      process.off('SIGTERM', finishForSignal);
+      process.off('SIGHUP', finishForSignal);
+    };
+  }, [player, store]);
 
   const showStationContext = useCallback(
     (context: StationContext, next: Screen = 'stations', options: NavigationOptions = {}) => {
@@ -610,11 +708,14 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const loadCountry = useCallback(
     async (country: Country) => {
+      const requestId = countryRequestRef.current + 1;
+      countryRequestRef.current = requestId;
       setLoadingStations(true);
       setMessage(null);
       countryPageRequestRef.current = null;
       try {
         const stations = await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, 0);
+        if (requestId !== countryRequestRef.current) return;
         showStationContext({
           title: country.name,
           subtitle: formatCountryStationsSubtitle(country, stations.length, stations.length < country.stationCount),
@@ -623,9 +724,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           hasMore: stations.length >= COUNTRY_STATIONS_PAGE_SIZE && stations.length < country.stationCount
         }, 'stations');
       } catch (error) {
+        if (requestId !== countryRequestRef.current) return;
         setMessage(error instanceof Error ? error.message : `Could not load ${country.name}.`);
       } finally {
-        setLoadingStations(false);
+        if (requestId === countryRequestRef.current) setLoadingStations(false);
       }
     },
     [providers, showStationContext]
@@ -654,7 +756,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
 
       const stations = appendUniqueStations(latest.stations, page);
-      const hasMore = page.length >= COUNTRY_STATIONS_PAGE_SIZE && stations.length < country.stationCount;
+      const hasMore =
+        page.length >= COUNTRY_STATIONS_PAGE_SIZE &&
+        stations.length > latest.stations.length &&
+        stations.length < country.stationCount;
       setStationContextFor('stations', {
         ...latest,
         subtitle: formatCountryStationsSubtitle(country, stations.length, hasMore),
@@ -698,6 +803,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         return;
       }
 
+      const requestId = searchRequestRef.current + 1;
+      searchRequestRef.current = requestId;
       setLoadingStations(true);
       setMessage(null);
       try {
@@ -708,6 +815,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           language: filters.language ?? undefined,
           minBitrate: filters.minBitrate ?? undefined
         });
+        if (requestId !== searchRequestRef.current) return;
         setStationContextFor('search', {
           title: `Search: ${query}`,
           subtitle: formatSearchSubtitle(stations.length, stations.length >= SEARCH_RESULTS_PAGE_SIZE),
@@ -722,9 +830,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setSelected(0);
         setEditingSearch(true);
       } catch (error) {
+        if (requestId !== searchRequestRef.current) return;
         setMessage(error instanceof Error ? error.message : 'Search failed.');
       } finally {
-        setLoadingStations(false);
+        if (requestId === searchRequestRef.current) setLoadingStations(false);
       }
     },
     [filters, providers, searchQuery, setStationContextFor, store]
@@ -821,6 +930,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   );
 
   const loadNearby = useCallback(async () => {
+    const requestId = nearbyRequestRef.current + 1;
+    nearbyRequestRef.current = requestId;
     setLoadingStations(true);
     setMessage(null);
     go('nearby', {resetSelection: stationContextsRef.current.nearby.stations.length === 0});
@@ -840,6 +951,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
 
       const detected = location ?? (await providers.detectLocation());
+      if (requestId !== nearbyRequestRef.current) return;
       setLocation(detected);
       if (!detected) {
         if (stationContextsRef.current.nearby.stations.length > 0) {
@@ -856,15 +968,17 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       }
 
       const stations = await providers.nearby(detected, 90);
+      if (requestId !== nearbyRequestRef.current) return;
       setStationContextFor('nearby', {
         title: 'Nearby',
         subtitle: `${[detected.city, detected.region, detected.country].filter(Boolean).join(', ')} · ${detected.source}`,
         stations
       });
     } catch (error) {
+      if (requestId !== nearbyRequestRef.current) return;
       setMessage(error instanceof Error ? error.message : 'Could not load nearby stations.');
     } finally {
-      setLoadingStations(false);
+      if (requestId === nearbyRequestRef.current) setLoadingStations(false);
     }
   }, [go, location, providers, setStationContextFor]);
 
@@ -908,15 +1022,29 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const playStation = useCallback(
     async (station: Station, options: PlayStationOptions = {}) => {
+      const requestId = tuneRequestRef.current + 1;
+      tuneRequestRef.current = requestId;
+      if (skipBrokenTimerRef.current) {
+        clearTimeout(skipBrokenTimerRef.current);
+        skipBrokenTimerRef.current = null;
+      }
       const queue = options.queue ?? queueFromCurrentList(station);
+      setTuningStation(station);
       setNowPlaying(null);
 
       try {
+        // Cancel any in-flight backend startup before resolving the next tune.
+        // This prevents a slower, older request from becoming audible after a
+        // newer station was selected.
+        await player.stop();
+        if (requestId !== tuneRequestRef.current) return;
         const resolved = await providers.resolve(station);
+        if (requestId !== tuneRequestRef.current) return;
         await player.play(station, resolved.url);
+        if (requestId !== tuneRequestRef.current) return;
         setPlayingStation(station);
+        setTuningStation(null);
         playbackQueueRef.current = queue;
-        store.startListeningSession(station);
         const nextLibrary = store.addRecent(station);
         if (screenRef.current === 'library') {
           const nextLibraryStations = applyStationFilters(buildLibraryStations(nextLibrary), filters);
@@ -934,17 +1062,23 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
         setMessage(null);
       } catch (error) {
+        if (requestId !== tuneRequestRef.current) return;
         const message = error instanceof Error ? error.message : 'Could not tune station.';
         const currentList = queue.stations;
         const currentIndex = currentList.findIndex(item => stationKey(item) === stationKey(station));
         const nextStation = currentIndex >= 0 ? currentList[currentIndex + 1] : undefined;
         if (shouldSkipAfterTuneError(error, settingsRef.current.skipBrokenStreams, nextStation)) {
           setMessage(`${message} Skipping to ${nextStation.name}.`);
+          setTuningStation(nextStation);
           rememberQueueSelection(queue, currentIndex + 1);
-          setTimeout(() => playStationRef.current(nextStation, {...options, queue}), 250);
+          skipBrokenTimerRef.current = setTimeout(() => {
+            skipBrokenTimerRef.current = null;
+            playStationRef.current(nextStation, {...options, queue});
+          }, 250);
           return;
         }
 
+        setTuningStation(null);
         setMessage(message);
       }
     },
@@ -971,7 +1105,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [playStation, store]);
   playStationRef.current = playStation;
 
-  const showTransientFooterMessage = useCallback((nextMessage: string) => {
+  const showTransientFooterMessage = useCallback((nextMessage: string, durationMs = VISUALIZER_MESSAGE_MS) => {
     if (transientFooterMessageTimerRef.current) {
       clearTimeout(transientFooterMessageTimerRef.current);
     }
@@ -980,8 +1114,19 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     transientFooterMessageTimerRef.current = setTimeout(() => {
       setFooterMessage(currentMessage => currentMessage === nextMessage ? null : currentMessage);
       transientFooterMessageTimerRef.current = null;
-    }, VISUALIZER_MESSAGE_MS);
+    }, durationMs);
   }, []);
+
+  const confirmCtrlCExit = useCallback(() => {
+    const decision = ctrlCExitDecision(exitConfirmationUntilRef.current, Date.now());
+    exitConfirmationUntilRef.current = decision.armedUntil;
+    if (decision.shouldExit) {
+      shutdown();
+      return;
+    }
+
+    showTransientFooterMessage('Ctrl+C again to exit', EXIT_CONFIRMATION_MS);
+  }, [showTransientFooterMessage, shutdown]);
 
   const toggleFavorite = useCallback(
     (station: Station | null) => {
@@ -998,7 +1143,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       } else {
         setMessage(favoriteMessage);
       }
-      if (!wasFavorite) {
+      if (!wasFavorite && settingsRef.current.shareDirectoryVotes) {
         // Best-effort upvote back to the directory; never blocks favoriting.
         void providers.vote(station);
       }
@@ -1018,8 +1163,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       return;
     }
 
-    openExternal(station.homepage);
-    setMessage(`Opening homepage: ${station.name}`);
+    setMessage(
+      openExternal(station.homepage)
+        ? `Opening homepage: ${station.name}`
+        : 'That station homepage is not a valid HTTP(S) URL.'
+    );
   }, []);
 
   const copyStationUrl = useCallback(
@@ -1063,9 +1211,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const setVolume = useCallback(
     (volume: number) => {
       const clamped = clampVolume(volume);
+      const requestId = volumeRequestRef.current + 1;
+      volumeRequestRef.current = requestId;
       void player.setVolume(clamped).then(result => {
-        if (result.ok) {
-          updateSettings({volume: clamped});
+        if (result.ok && volumeRequestRef.current === requestId) {
+          updateSettings({volume: player.getState().volume});
         }
         showControlResult(result);
       });
@@ -1075,9 +1225,16 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const adjustVolume = useCallback(
     (delta: number) => {
-      setVolume((player.getState().volume || library.settings.volume) + delta);
+      const requestId = volumeRequestRef.current + 1;
+      volumeRequestRef.current = requestId;
+      void player.adjustVolume(delta).then(result => {
+        if (result.ok && volumeRequestRef.current === requestId) {
+          updateSettings({volume: player.getState().volume});
+        }
+        showControlResult(result);
+      });
     },
-    [library.settings.volume, player, setVolume]
+    [player, showControlResult, updateSettings]
   );
 
   const toggleMute = useCallback(() => {
@@ -1124,6 +1281,21 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     const enableNearbyLocation = !settingsRef.current.enableNearbyLocation;
     updateSettings({enableNearbyLocation});
     setMessage(`Nearby location lookup ${enableNearbyLocation ? 'enabled' : 'disabled'}.`);
+    if (enableNearbyLocation && screenRef.current === 'nearby') {
+      setTimeout(() => void loadNearby(), 0);
+    } else if (!enableNearbyLocation && screenRef.current === 'nearby') {
+      const current = stationContextsRef.current.nearby;
+      setStationContextFor('nearby', {
+        ...current,
+        subtitle: 'Location lookup off · showing the last loaded results'
+      });
+    }
+  }, [loadNearby, setStationContextFor, updateSettings]);
+
+  const toggleDirectoryVoting = useCallback(() => {
+    const shareDirectoryVotes = !settingsRef.current.shareDirectoryVotes;
+    updateSettings({shareDirectoryVotes});
+    setMessage(`Radio Browser favorite votes ${shareDirectoryVotes ? 'enabled' : 'disabled'}.`);
   }, [updateSettings]);
 
   const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
@@ -1244,8 +1416,11 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [updateSettings]);
 
   const toggleSetting = useCallback(
-    (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion') => {
-      const next = !settingsRef.current[key];
+    (key: BooleanSetting) => {
+      const current = key === 'mouseSupport'
+        ? settingsRef.current.mouseSupport !== false
+        : Boolean(settingsRef.current[key]);
+      const next = !current;
       updateSettings({[key]: next});
       setMessage(`${settingToggleLabel[key]} ${next ? 'on' : 'off'}.`);
     },
@@ -1431,6 +1606,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     capturingTransportAction,
     commandMode,
     commandText,
+    confirmCtrlCExit,
     currentItemCount,
     cycleDisplayColor,
     cycleAudioOutput,
@@ -1487,6 +1663,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     togglePause,
     toggleSetting,
     toggleNearbyLocation,
+    toggleDirectoryVoting,
     toggleRadioGarden,
     toggleSkipBrokenStreams,
     updateFromSettings
@@ -1496,19 +1673,14 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     return itemCountsRef.current[currentScreen] ?? 0;
   }
 
-  const hasTopTabs = !layout.compact;
-  const globalFooter =
-    playback.backend === 'ffplay'
-      ? '←/→ tabs · F7/F9 or ,/. station · ffplay fallback: limited controls · t/v display · ? help · q quit'
-      : playback.backend === 'airplay'
-        ? '←/→ tabs · F7/F9 or ,/. station · AirPlay: +/- volume, m mute · t/v display · ? help · q quit'
-      : '←/→ tabs · F7/F9 or ,/. station · F8 pause · t/v display · +/- volume · ? help · q quit';
-  const playbackFooter = playbackFooterText({
-    station: playingStation,
-    playback,
+  const hasTopTabs = layout.mode === 'full';
+  const globalFooter = '←/→ tabs · F7/F9 or ,/. station · t/v display · ? help · q quit';
+  const playbackFooter = screen === 'now-playing' ? null : playbackFooterText({
+    station: footerStation,
+    playback: footerPlayback,
     metadata: nowPlaying,
     queue: playbackQueueRef.current,
-    favorite: store.isFavorite(playingStation),
+    favorite: store.isFavorite(footerStation),
     sleepLabel,
     width: frameWidth,
     spinnerFrame
@@ -1523,18 +1695,47 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     playbackBackend: playback.backend,
     screen
   });
+  const pageFooterOwnsCompactRow = Boolean(
+    commandMode ||
+    capturingTransportAction ||
+    editingCountryFilter ||
+    (screen === 'search' && editingSearch) ||
+    screen === 'airplay-code'
+  );
+  const hasActiveMicroPlayback = Boolean(
+    footerStation && (footerPlayback.state === 'playing' || footerPlayback.state === 'paused')
+  );
+  const compactFooter = footerMessage ?? message ?? (pageFooterOwnsCompactRow ? pageFooter : playbackFooter ?? pageFooter);
+  const microFooter = footerMessage ?? message ?? (
+    pageFooterOwnsCompactRow
+      ? pageFooter
+      : footerPlayback.state === 'loading' && playbackFooter
+        ? playbackFooter
+        : hasActiveMicroPlayback
+          ? microPlaybackControlsText(playback.backend)
+          : pageFooter
+  );
+  const compactGlobalFooter = `←/→ tabs · ? help · q quit · v${installedVersion}`;
+  const fullStatusRows = fullStatusFooterRows(screen, message, footerMessage, playbackFooter);
 
   return (
     <DisplayContext.Provider value={displayMode}>
-    <Box flexDirection="column" paddingX={1} height={layout.rows} width={layout.columns} overflow="hidden" backgroundColor={displayMode.app}>
+    <Box
+      flexDirection="column"
+      paddingX={layout.horizontalPadding}
+      height={layout.rows}
+      width={layout.columns}
+      overflow="hidden"
+      backgroundColor={displayMode.app}
+    >
       {hasTopTabs ? (
-        <Box height={3} marginBottom={1} flexShrink={0} backgroundColor={displayMode.app}>
+        <Box height={3} flexShrink={0} backgroundColor={displayMode.app}>
           <TopTabs
             tabs={topTabs}
             active={activeTabForScreen(screen)}
             theme={theme}
             width={frameWidth}
-            rightLabel={`${playbackBackendLabel(playback.backend)} · ${playback.state}`}
+            backendLabel={playbackBackendLabel(playback.backend)}
           />
         </Box>
       ) : null}
@@ -1558,8 +1759,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           loadingCountries={loadingCountries}
           loadingStations={loadingStations}
           nowPlaying={nowPlaying}
-          playback={playback}
-          playingStation={playingStation}
+          playback={footerPlayback}
+          playingStation={footerStation}
           providerHealth={providerHealth}
           pulse={pulse}
           searchQuery={searchQuery}
@@ -1569,27 +1770,36 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           sleepLabel={sleepLabel}
           stationContext={stationContext}
           exploreCursor={exploreCursor}
-          stationFavorite={store.isFavorite(playingStation)}
-          stationTime={stationApproximateTime(playingStation)}
+          stationFavorite={store.isFavorite(footerStation)}
+          stationTime={stationApproximateTime(footerStation)}
           storePath={store.filePath}
           theme={theme}
           updateCheck={library.updateCheck}
         />
-        <Box height={1}>
-          {message ? <Text color={themeAccent(theme)}>{truncate(message, frameWidth)}</Text> : null}
-        </Box>
       </Box>
       <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.app}>
-        <Text color={themeAccent(theme)}>{footerMessage ? truncate(footerMessage, frameWidth) : ' '}</Text>
-        {playbackFooter ? <Text color={themeAccent(theme)}>{playbackFooter}</Text> : null}
-        <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
-          {truncate(pageFooter, frameWidth)}
-        </Text>
-        <Box>
-          <Text color={textDim}>{truncate(globalFooter, Math.max(1, frameWidth - installedVersion.length - 3))}</Text>
-          <Box flexGrow={1} />
-          <Text color={textDim}>v{installedVersion}</Text>
-        </Box>
+        {layout.mode === 'full' ? (
+          <>
+            {fullStatusRows.map(statusRow => (
+              <Text key={statusRow.key} color={themeAccent(theme)}>{truncate(statusRow.text, frameWidth)}</Text>
+            ))}
+            <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
+              {truncate(pageFooter, frameWidth)}
+            </Text>
+            <Box>
+              <Text color={textDim}>{truncate(globalFooter, Math.max(1, frameWidth - installedVersion.length - 3))}</Text>
+              <Box flexGrow={1} />
+              <Text color={textDim}>v{installedVersion}</Text>
+            </Box>
+          </>
+        ) : (
+          <>
+            <Text color={commandMode || capturingTransportAction || footerMessage || message ? themeAccent(theme) : textMuted}>
+              {truncate(layout.mode === 'micro' ? microFooter : compactFooter, frameWidth)}
+            </Text>
+            {layout.footerRows > 1 ? <Text color={textDim}>{truncate(compactGlobalFooter, frameWidth)}</Text> : null}
+          </>
+        )}
       </Box>
     </Box>
     </DisplayContext.Provider>
@@ -1741,4 +1951,17 @@ function audioOutputSwitchLabel(output: AppSettings['preferredBackend'], backend
 
 function librarySubtitle(library: LibraryState): string {
   return `${library.favorites.length} favorites · ${library.recent.length} recent · ${library.imported.length} imported · favorites first`;
+}
+
+function mouseVisibleRows(screen: Screen, layout: TerminalLayout): number {
+  if (screen === 'help') return Math.max(3, layout.contentRows - 4);
+  if (layout.compact) return Math.max(1, layout.contentRows - 3);
+
+  if (screen === 'countries') return layout.countryRows;
+  if (screen === 'map') return layout.mapCountryRows;
+  if (screen === 'search') return Math.max(1, layout.contentRows - 8);
+  if (screen === 'settings') return Math.max(5, layout.contentRows - 10);
+  if (screen === 'airplay-settings') return Math.max(1, layout.contentRows - 9);
+  if (['stations', 'nearby', 'explore', 'library'].includes(screen)) return layout.stationRows;
+  return layout.contentRows;
 }

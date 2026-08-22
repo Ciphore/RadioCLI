@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-22
+
+### Added
+
+- Added compact and micro layouts that keep every screen navigable in small
+  terminal windows, including responsive Now Playing visualizers and settings.
+- Added complete library backup and restore from Settings or the `:export` and
+  `:import` commands, with validation and an automatic safety copy before an
+  existing library is replaced.
+- Expanded the receiver collection to 60 styles, including Sumi Ocean, Liftoff,
+  Planetarium, Skyline, Golden Gate, Alpine, and other scenic displays.
+
+### Changed
+
+- Anchored the gapless square-cell listening activity grid to January, made
+  Ultracode the default receiver, and grouped the 60 retained styles by visual
+  family. Retired TV Static, Sunspot, Plasma, Metaballs, and Moonlit Tide with
+  safe preference migration; rebuilt Fire and Stormfront; and replaced Sumi
+  Mountains with the layered blue Sumi Ocean.
+- Reorganized Settings into labeled, paginated sections and tightened the full
+  layout so the Now Playing receiver and footer use the available space more
+  consistently.
+- Reworked mpv communication around one reusable IPC connection, keeping rapid
+  volume changes responsive while preserving the last confirmed player state
+  when a command fails.
+
+### Fixed
+
+- Restored mouse and trackpad wheel navigation for overflowing menus and lists
+  while keeping mouse reporting screen-aware so native terminal scrollback stays
+  available elsewhere. Added a Settings opt-out and legacy X10 mouse fallback.
+- Protected library and cache writes from concurrent RadioCLI processes, and
+  recovered unfinished listening sessions from their last saved heartbeat.
+- Made Radio Browser searches and cached station lists more resilient to slow,
+  stale, or partially unavailable directory mirrors.
+- Added a second-press confirmation for `q` and `Ctrl+C` so an accidental key
+  press does not stop playback and exit.
+
+### Security
+
+- Sanitized terminal control and bidirectional text sequences from external
+  station data, and tightened permissions on locally stored library files.
+
 ## [0.2.0] - 2026-07-08
 
 ### Added
@@ -221,6 +264,7 @@ Initial public release.
 [0.1.8]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.8
 [0.1.9]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.9
 [0.2.0]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.0
+[0.2.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.1
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2

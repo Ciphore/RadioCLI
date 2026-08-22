@@ -4,7 +4,7 @@ import type {AirPlayDevice, AppSettings, PlaybackDiagnostics, PlaybackState, The
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
-import {settingsItems} from '../screen-items.js';
+import {settingsItems, settingsSectionFor} from '../screen-items.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {playbackBackendCapabilities} from '../../player/backend-install.js';
 import {airPlayReceiverSettingValue} from '../airplay-settings.js';
@@ -44,87 +44,110 @@ export function SettingsScreen({
 }: SettingsScreenProps): React.ReactElement {
   const accent = themeAccent(theme);
   const lineWidth = Math.max(32, width - 4);
-  const health = Object.entries(providerHealth);
   const menuWindow = settingsMenuWindow(selected, height);
+  const selectedItem = settingsItems[selected];
+  const activeSection = settingsSectionFor(selectedItem);
+  const detail = settingDetail({
+    item: selectedItem,
+    appVersion,
+    updateCheck,
+    storePath,
+    playback,
+    providerHealth,
+    diagnostics,
+    lineWidth
+  });
+  const valueGap = 3;
+  const labelWidth = Math.min(34, Math.max(20, lineWidth - valueGap - 24));
+  const valueWidth = Math.max(12, Math.min(34, lineWidth - labelWidth - valueGap - 2));
 
   return (
     <Box flexDirection="column">
       <ScreenHeader
         title="Settings"
-        subtitle="Enter changes the highlighted setting · shortcuts in the footer"
+        subtitle={activeSection}
         width={width}
         theme={theme}
       />
       <Box marginTop={1} flexDirection="column">
         <Menu
           items={menuWindow.items}
-          selected={selected - menuWindow.start}
+          selected={menuWindow.selectedOffset}
           keyFor={({item}) => item}
           render={(item, _index, active) => {
             const label = settingLabel(item.item, updateCheck);
             const value = settingValue(item.item, settings, diagnostics, backends, airPlayDevices, updateCheck);
             return (
-              <Box>
-                <Pointer active={active} />
-                <Text color={active ? accent : undefined} bold={active}>
-                  {label}
-                </Text>
-                {value ? (
-                  <>
-                    <Text color={textMuted}> · </Text>
-                    <Text color={accent}>{value}</Text>
-                  </>
+              <Box flexDirection="column">
+                {item.showSection ? (
+                  <Text color={textMuted} bold>{item.section}</Text>
                 ) : null}
+                <Box width={lineWidth}>
+                  <Pointer active={active} />
+                  <Box width={labelWidth}>
+                    <Text color={active ? accent : undefined} bold={active}>
+                      {truncate(label, labelWidth)}
+                    </Text>
+                  </Box>
+                  <Box width={valueGap} />
+                  <Box width={valueWidth}>
+                    <Text color={value ? accent : textMuted}>{truncate(value ?? '', valueWidth)}</Text>
+                  </Box>
+                </Box>
               </Box>
             );
           }}
         />
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text color={textMuted} bold>
-          Status
-        </Text>
-        <Text color={textMuted}>
-          Output: <Text color={accent}>{audioOutputLabel(playback.backend)}</Text> / {playback.state} ·{' '}
-          Selected: <Text color={accent}>{audioOutputLabel(settings.preferredBackend)}</Text> ·{' '}
-          {diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`} · tune timeout {settings.tuneTimeoutSeconds}s
-        </Text>
-        <Text color={textMuted}>
-          Provider health: {health.length ? health.map(([provider, status]) => `${provider} ${status}`).join(' · ') : 'not checked yet'}
-        </Text>
-        <Text color={textMuted}>
-          Version: <Text color={accent}>v{appVersion}</Text> · Update: {updateStatusText(updateCheck)}
-        </Text>
-        <Text color={textMuted}>Active stream: {truncate(diagnostics.streamUrl ?? 'none', lineWidth - 15)}</Text>
-        <Text color={textMuted}>Library: {truncate(storePath, lineWidth - 9)}</Text>
+        <Text color={textMuted} bold>Selected</Text>
+        <Text color={textMuted}>{truncate(detail, lineWidth)}</Text>
       </Box>
     </Box>
   );
 }
 
-function settingsMenuWindow(selected: number, height: number | undefined): {start: number; items: Array<{item: string}>} {
-  if (!height) {
-    return {start: 0, items: settingsItems.map(item => ({item}))};
-  }
+type SettingsMenuEntry = {item: string; section: string; showSection: boolean; index: number};
 
-  const reservedRows = 10;
-  const maxRows = Math.max(5, height - reservedRows);
-  if (settingsItems.length <= maxRows) {
-    return {start: 0, items: settingsItems.map(item => ({item}))};
-  }
-
+function settingsMenuWindow(selected: number, height: number | undefined): {items: SettingsMenuEntry[]; selectedOffset: number} {
+  const reservedRows = 6;
+  const maxRows = height ? Math.max(5, height - reservedRows) : Number.POSITIVE_INFINITY;
   const clampedSelected = Math.min(Math.max(selected, 0), settingsItems.length - 1);
-  const start = Math.min(
-    Math.floor(clampedSelected / maxRows) * maxRows,
-    Math.max(0, settingsItems.length - maxRows)
-  );
+  const pages: SettingsMenuEntry[][] = [];
+  let page: SettingsMenuEntry[] = [];
+  let pageRows = 0;
+  let previousSection = '';
+
+  settingsItems.forEach((item, index) => {
+    const section = settingsSectionFor(item);
+    let showSection = section !== previousSection;
+    let rowCost = 1 + (showSection ? 1 : 0);
+    if (page.length > 0 && pageRows + rowCost > maxRows) {
+      pages.push(page);
+      page = [];
+      pageRows = 0;
+      previousSection = '';
+      showSection = true;
+      rowCost = 2;
+    }
+
+    page.push({item, section, showSection, index});
+    pageRows += rowCost;
+    previousSection = section;
+  });
+
+  if (page.length > 0) {
+    pages.push(page);
+  }
+
+  const selectedPage = pages.find(candidate => candidate.some(entry => entry.index === clampedSelected)) ?? pages[0] ?? [];
   return {
-    start,
-    items: settingsItems.slice(start, start + maxRows).map(item => ({item}))
+    items: selectedPage,
+    selectedOffset: Math.max(0, selectedPage.findIndex(entry => entry.index === clampedSelected))
   };
 }
 
-function settingValue(
+export function settingValue(
   item: string,
   settings: AppSettings,
   diagnostics: PlaybackDiagnostics,
@@ -141,12 +164,14 @@ function settingValue(
       return settings.enableRadioGarden ? 'on' : 'off';
     case 'Toggle nearby location lookup':
       return settings.enableNearbyLocation ? 'on' : 'off';
+    case 'Share favorite votes with Radio Browser':
+      return settings.shareDirectoryVotes ? 'on' : 'off';
     case 'Audio output':
       return audioOutputSettingValue(settings, diagnostics, backends);
     case 'AirPlay receiver':
       return airPlayReceiverSettingValue(settings, airPlayDevices, backends);
     case 'Mute or unmute':
-      if (diagnostics.backend === 'ffplay' && !playbackBackendCapabilities(diagnostics.backend).supportsMute) {
+      if (!playbackBackendCapabilities(diagnostics.backend).supportsMute) {
         return 'requires mpv';
       }
       return diagnostics.muted ? 'muted' : `vol ${diagnostics.volume}`;
@@ -160,19 +185,69 @@ function settingValue(
       return settings.asciiMode ? 'on' : 'off';
     case 'Reduce motion':
       return settings.reduceMotion ? 'on' : 'off';
+    case 'Mouse and trackpad scrolling':
+      return settings.mouseSupport === false ? 'off' : 'auto';
     case 'Check for updates':
       return updateStatusText(updateCheck);
     case 'Reset learned media keys':
       return `prev ${settings.mediaKeys.previous.length} · play ${settings.mediaKeys.playPause.length} · next ${settings.mediaKeys.next.length}`;
+    case 'Export preferences and library':
+      return 'JSON backup';
+    case 'Import preferences and library':
+      return 'restore JSON backup';
     default:
       return undefined;
   }
 }
 
-function settingLabel(item: string, updateCheck: UpdateCheckState | undefined): string {
+export function settingLabel(item: string, updateCheck: UpdateCheckState | undefined): string {
   if (item === 'Check for updates' && updateCheck?.updateAvailable) {
     return 'Install update';
   }
 
-  return item;
+  return settingDisplayLabels[item] ?? item;
+}
+
+const settingDisplayLabels: Record<string, string> = {
+  'Cycle display color': 'Display color',
+  'Cycle receiver style': 'Receiver style',
+  'Toggle nearby location lookup': 'Nearby location',
+  'Toggle Radio Garden experimental adapter': 'Radio Garden adapter',
+  'Toggle skip broken streams': 'Skip broken streams'
+};
+
+function settingDetail(input: {
+  item: string | undefined;
+  appVersion: string;
+  updateCheck?: UpdateCheckState;
+  storePath: string;
+  playback: PlaybackState;
+  providerHealth: Record<string, string>;
+  diagnostics: PlaybackDiagnostics;
+  lineWidth: number;
+}): string {
+  const {item, appVersion, updateCheck, storePath, playback, providerHealth, diagnostics, lineWidth} = input;
+  if (item === 'Audio output') {
+    return `Active: ${audioOutputLabel(playback.backend)} · ${playback.state} · ${diagnostics.muted ? 'muted' : `volume ${diagnostics.volume}`}`;
+  }
+  if (item === 'Refresh provider health') {
+    const health = Object.entries(providerHealth);
+    return health.length ? health.map(([provider, status]) => `${provider}: ${status}`).join(' · ') : 'Press Enter to check station providers.';
+  }
+  if (item === 'Check for updates') {
+    return `RadioCLI v${appVersion} · ${updateStatusText(updateCheck)}`;
+  }
+  if (item === 'Export preferences and library' || item === 'Import preferences and library') {
+    return `Library file: ${truncate(storePath, Math.max(8, lineWidth - 14))}`;
+  }
+  if (item === 'Share favorite votes with Radio Browser') {
+    return 'When enabled, favoriting also sends a public directory vote.';
+  }
+  if (item === 'Toggle nearby location lookup') {
+    return 'Uses approximate IP location only when you open Nearby.';
+  }
+  if (item === 'Reduce motion') {
+    return 'Freezes animated receiver displays for calmer, lower-power rendering.';
+  }
+  return 'Press Enter to change this setting.';
 }

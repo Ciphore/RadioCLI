@@ -51,7 +51,8 @@ checks.
 
 - Keep public provider adapters isolated.
 - Treat station streams as unreliable.
-- Never make location lookup implicit.
+- Keep location lookup limited to opening Nearby, clearly documented, and easy
+  to disable before the first request.
 - Prefer clear terminal text over decorative filler.
 - Keep command-line and TUI behavior aligned.
 - Add tests for parsing, storage, layout, or provider transformations when the

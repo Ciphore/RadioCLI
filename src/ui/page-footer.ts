@@ -1,5 +1,6 @@
 import type {Screen} from '../types.js';
 import {mediaActionLabel, type MediaTransportAction} from './app-state.js';
+import {playbackBackendCapabilities} from '../player/backend-install.js';
 
 type PageFooterInput = {
   capturingTransportAction: MediaTransportAction | null;
@@ -11,6 +12,26 @@ type PageFooterInput = {
   playbackBackend?: string;
   screen: Screen;
 };
+
+export function fullFooterRowCount(screen: Screen): 3 | 4 {
+  return screen === 'now-playing' ? 3 : 4;
+}
+
+export function fullStatusFooterRows(
+  screen: Screen,
+  message: string | null,
+  footerMessage: string | null,
+  playbackStatus: string | null
+): Array<{key: 'notice' | 'playback'; text: string}> {
+  if (screen === 'now-playing') {
+    return [{key: 'playback', text: footerMessage ?? message ?? ' '}];
+  }
+
+  return [
+    {key: 'notice', text: message ?? ' '},
+    {key: 'playback', text: footerMessage ?? playbackStatus ?? ' '}
+  ];
+}
 
 export function pageFooterText({
   capturingTransportAction,
@@ -39,7 +60,7 @@ export function pageFooterText({
   }
 
   if (screen === 'search') {
-    return '/ edit query · ↑/↓ or n/p move · Enter tune · f favorite · b home';
+    return '/ edit query · ↑/↓ or n/p move · Enter tune · f favorite · b Overview';
   }
 
   if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
@@ -47,39 +68,40 @@ export function pageFooterText({
   }
 
   if (screen === 'countries') {
-    return '/ filter · ↑/↓ move · Enter open stations · w map · b home';
+    return '/ filter · ↑/↓ move · Enter open stations · w map · b Overview';
   }
 
   if (screen === 'map') {
-    return '/ filter · ↑/↓ move · Enter open country · w list · b home';
+    return '/ filter · ↑/↓ move · Enter open country · w list · b Overview';
   }
 
   if (screen === 'explore') {
-    return 'Click map · WASD fine move · Shift+WASD jump · ↑/↓ station · Enter tune · f favorite · b home';
+    return 'Click map · WASD fine move · Shift+WASD jump · ↑/↓ station · Enter tune · f favorite · b Overview';
   }
 
   if (screen === 'nearby') {
-    return '↑/↓ or n/p move · Enter tune · f favorite · l location · [/] page · b home';
+    return '↑/↓ or n/p move · Enter tune · f favorite · l location · [/] page · b Overview';
   }
 
   if (screen === 'stations' || screen === 'library') {
-    return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b home';
+    return '↑/↓ or n/p move · Enter tune · f favorite · [/] page · b Overview';
   }
 
   if (screen === 'now-playing') {
-    if (playbackBackend === 'ffplay') {
-      return 'ffplay fallback: install mpv for pause/mute/media keys · f favorite · s sleep · d diagnostics · b home';
+    const capabilities = playbackBackendCapabilities(playbackBackend);
+    if (playbackBackend === 'ffplay' || playbackBackend === 'vlc') {
+      return `${capabilities.label}: install mpv for pause/mute/media keys · f favorite · s sleep · d diagnostics · b Overview`;
     }
 
     if (playbackBackend === 'airplay') {
-      return 'AirPlay: +/- volume · m mute · f favorite · s sleep · d diagnostics · b home';
+      return 'AirPlay: +/- volume · m mute · f favorite · s sleep · d diagnostics · b Overview';
     }
 
-    return 'space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b home';
+    return 'space/F8 pause · f favorite · m mute · s sleep · d diagnostics · b Overview';
   }
 
   if (screen === 'settings') {
-    return 'Enter change selected · g Radio Garden · l location · x skip · o output · a AirPlay · r health · b home';
+    return 'Enter change selected · g Radio Garden · l location · x skip · o output · a AirPlay · r health · b Overview';
   }
 
   if (screen === 'airplay-settings') {
@@ -93,12 +115,24 @@ export function pageFooterText({
   }
 
   if (screen === 'stats') {
-    return 'b home';
+    return 'b Overview';
   }
 
   if (screen === 'help') {
-    return '? or b close · : command';
+    return '↑/↓ scroll · [/] page · ? or b close · : command';
   }
 
   return ': command';
+}
+
+export function microPlaybackControlsText(playbackBackend?: string): string {
+  if (playbackBackend === 'airplay') {
+    return '+/- volume · m mute · ,/. station';
+  }
+
+  if (playbackBackend === 'ffplay' || playbackBackend === 'vlc') {
+    return ',/. station · mpv enables controls';
+  }
+
+  return 'space pause · +/- volume · ,/. station';
 }

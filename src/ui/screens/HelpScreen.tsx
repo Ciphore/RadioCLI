@@ -4,53 +4,55 @@ import type {ThemeName} from '../../types.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {commandHelp, keyHelpSections} from '../help-content.js';
-import {truncate} from '../format.js';
+import {padDisplayEnd, truncate} from '../format.js';
+import {visibleWindow} from '../list-window.js';
 
 type HelpScreenProps = {
   theme: ThemeName;
   width: number;
+  height: number;
+  selected: number;
 };
 
-export function HelpScreen({theme, width}: HelpScreenProps): React.ReactElement {
+type HelpRow = {key: string; heading?: string; keys?: string; description?: string};
+
+export function HelpScreen({theme, width, height, selected}: HelpScreenProps): React.ReactElement {
   const accent = themeAccent(theme);
   const keyColumnWidth = 16;
   const lineWidth = Math.max(28, width - 2);
+  const rows: HelpRow[] = [
+    ...keyHelpSections.flatMap(section => [
+      {key: `section-${section.title}`, heading: section.title},
+      ...section.entries.map(entry => ({key: `${section.title}-${entry.keys}`, ...entry}))
+    ]),
+    {key: 'commands', heading: 'Commands (press : then type)'},
+    ...commandHelp.map(command => ({
+      key: `command-${command.name}`,
+      keys: `:${command.name}${command.args ? ` ${command.args}` : ''}`,
+      description: command.description
+    }))
+  ];
+  const window = visibleWindow(rows, selected, Math.max(3, height - 4));
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={height} overflow="hidden">
       <ScreenHeader
         title="Help"
         subtitle="Keyboard shortcuts and : commands · b or Esc to close"
         width={width}
         theme={theme}
       />
-      <Box marginTop={1} flexDirection="row" gap={4} flexWrap="wrap">
-        {keyHelpSections.map(section => (
-          <Box key={section.title} flexDirection="column" marginBottom={1}>
-            <Text color={accent} bold>
-              {section.title}
-            </Text>
-            {section.entries.map(entry => (
-              <Text key={entry.keys}>
-                <Text color={accent}>{entry.keys.padEnd(keyColumnWidth)}</Text>
-                <Text color={textMuted}>{entry.description}</Text>
-              </Text>
-            ))}
-          </Box>
+      <Box marginTop={1} flexDirection="column">
+        {window.items.map(row => row.heading ? (
+          <Text key={row.key} color={accent} bold>{row.heading}</Text>
+        ) : (
+          <Text key={row.key}>
+            <Text color={accent}>{padDisplayEnd(truncate(row.keys ?? '', keyColumnWidth - 1), keyColumnWidth)}</Text>
+            <Text color={textMuted}>{truncate(row.description ?? '', Math.max(1, lineWidth - keyColumnWidth))}</Text>
+          </Text>
         ))}
       </Box>
-      <Box marginTop={1} flexDirection="column">
-        <Text color={accent} bold>
-          Commands (press : then type)
-        </Text>
-        <Box flexDirection="row" flexWrap="wrap" columnGap={3}>
-          {commandHelp.map(command => (
-            <Text key={command.name} color={textMuted}>
-              {truncate(`:${command.name}${command.args ? ` ${command.args}` : ''}`, lineWidth)}
-            </Text>
-          ))}
-        </Box>
-      </Box>
+      <Text color={textMuted}>Showing {window.start + 1}-{window.end} of {rows.length} · ↑/↓ scroll</Text>
     </Box>
   );
 }

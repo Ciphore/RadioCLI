@@ -3,6 +3,28 @@ title: Install
 description: Requirements and setup paths for running RadioCLI.
 ---
 
+## Choose Your Install
+
+Use npm on macOS, Linux, or Windows when Node.js 22 or newer is already
+installed:
+
+```bash
+npm install -g @ciphore/radiocli
+radiocli doctor
+radiocli
+```
+
+On macOS, Homebrew is the all-in-one option because the formula also installs
+Node.js, `mpv`, and FFmpeg:
+
+```bash
+brew install ciphore/tap/radiocli
+radiocli
+```
+
+Both paths install the same `radiocli` command. The npm package is the universal
+option, but system playback tools such as `mpv` must be installed separately.
+
 ## Requirements
 
 RadioCLI needs:

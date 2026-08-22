@@ -1,15 +1,16 @@
 ---
 title: Privacy And Security
-description: Local-first data behavior, opt-in location lookup, and vulnerability reporting.
+description: Local-first data behavior, approximate location lookup, and vulnerability reporting.
 ---
 
 RadioCLI does not require secrets or accounts.
 
 ## Privacy Notes
 
-- Nearby station discovery is off by default.
-- Location lookup uses approximate IP-based location from `ipapi.co` only when
-  enabled.
+- Nearby location is enabled by default for new libraries, but no location
+  request is made until you open Nearby.
+- Location lookup uses approximate IP-based location from `ipapi.co`. Disable it
+  with `l`, Settings, or `:location off`.
 - Explore uses only the cursor coordinate you move in the terminal.
 - Recents, favorites, settings, imports, listening activity, and provider cache
   data are stored locally on your machine.
@@ -17,14 +18,18 @@ RadioCLI does not require secrets or accounts.
   to `mpv`, `ffplay`, or the experimental macOS AirPlay worker.
 - AirPlay discovery uses Bonjour on your local network. AirPlay streaming runs
   through a local worker and the bundled sender bridge.
+- Favoriting a Radio Browser station sends a best-effort vote to that public
+  directory by default. Disable **Share favorite votes with Radio Browser** in
+  Settings to keep favorites local-only.
 
 ## Location Lookup
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
-RadioCLI requires explicit opt-in through Settings or `:location on`. When it is
-enabled, RadioCLI requests an approximate location from `ipapi.co` and uses the
-returned city, region, country, latitude, and longitude to sort the local
-geotagged station atlas.
+For new libraries the feature is on, and opening Nearby requests an approximate
+location from `ipapi.co`. RadioCLI uses the returned city, region, country,
+latitude, and longitude to sort the local geotagged station atlas. Turn it off
+before opening Nearby with Settings or `:location off` if you do not want that
+request; the choice is stored locally.
 
 ## Reporting Security Issues
 

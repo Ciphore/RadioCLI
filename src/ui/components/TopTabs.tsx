@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {Screen, ThemeName} from '../../types.js';
 import {panelBorder, textMuted, themeAccent} from '../theme.js';
 import {useDisplay} from '../display-context.js';
-import {truncate} from '../format.js';
+import {displayWidth, truncate} from '../format.js';
 
 export type TopTab = {
   screen: Screen;
@@ -15,26 +15,27 @@ type TopTabsProps = {
   active: Screen;
   theme: ThemeName;
   width: number;
-  rightLabel: string;
+  backendLabel: string;
 };
 
-export function TopTabs({tabs, active, theme, width, rightLabel}: TopTabsProps): React.ReactElement {
+export function TopTabs({tabs, active, theme, width, backendLabel}: TopTabsProps): React.ReactElement {
   const accent = themeAccent(theme);
   const {app: background, ascii} = useDisplay();
   const box = ascii
     ? {tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|'}
     : {tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│'};
   const brand = 'RADIOCLI';
-  const rightText = ` ${rightLabel} `;
+  const rightText = ` ${backendLabel} `;
   const bodyWidth = Math.max(1, width - 4);
   const titlePrefixWidth = 2 + brand.length + 1;
   const titleRuleWidth = Math.max(0, width - titlePrefixWidth - 1);
   const allTabsWidth = tabsWidth(tabs.map(tab => ({type: 'tab' as const, tab})));
-  const canShowRight = bodyWidth - allTabsWidth - rightText.length >= 1;
-  const tabsAvailableWidth = Math.max(1, bodyWidth - (canShowRight ? rightText.length + 1 : 0));
+  const rightWidth = displayWidth(rightText);
+  const canShowRight = bodyWidth - allTabsWidth - rightWidth >= 1;
+  const tabsAvailableWidth = Math.max(1, bodyWidth - (canShowRight ? rightWidth + 1 : 0));
   const visibleTabs = fitTabs(tabs, active, tabsAvailableWidth);
   const visibleTabsWidth = tabsWidth(visibleTabs);
-  const tabPaddingWidth = Math.max(0, bodyWidth - visibleTabsWidth - (canShowRight ? rightText.length : 0));
+  const tabPaddingWidth = Math.max(0, bodyWidth - visibleTabsWidth - (canShowRight ? rightWidth : 0));
 
   return (
     <Box flexDirection="column" backgroundColor={background} width={width}>
@@ -139,7 +140,7 @@ function segmentsForRange(tabs: readonly TopTab[], firstIndex: number, lastIndex
 
 function tabsWidth(segments: readonly TabSegment[]): number {
   return segments.reduce((total, segment, index) => {
-    const labelWidth = segment.type === 'overflow' ? 1 : segment.tab.label.length;
+    const labelWidth = segment.type === 'overflow' ? 1 : displayWidth(segment.tab.label);
     return total + labelWidth + (index > 0 ? 3 : 0);
   }, 0);
 }

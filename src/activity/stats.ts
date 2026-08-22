@@ -75,7 +75,13 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
 
 function sessionSeconds(session: ListeningSession, now = new Date()): number {
   const started = Date.parse(session.startedAt);
-  const ended = session.endedAt ? Date.parse(session.endedAt) : now.getTime();
+  const ended = session.endedAt
+    ? Date.parse(session.endedAt)
+    : session.lastActiveAt
+      ? Date.parse(session.lastActiveAt)
+      : Number.isFinite(started)
+        ? started + Math.max(0, session.listenedSeconds) * 1000
+        : now.getTime();
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) {
     return Math.min(maxContinuousListeningSeconds, Math.max(0, Math.round(session.listenedSeconds)));
   }
@@ -105,7 +111,13 @@ function splitSessionByDay(
     return [];
   }
 
-  const recordedEnd = session.endedAt ? Date.parse(session.endedAt) : now.getTime();
+  const recordedEnd = session.endedAt
+    ? Date.parse(session.endedAt)
+    : session.lastActiveAt
+      ? Date.parse(session.lastActiveAt)
+      : Number.isFinite(started)
+        ? started + seconds * 1000
+        : now.getTime();
   const rawEnd = Number.isFinite(recordedEnd) && recordedEnd > started
     ? recordedEnd
     : started + seconds * 1000;

@@ -4,7 +4,7 @@ import type {ThemeName} from '../../types.js';
 import {textDim, textMuted, themeAccent} from '../theme.js';
 import {useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
-import {truncate} from '../format.js';
+import {displayWidth, truncate} from '../format.js';
 
 type ScreenHeaderProps = {
   title: string;
@@ -23,7 +23,7 @@ export function ScreenHeader({title, width, theme, subtitle, right}: ScreenHeade
   const a = (value: string): string => (ascii ? toAsciiSafe(value) : value);
   const safeTitle = truncate(title, Math.max(4, width - 4));
   const rightText = right ? ` ${right}` : '';
-  const ruleWidth = Math.max(1, width - safeTitle.length - rightText.length - 2);
+  const ruleWidth = Math.max(1, width - displayWidth(safeTitle) - displayWidth(rightText) - 2);
   const rule = (ascii ? '-' : '─').repeat(ruleWidth);
 
   return (

@@ -17,13 +17,16 @@ information, or unexpected command execution.
 
 ## Privacy Notes
 
-- Nearby station discovery is opt-in.
-- Location lookup uses approximate IP-based location from `ipapi.co` when
-  enabled.
+- Nearby location is enabled by default for new libraries, but no location
+  request is made until the Nearby screen is opened.
+- Location lookup uses approximate IP-based location from `ipapi.co`; disable it
+  with `l`, Settings, or `:location off`.
 - The app stores recents, favorites, settings, imports, and provider cache data
   locally under the user data directory.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands
   playback to `mpv` or `ffplay`.
+- Favoriting a Radio Browser station sends a best-effort vote to that public
+  directory by default; the Settings screen can disable vote sharing.
 
 ## Supported Versions
 

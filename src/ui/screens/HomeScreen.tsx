@@ -4,25 +4,18 @@ import {Logo} from '../components/Logo.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {homeItems} from '../screen-items.js';
-import type {LibraryState, PlaybackState, ThemeName} from '../../types.js';
-import {playbackBackendLabel} from '../../player/backend-install.js';
+import type {LibraryState, ThemeName} from '../../types.js';
 
 type HomeProps = {
   selected: number;
   theme: ThemeName;
   library: LibraryState;
-  playback: PlaybackState;
 };
 
-export function HomeScreen({selected, theme, library, playback}: HomeProps): React.ReactElement {
+export function HomeScreen({selected, theme, library}: HomeProps): React.ReactElement {
   return (
     <Box flexDirection="column">
       <Logo />
-      <Text>
-        Receiver:{' '}
-        <Text color={themeAccent(theme)}>{playback.state === 'playing' ? playback.message ?? 'playing' : playback.state}</Text>
-        <Text color={textMuted}> · {playbackBackendLabel(playback.backend)}</Text>
-      </Text>
       <Box marginTop={1} flexDirection="column">
         <Menu
           items={homeItems}

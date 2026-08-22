@@ -19,7 +19,7 @@ requirement.
 ## Current Defenses
 
 - Radio Browser mirror fallback
-- durable provider cache with stale fallback
+- sharded, bounded provider cache with per-entry corruption isolation and stale fallback
 - cached geotagged station atlas for Explore and Nearby, with local
   distance-first ranking
 - bounded network calls for provider and location lookups
@@ -33,11 +33,11 @@ requirement.
 - playback-gated receiver animation and zero-signal visualizer frames for inactive
   playback states
 - metadata polling through `mpv`, avoiding a second stream listener
-- opt-in location lookup
+- user-controllable approximate-location lookup, requested only when Nearby opens
 - corrupt store/cache backups
-- atomic local JSON writes
+- locked, atomic local JSON writes with concurrent-process merge protection
 - defensive playlist import
-- compact layout warning for tiny terminals
+- functional compact navigation for tiny terminals
 
 ## Known Limits
 

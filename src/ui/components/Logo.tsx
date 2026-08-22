@@ -16,7 +16,19 @@ function LogoSpectrum(): React.ReactElement {
   );
 }
 
-export function Logo(): React.ReactElement {
+export function Logo({compact = false, width = 80}: {compact?: boolean; width?: number} = {}): React.ReactElement {
+  if (compact) {
+    const spectrumColumns = Math.max(1, width - 10);
+    const colors = logoSpectrumColors.slice(0, Math.min(logoSpectrumColors.length, spectrumColumns));
+    return (
+      <Box width={width} overflow="hidden">
+        <Text bold>RADIOCLI</Text>
+        <Text>  </Text>
+        {colors.map(color => <Text key={color} color={color}>█</Text>)}
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>

@@ -30,6 +30,7 @@ export function StationScreen({
   pageSize,
   width
 }: StationScreenProps): React.ReactElement {
+  const empty = stationEmptyState(title);
   return (
     <Box flexDirection="column">
       <ScreenHeader
@@ -41,8 +42,32 @@ export function StationScreen({
       />
       <Box marginTop={1} flexDirection="column">
         {loading ? <Text color={textMuted}>Loading stations…</Text> : null}
-        {!loading ? <StationList stations={stations} selected={selected} theme={theme} favorites={favorites} pageSize={pageSize} width={width} /> : null}
+        {!loading || stations.length > 0 ? (
+          <StationList
+            stations={stations}
+            selected={selected}
+            theme={theme}
+            favorites={favorites}
+            pageSize={pageSize}
+            width={width}
+            emptyTitle={empty.title}
+            emptyHint={empty.hint}
+          />
+        ) : null}
       </Box>
     </Box>
   );
+}
+
+function stationEmptyState(title: string): {title: string; hint: string} {
+  if (title.toLowerCase().includes('library')) {
+    return {title: 'Your library is empty.', hint: 'Press f on any station to save it here.'};
+  }
+  if (title.toLowerCase().includes('nearby')) {
+    return {title: 'No nearby stations found.', hint: 'Try again later or browse Countries.'};
+  }
+  if (title.toLowerCase().includes('country')) {
+    return {title: 'No stations found for this country.', hint: 'Choose another country or clear active filters.'};
+  }
+  return {title: 'No stations found.', hint: 'Try another view or clear active filters.'};
 }

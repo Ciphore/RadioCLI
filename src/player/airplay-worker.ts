@@ -126,7 +126,7 @@ function handleCommand(command: AirPlayWorkerCommand): void {
 
 function startFfmpeg(streamUrl: string): void {
   const previous = ffmpeg;
-  const child = spawn('ffmpeg', [
+  const child = spawn(start.ffmpegPath, [
     '-hide_banner',
     '-loglevel',
     'error',
@@ -237,7 +237,10 @@ function stop(code: number): void {
   }
   ffmpeg = null;
 
+  const watchdog = setTimeout(() => process.exit(code), 1500);
+  watchdog.unref();
   airtunes.stopAll(() => {
+    clearTimeout(watchdog);
     emit({type: 'stopped'});
     process.exit(code);
   });

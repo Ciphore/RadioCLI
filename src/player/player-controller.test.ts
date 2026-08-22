@@ -414,6 +414,61 @@ describe('PlayerController lifecycle', () => {
     await mpvServer.close();
   });
 
+  it('updates volume immediately and coalesces rapid mpv changes on one IPC connection', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock.mockImplementation((_command, args) => {
+      const ipcPath = mpvIpcPath(args);
+      mpv.current = fakeMpvIpc(ipcPath, {volumeResponseDelayMs: 40});
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv', volume: 70}));
+
+    await controller.play(station(), 'https://streams.example.com/live.mp3');
+    const mpvServer = expectFakeMpv(mpv.current);
+    const first = controller.adjustVolume(5);
+    const second = controller.adjustVolume(5);
+    const third = controller.adjustVolume(5);
+
+    expect(controller.getState().volume).toBe(85);
+    await expect(Promise.all([first, second, third])).resolves.toEqual([
+      {ok: true},
+      {ok: true},
+      {ok: true}
+    ]);
+    expect(mpvServer.volume()).toBe(85);
+    expect(mpvServer.volumeCommands()).toEqual([75, 85]);
+    expect(mpvServer.connectionCount()).toBe(1);
+
+    await controller.stop();
+    await mpvServer.close();
+  });
+
+  it('rolls back an optimistic mpv volume change when the backend rejects it', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock.mockImplementation((_command, args) => {
+      const ipcPath = mpvIpcPath(args);
+      mpv.current = fakeMpvIpc(ipcPath, {volumeError: 'property unavailable'});
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv', volume: 70}));
+
+    await controller.play(station(), 'https://streams.example.com/live.mp3');
+    const mpvServer = expectFakeMpv(mpv.current);
+    const changing = controller.adjustVolume(5);
+
+    expect(controller.getState().volume).toBe(75);
+    await expect(changing).resolves.toEqual({ok: false, message: 'mpv did not acknowledge the volume change.'});
+    expect(controller.getState().volume).toBe(70);
+    expect(mpvServer.volume()).toBe(70);
+
+    await controller.stop();
+    await mpvServer.close();
+  });
+
   it('keeps mpv in loading until audio playback has started', async () => {
     commandExistsMock.mockImplementation(command => command === 'mpv');
     const child = fakeChildProcess();
@@ -496,6 +551,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     volume: 70,
     enableRadioGarden: false,
     enableNearbyLocation: false,
+    shareDirectoryVotes: true,
     preferredBackend: 'auto',
     tuneTimeoutSeconds: 12,
     skipBrokenStreams: true,
@@ -506,9 +562,12 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
 
 type FakeMpvIpc = {
   close: () => Promise<void>;
+  connectionCount: () => number;
   paused: () => boolean;
   setPaused: (paused: boolean) => void;
   setAudioStarted: (started: boolean) => void;
+  volume: () => number;
+  volumeCommands: () => number[];
 };
 
 function expectFakeMpv(mpv: FakeMpvIpc | null): FakeMpvIpc {
@@ -584,15 +643,23 @@ function mpvIpcPath(args: unknown): string {
   return ipcArg.slice('--input-ipc-server='.length);
 }
 
-function fakeMpvIpc(path: string, options: {audioStarted?: boolean} = {}): FakeMpvIpc {
+function fakeMpvIpc(
+  path: string,
+  options: {audioStarted?: boolean; volumeError?: string; volumeResponseDelayMs?: number} = {}
+): FakeMpvIpc {
   if (existsSync(path)) {
     unlinkSync(path);
   }
 
   let paused = false;
   let audioStarted = options.audioStarted ?? true;
+  let volume = 70;
+  let connectionCount = 0;
+  const volumeCommands: number[] = [];
   const server = createServer(socket => {
+    connectionCount += 1;
     let buffer = '';
+    socket.on('error', () => undefined);
     socket.on('data', chunk => {
       buffer += chunk.toString('utf8');
       let newlineIndex = buffer.indexOf('\n');
@@ -607,6 +674,8 @@ function fakeMpvIpc(path: string, options: {audioStarted?: boolean} = {}): FakeM
         const request = JSON.parse(line) as {request_id?: number; command?: unknown[]};
         const command = request.command ?? [];
         let data: unknown = null;
+        let error = 'success';
+        let responseDelayMs = 0;
         if (command[0] === 'get_property' && command[1] === 'path') {
           data = 'https://streams.example.com/live.mp3';
         } else if (command[0] === 'get_property' && command[1] === 'pause') {
@@ -619,9 +688,27 @@ function fakeMpvIpc(path: string, options: {audioStarted?: boolean} = {}): FakeM
           data = audioStarted ? 12 : null;
         } else if (command[0] === 'cycle' && command[1] === 'pause') {
           paused = !paused;
+        } else if (command[0] === 'set_property' && command[1] === 'volume') {
+          const nextVolume = Number(command[2]);
+          volumeCommands.push(nextVolume);
+          responseDelayMs = options.volumeResponseDelayMs ?? 0;
+          if (options.volumeError) {
+            error = options.volumeError;
+          } else {
+            volume = nextVolume;
+          }
         }
 
-        socket.write(`${JSON.stringify({request_id: request.request_id, error: 'success', data})}\n`);
+        const respond = (): void => {
+          if (!socket.destroyed) {
+            socket.write(`${JSON.stringify({request_id: request.request_id, error, data})}\n`, () => undefined);
+          }
+        };
+        if (responseDelayMs > 0) {
+          setTimeout(respond, responseDelayMs);
+        } else {
+          respond();
+        }
       }
     });
   });
@@ -629,13 +716,16 @@ function fakeMpvIpc(path: string, options: {audioStarted?: boolean} = {}): FakeM
 
   return {
     close: () => closeServer(server, path),
+    connectionCount: () => connectionCount,
     paused: () => paused,
     setPaused: next => {
       paused = next;
     },
     setAudioStarted: next => {
       audioStarted = next;
-    }
+    },
+    volume: () => volume,
+    volumeCommands: () => [...volumeCommands]
   };
 }
 
