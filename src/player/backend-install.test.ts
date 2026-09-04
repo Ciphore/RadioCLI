@@ -25,6 +25,7 @@ describe('playback backend install guidance', () => {
       'controls=missing',
       'controls_hint=install mpv for playback and controls',
       'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+      'guided_setup=radiocli setup',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
@@ -37,6 +38,7 @@ describe('playback backend install guidance', () => {
       'controls=missing',
       'controls_hint=install mpv for playback and controls',
       'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+      'guided_setup=radiocli setup',
       'install_mpv=winget install --id shinchiro.mpv -e',
       'optional_ffplay=winget install --id Gyan.FFmpeg -e'
     ]);
@@ -48,6 +50,7 @@ describe('playback backend install guidance', () => {
       'playback_backend=mpv',
       'controls=full',
       'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+      'guided_setup=radiocli setup',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
@@ -68,6 +71,7 @@ describe('playback backend install guidance', () => {
       'controls=airplay-limited',
       'controls_hint=AirPlay supports volume and mute; pause is not supported',
       'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+      'guided_setup=radiocli setup',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);
@@ -87,6 +91,7 @@ describe('playback backend install guidance', () => {
       'controls=limited',
       'controls_hint=install mpv for pause, mute, volume, and media keys',
       'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+      'guided_setup=radiocli setup',
       'install_mpv=brew install mpv',
       'optional_ffplay=brew install ffmpeg'
     ]);

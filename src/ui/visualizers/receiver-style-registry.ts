@@ -30,7 +30,7 @@ export const receiverStyleRegistry = [
   {id: 'rotozoomer', maxRows: 14, minRows: 7},
   {id: 'mesh', maxRows: 14, minRows: 7},
   {id: 'hologram', maxRows: 12, minRows: 7},
-  {id: 'mirror', maxRows: 12, minRows: 7},
+  {id: 'equalizer', maxRows: 12, minRows: 7},
   {id: 'tunnel', maxRows: 14, minRows: 7},
   {id: 'kaleidoscope', maxRows: 14, minRows: 7},
   {id: 'phosphene', maxRows: 14, minRows: 7},
@@ -92,17 +92,13 @@ const retiredReceiverStyleNames = [
   'harmonic-harp', 'neon-transit', 'lantern-drift', 'murmuration', 'koi-shoal',
   'calligraphy', 'aperture-bloom', 'kintsugi', 'sonic-loom', 'river-delta',
   'peacock-plume', 'eclipse-corona', 'cloud-chamber', 'origami-tide', 'tv-static',
-  'sunspot', 'plasma', 'metaballs', 'moonlit-tide', 'motion-blob', 'clifford', 'paris',
+  'sunspot', 'plasma', 'metaballs', 'moonlit-tide', 'motion-blob', 'clifford', 'mirror', 'paris',
   'kyoto', 'sahara'
 ] as const;
 
 const retiredReceiverStyles = new Set<string>(retiredReceiverStyleNames);
 
 export function migrateReceiverStyle(value: unknown): unknown {
-  if (value === 'equalizer') {
-    return 'ultracode';
-  }
-
   if (value === 'sumi-mountains' || value === 'moonlit-tide') {
     return 'sumi-ocean';
   }

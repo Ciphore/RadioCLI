@@ -39,8 +39,11 @@ const brailleBits: Array<[number, number, number]> = [
 const mapCache = new Map<string, string[]>();
 
 export function buildCosmoWorldMap(width: number, height: number, markers: CosmoMapMarker[] = []): CosmoMapRow[] {
-  const mapWidth = Math.max(40, Math.floor(width));
-  const mapHeight = Math.max(10, Math.floor(height));
+  // Layout owns minimum sizing. Keeping the renderer faithful to the requested
+  // viewport prevents clipped rows and mismatched mouse coordinates near
+  // responsive breakpoints.
+  const mapWidth = Math.max(1, Math.floor(width));
+  const mapHeight = Math.max(1, Math.floor(height));
   const rows = buildCosmoMapRows(mapWidth, mapHeight);
   const cells: CosmoMapCell[][] = rows.map(row =>
     Array.from(row, char => ({

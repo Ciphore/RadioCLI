@@ -20,11 +20,17 @@ import {homeItems, settingsItems, settingsSectionFor} from './screen-items.js';
 import {screenTitle} from './screen-meta.js';
 import {keyHelpSections, commandHelp} from './help-content.js';
 import {settingLabel, settingValue} from './screens/SettingsScreen.js';
-import {panelBorder, textDim, textMuted, themeAccent} from './theme.js';
+import {exploreMapLand, mapMarker, panelBorder, textDim, textMuted, themeAccent} from './theme.js';
 import {panelBorderStyle, useDisplay} from './display-context.js';
 import {toAsciiSafe} from './ascii.js';
 import {buildVisualizer, visualizerHeight} from './visualizers/receiver-visualizers.js';
 import {Logo} from './components/Logo.js';
+import {useReceiverPulse} from './receiver-animation.js';
+import type {ExploreCursor} from './app-state.js';
+import {formatExploreCursor} from './app-state.js';
+import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from './cosmo-world-map.js';
+import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adaptive-explore-layout.js';
+import {AdaptiveMarquee} from './components/AdaptiveMarquee.js';
 
 type AdaptiveContentProps = {
   mode: 'compact' | 'micro';
@@ -46,14 +52,15 @@ type AdaptiveContentProps = {
   editingCountryFilter: boolean;
   loadingCountries: boolean;
   loadingStations: boolean;
+  exploreCursor: ExploreCursor;
   library: LibraryState;
   diagnostics: PlaybackDiagnostics;
   backends: string[];
   updateCheck?: UpdateCheckState;
   favoriteKeys: Set<string>;
   stationTitle: string;
+  stationError?: string;
   filterLabel: string;
-  pulse: number;
   sleepLabel: string;
 };
 
@@ -64,6 +71,8 @@ type AdaptiveRow = {
   index?: number;
   heading?: boolean;
   separator?: string;
+  marquee?: boolean;
+  favoriteGlyph?: string;
 };
 
 export function AdaptiveContent(props: AdaptiveContentProps): React.ReactElement {
@@ -90,13 +99,13 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     countryFilter,
     loadingCountries,
     loadingStations,
+    exploreCursor,
     library,
     diagnostics,
     backends,
     updateCheck,
     favoriteKeys,
     stationTitle,
-    pulse,
   } = props;
   const accent = themeAccent(theme);
   const {ascii} = useDisplay();
@@ -124,12 +133,31 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         station={playingStation}
         playback={playback}
         metadata={nowPlaying}
-        pulse={pulse}
         width={width}
         height={height}
         ascii={ascii}
         theme={theme}
         receiverStyle={library.settings.receiverStyle}
+        reduceMotion={Boolean(library.settings.reduceMotion)}
+      />
+    );
+  }
+
+  if (screen === 'explore') {
+    return (
+      <AdaptiveExplore
+        mode={mode}
+        width={width}
+        height={height}
+        theme={theme}
+        stations={stations}
+        selected={selected}
+        favorites={favoriteKeys}
+        cursor={exploreCursor}
+        loading={loadingStations}
+        error={props.stationError}
+        ascii={ascii}
+        reduceMotion={Boolean(library.settings.reduceMotion)}
       />
     );
   }
@@ -158,7 +186,8 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
       loadingCountries,
       loadingStations,
       nearbyEnabled: library.settings.enableNearbyLocation,
-      stationTitle
+      stationTitle,
+      stationError: props.stationError
     });
     return (
       <AdaptiveSearch
@@ -173,6 +202,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         width={width}
         theme={theme}
         ascii={ascii}
+        reduceMotion={Boolean(library.settings.reduceMotion)}
       />
     );
   }
@@ -229,18 +259,174 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     loadingCountries,
     loadingStations,
     nearbyEnabled: library.settings.enableNearbyLocation,
-    stationTitle
+    stationTitle,
+    stationError: props.stationError
   });
 
   return (
     <AdaptiveFrame title={title} status={status} mode={mode} height={height} width={width} theme={theme}>
       {rows.length > 0 ? (
-        <AdaptiveList rows={rows} selected={selected} pageSize={bodyRows} width={width} theme={theme} />
+        <AdaptiveList
+          rows={rows}
+          selected={selected}
+          pageSize={bodyRows}
+          width={width}
+          theme={theme}
+          reduceMotion={Boolean(library.settings.reduceMotion)}
+        />
       ) : (
         <StaticRows rows={empty.slice(0, bodyRows)} width={width} theme={theme} />
       )}
     </AdaptiveFrame>
   );
+}
+
+function AdaptiveExplore({
+  mode,
+  width,
+  height,
+  theme,
+  stations,
+  selected,
+  favorites,
+  cursor,
+  loading,
+  error,
+  ascii,
+  reduceMotion
+}: {
+  mode: 'compact' | 'micro';
+  width: number;
+  height: number;
+  theme: ThemeName;
+  stations: Station[];
+  selected: number;
+  favorites: Set<string>;
+  cursor: ExploreCursor;
+  loading: boolean;
+  error?: string;
+  ascii: boolean;
+  reduceMotion: boolean;
+}): React.ReactElement {
+  const accent = themeAccent(theme);
+  const {headerRows, headerGap, bodyRows} = adaptiveExploreFrameMetrics(mode, height);
+  const layout = computeAdaptiveExploreLayout(mode, width, Math.max(1, bodyRows));
+  const marker = React.useMemo(
+    () => [{lat: cursor.latitude, lon: cursor.longitude, selected: true}],
+    [cursor.latitude, cursor.longitude]
+  );
+  const map = React.useMemo(
+    () => buildCosmoWorldMap(layout.mapColumns, layout.mapRows, marker),
+    [layout.mapColumns, layout.mapRows, marker]
+  );
+  const coordinate = formatExploreCursor(cursor);
+  const status = `${coordinate} · ${loading ? 'loading' : `${stations.length.toLocaleString()} stations`}`;
+  const title = mode === 'micro' ? `RC / Explore · ${coordinate}` : 'RADIOCLI  Explore';
+  const stationRows = stationAdaptiveRows(stations, favorites, selected, layout.listWidth, ascii);
+  const emptyRows: AdaptiveRow[] = loading
+    ? [{key: 'loading', label: 'Loading stations…'}]
+    : error
+      ? [{key: 'error', label: error}]
+      : [{key: 'empty', label: 'No stations near this point.'}];
+  const list = (
+    <AdaptiveList
+      rows={stationRows.length > 0 ? stationRows : emptyRows}
+      selected={stationRows.length > 0 ? selected : 0}
+      pageSize={layout.listRows}
+      width={layout.listWidth}
+      theme={theme}
+      reduceMotion={reduceMotion}
+    />
+  );
+
+  return (
+    <Box flexDirection="column" height={height} width={width} overflow="hidden">
+      <Text color={accent} bold>{truncate(title, width)}</Text>
+      {headerRows > 1 ? <Text color={textMuted}>{truncate(status, width)}</Text> : null}
+      {headerGap ? <Box height={headerGap} flexShrink={0} /> : null}
+      {bodyRows > 0 ? layout.split ? (
+        <Box flexDirection="row" height={bodyRows} width={width} overflow="hidden">
+          <AdaptiveCosmoMap
+            rows={map}
+            width={layout.mapAreaWidth}
+            height={layout.mapRows}
+            offsetX={layout.mapOffsetX}
+            theme={theme}
+            ascii={ascii}
+          />
+          {layout.gap ? <Box width={layout.gap} flexShrink={0} /> : null}
+          <Box flexDirection="column" width={layout.listWidth} height={layout.listRows} overflow="hidden">
+            {list}
+          </Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column" height={bodyRows} width={width} overflow="hidden">
+          <AdaptiveCosmoMap
+            rows={map}
+            width={layout.mapAreaWidth}
+            height={layout.mapRows}
+            offsetX={layout.mapOffsetX}
+            theme={theme}
+            ascii={ascii}
+          />
+          {layout.gap ? <Box height={layout.gap} flexShrink={0} /> : null}
+          <Box flexDirection="column" height={layout.listRows} width={layout.listWidth} overflow="hidden">
+            {list}
+          </Box>
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+function AdaptiveCosmoMap({
+  rows,
+  width,
+  height,
+  offsetX,
+  theme,
+  ascii
+}: {
+  rows: CosmoMapRow[];
+  width: number;
+  height: number;
+  offsetX: number;
+  theme: ThemeName;
+  ascii: boolean;
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column" width={width} height={height} overflow="hidden" flexShrink={0}>
+      {rows.map((row, rowIndex) => {
+        const chunks: Array<{kind: CosmoMapCellKind; text: string}> = [];
+        for (const cell of row.cells) {
+          const previous = chunks.at(-1);
+          if (previous?.kind === cell.kind) previous.text += cell.char;
+          else chunks.push({kind: cell.kind, text: cell.char});
+        }
+        let cellOffset = 0;
+        return (
+          <Box key={rowIndex} marginLeft={offsetX}>
+            {chunks.map(chunk => {
+              const key = `${cellOffset}-${chunk.kind}`;
+              cellOffset += chunk.text.length;
+              return (
+                <Text key={key} color={adaptiveMapColor(chunk.kind, theme)}>
+                  {ascii ? toAsciiSafe(chunk.text) : chunk.text}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+function adaptiveMapColor(kind: CosmoMapCellKind, theme: ThemeName): string | undefined {
+  if (kind === 'selected') return themeAccent(theme);
+  if (kind === 'marker') return mapMarker;
+  if (kind === 'land') return exploreMapLand;
+  return undefined;
 }
 
 function AdaptiveFrame({
@@ -344,13 +530,15 @@ function AdaptiveList({
   selected,
   pageSize,
   width,
-  theme
+  theme,
+  reduceMotion
 }: {
   rows: AdaptiveRow[];
   selected: number;
   pageSize: number;
   width: number;
   theme: ThemeName;
+  reduceMotion: boolean;
 }): React.ReactElement {
   const selectedIndex = Math.min(Math.max(selected, 0), Math.max(0, rows.length - 1));
   const window = visibleWindow(rows, selectedIndex, Math.max(1, pageSize));
@@ -363,9 +551,16 @@ function AdaptiveList({
         const active = absoluteIndex === selectedIndex && !row.heading;
         const prefix = row.heading ? '  ' : active ? '> ' : '  ';
         const detail = row.detail ? `${row.separator ?? ' · '}${row.detail}` : '';
+        const text = `${row.label}${detail}`;
+        const favoriteWidth = row.favoriteGlyph ? 2 : 0;
         return (
           <Text key={row.key} color={active ? accent : row.heading ? textMuted : undefined} bold={active || row.heading}>
-            {prefix}{truncate(`${row.label}${detail}`, Math.max(0, width - 2))}
+            {prefix}<AdaptiveMarquee
+              text={text}
+              width={Math.max(0, width - 2 - favoriteWidth)}
+              active={active && Boolean(row.marquee)}
+              reduceMotion={reduceMotion}
+            />{row.favoriteGlyph ? <Text color="yellow"> {row.favoriteGlyph}</Text> : null}
           </Text>
         );
       })}
@@ -392,24 +587,25 @@ function AdaptiveNowPlaying({
   station,
   playback,
   metadata,
-  pulse,
   width,
   height,
   ascii,
   theme,
-  receiverStyle
+  receiverStyle,
+  reduceMotion
 }: {
   mode: 'compact' | 'micro';
   station: Station | null;
   playback: PlaybackState;
   metadata: IcyNowPlaying | null;
-  pulse: number;
   width: number;
   height: number;
   ascii: boolean;
   theme: ThemeName;
   receiverStyle: LibraryState['settings']['receiverStyle'];
+  reduceMotion: boolean;
 }): React.ReactElement {
+  const pulse = useReceiverPulse();
   const accent = themeAccent(theme);
   const stationName = station?.name ?? 'No station tuned';
   const showMetadata = mode === 'compact' && height >= 9 && Boolean(metadata?.title);
@@ -435,7 +631,11 @@ function AdaptiveNowPlaying({
 
   return (
     <Box flexDirection="column" height={height} width={width} overflow="hidden">
-      <Text color={accent} bold>{truncate(header, width)}</Text>
+      <Text color={accent} bold>
+        {mode === 'micro'
+          ? <AdaptiveMarquee text={header} width={width} active reduceMotion={reduceMotion} />
+          : truncate(header, width)}
+      </Text>
       {mode === 'compact' ? <Text color={textMuted}>{truncate(status, width)}</Text> : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       <Box flexDirection="column" height={availableVisualRows} overflow="hidden">
@@ -449,7 +649,11 @@ function AdaptiveNowPlaying({
           </Text>
         ))}
       </Box>
-      {showMetadata ? <Text color={accent}>{truncate(metadata?.title ?? '', width)}</Text> : null}
+      {showMetadata ? (
+        <Text color={accent}>
+          <AdaptiveMarquee text={metadata?.title ?? ''} width={width} active reduceMotion={reduceMotion} />
+        </Text>
+      ) : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
     </Box>
   );
@@ -461,7 +665,7 @@ function renderAdaptiveSegments(
 ): React.ReactNode {
   let offset = 0;
   return segments.map(segment => {
-    const key = `${offset}-${segment.color}-${segment.backgroundColor ?? ''}`;
+    const key = offset;
     offset += segment.text.length;
     return (
       <Text key={key} color={segment.color} backgroundColor={segment.backgroundColor} bold={segment.bold}>
@@ -482,7 +686,8 @@ function AdaptiveSearch({
   height,
   width,
   theme,
-  ascii
+  ascii,
+  reduceMotion
 }: {
   mode: 'compact' | 'micro';
   query: string;
@@ -495,6 +700,7 @@ function AdaptiveSearch({
   width: number;
   theme: ThemeName;
   ascii: boolean;
+  reduceMotion: boolean;
 }): React.ReactElement {
   const accent = themeAccent(theme);
   const {panel: panelBackground} = useDisplay();
@@ -525,7 +731,14 @@ function AdaptiveSearch({
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       <Box flexDirection="column" height={listRows} overflow="hidden" flexShrink={0}>
         {rows.length > 0 ? (
-          <AdaptiveList rows={rows} selected={selected} pageSize={listRows} width={width} theme={theme} />
+          <AdaptiveList
+            rows={rows}
+            selected={selected}
+            pageSize={listRows}
+            width={width}
+            theme={theme}
+            reduceMotion={reduceMotion}
+          />
         ) : (
           <StaticRows rows={empty.slice(0, listRows)} width={width} theme={theme} />
         )}
@@ -577,6 +790,7 @@ function adaptiveRows(input: {
       label: padDisplayEnd(truncate(`${country.name} (${country.code})`, labelWidth), labelWidth),
       detail: country.stationCount.toLocaleString(),
       separator: '  ',
+      marquee: true,
       index
     }));
   }
@@ -600,14 +814,26 @@ function adaptiveRows(input: {
     }
     return rows;
   }
+  return stationAdaptiveRows(stations, favoriteKeys, selected, width, ascii);
+}
+
+function stationAdaptiveRows(
+  stations: Station[],
+  favoriteKeys: Set<string>,
+  selected: number,
+  width: number,
+  ascii: boolean
+): AdaptiveRow[] {
   return stations.map((station, index) => {
     const favorite = favoriteKeys.has(`${station.provider}:${station.id}`);
     const standardMetadata = `${stationLocation(station)} · ${stationTech(station)}`;
     const selectedMetadata = station.tags.length > 0 ? stationTags(station) : standardMetadata;
     return {
       key: `${station.provider}:${station.id}`,
-      label: `${station.name}${favorite ? (ascii ? ' *' : ' ★') : ''}`,
-      detail: width >= 42 ? (index === selected ? selectedMetadata : standardMetadata) : undefined,
+      label: station.name,
+      detail: index === selected ? selectedMetadata : width >= 42 ? standardMetadata : undefined,
+      marquee: true,
+      favoriteGlyph: favorite ? (ascii ? '*' : '★') : undefined,
       index
     };
   });
@@ -629,8 +855,9 @@ function adaptiveEmptyState(input: {
   loadingStations: boolean;
   nearbyEnabled: boolean;
   stationTitle: string;
+  stationError?: string;
 }): AdaptiveRow[] {
-  const {screen, searchQuery, editingSearch, countryFilter, loadingCountries, loadingStations, nearbyEnabled, stationTitle} = input;
+  const {screen, searchQuery, editingSearch, countryFilter, loadingCountries, loadingStations, nearbyEnabled, stationTitle, stationError} = input;
   if ((screen === 'countries' || screen === 'map') && loadingCountries) {
     return [{key: 'loading', label: 'Loading countries…'}];
   }
@@ -657,6 +884,9 @@ function adaptiveEmptyState(input: {
   }
   if (loadingStations) {
     return [{key: 'loading', label: 'Loading stations…'}];
+  }
+  if (stationError) {
+    return [{key: 'error', label: stationError}, {key: 'hint', label: 'Try again later or reopen this view.'}];
   }
   if (screen === 'airplay-settings') {
     return [{key: 'empty', label: 'No AirPlay receivers found.'}, {key: 'hint', label: 'Press r to scan again.'}];

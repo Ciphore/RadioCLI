@@ -1,18 +1,24 @@
 import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {
   defaultReceiverStyle,
   receiverStyleNames,
   themeNames,
+  type Alarm,
+  type AlarmCreateInput,
+  type AlarmRunRecord,
   type AppSettings,
+  type IsoWeekday,
   type LibraryState,
   type ListeningSession,
   type Station,
   type TrackPlay,
   type UpdateCheckState
 } from '../types.js';
+import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
 import {backupBadFile} from '../providers/cache.js';
 import {migrateReceiverStyle} from '../ui/visualizers/receiver-style-registry.js';
 
@@ -48,6 +54,8 @@ const defaultMediaKeys = {
   next: []
 };
 
+const MAX_ALARMS = 500;
+
 const settingsSchema: z.ZodType<AppSettings> = z.object({
   theme: z.enum(themeNames).default('green'),
   receiverStyle: z.preprocess(
@@ -77,6 +85,93 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   mouseSupport: z.boolean().default(true)
 });
 
+const absoluteInstantSchema = z.string().refine(
+  value => /(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value)),
+  {message: 'Expected an absolute ISO-8601 instant with a timezone offset.'}
+);
+const alarmMinuteInstantSchema = absoluteInstantSchema.refine(value => new Date(value).getUTCSeconds() === 0 && new Date(value).getUTCMilliseconds() === 0,{message:'Alarm occurrences use minute precision; seconds must be zero.'});
+
+const alarmScheduleSchema = z.discriminatedUnion('type', [
+  z.object({type: z.literal('once'), at: alarmMinuteInstantSchema}),
+  z.object({
+    type: z.literal('recurring'),
+    time: z.string().refine(value => {
+      try {
+        canonicalizeAlarmTime(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }, {message: 'Invalid alarm time; expected HH:mm.'}),
+    weekdays: z.array(
+      z.number().int().min(1).max(7).transform(value => value as IsoWeekday)
+    ).min(1, 'Choose at least one ISO weekday.'),
+    timezone: z.string().refine(value => {
+      try {
+        canonicalizeTimeZone(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }, {message: 'Invalid IANA timezone.'})
+  })
+]);
+
+const alarmPlaybackSchema = z.object({
+  volume: z.number().int().min(0).max(100),
+  fadeSeconds: z.number().int().min(0).max(3600),
+  stopAfterMinutes: z.number().int().min(1).max(7 * 24 * 60),
+  fallbackStation: stationSchema.optional()
+});
+
+const alarmReliabilitySchema = z.object({
+  missedRunGraceMinutes: z.number().int().min(0).max(7 * 24 * 60),
+  wakeIfSupported: z.boolean(),
+  keepAwakeUntilAlarm: z.boolean().default(false)
+});
+
+const alarmRunRecordSchema: z.ZodType<AlarmRunRecord> = z.object({
+  status: z.enum(['played', 'failed', 'missed', 'dismissed']),
+  scheduledAt: absoluteInstantSchema,
+  firedAt: absoluteInstantSchema.optional(),
+  finishedAt: absoluteInstantSchema.optional(),
+  message: z.string().max(1000).optional()
+});
+
+const alarmSchema: z.ZodType<Alarm> = z.object({
+  id: z.string().min(1),
+  label: z.string().trim().min(1).max(120),
+  enabled: z.boolean(),
+  station: stationSchema,
+  schedule: alarmScheduleSchema,
+  playback: alarmPlaybackSchema,
+  reliability: alarmReliabilitySchema,
+  createdAt: absoluteInstantSchema,
+  updatedAt: absoluteInstantSchema,
+  lastRun: alarmRunRecordSchema.optional(),
+  nextOverride: z.object({
+    at: alarmMinuteInstantSchema,
+    createdAt: absoluteInstantSchema,
+    reason: z.literal('snooze')
+  }).optional()
+});
+
+const alarmArraySchema = z.array(alarmSchema)
+  .max(MAX_ALARMS, `RadioCLI supports at most ${MAX_ALARMS} alarms.`)
+  .superRefine((alarms, context) => {
+  const seen = new Set<string>();
+  for (const [index, alarm] of alarms.entries()) {
+    if (seen.has(alarm.id)) {
+      context.addIssue({
+        code: 'custom',
+        message: `Duplicate alarm ID: ${alarm.id}`,
+        path: [index, 'id']
+      });
+    }
+    seen.add(alarm.id);
+  }
+  });
+
 const librarySchema: z.ZodType<LibraryState> = z.object({
   recent: z
     .array(
@@ -99,6 +194,7 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     )
     .default([]),
   searchHistory: z.array(z.string()).default([]),
+  alarms: alarmArraySchema.default([]),
   updateCheck: z
     .object({
       checkedAt: z.string(),
@@ -157,9 +253,16 @@ export type LibraryImportResult = {
 export class JsonLibraryStore {
   readonly filePath: string;
   private state: LibraryState;
+  private readonly idGenerator: () => string;
+  private readonly now: () => Date;
 
-  constructor(filePath = defaultStorePath()) {
+  constructor(
+    filePath = defaultStorePath(),
+    options: {idGenerator?: () => string; now?: () => Date} = {}
+  ) {
     this.filePath = filePath;
+    this.idGenerator = options.idGenerator ?? randomUUID;
+    this.now = options.now ?? (() => new Date());
     this.state = this.read();
   }
 
@@ -200,11 +303,10 @@ export class JsonLibraryStore {
 
     const parsed = JSON.parse(readFileSync(sourcePath, 'utf8')) as unknown;
     const backupResult = libraryBackupSchema.safeParse(parsed);
-    const importedState = migrateLibraryState(
-      backupResult.success
-        ? backupResult.data.library
-        : librarySchema.parse(legacyLibraryBackupSchema.parse(parsed))
-    );
+    if (!backupResult.success && isRadioCliBackup(parsed)) throw backupResult.error;
+    const importedState = migrateLibraryState(backupResult.success
+      ? backupResult.data.library
+      : librarySchema.parse(legacyLibraryBackupSchema.parse(parsed)));
 
     const release = acquireStoreLock(this.filePath);
     try {
@@ -235,6 +337,118 @@ export class JsonLibraryStore {
 
   updateCheckState(updateCheck: UpdateCheckState): LibraryState {
     return this.commit({...this.state, updateCheck});
+  }
+
+  addAlarm(input: AlarmCreateInput): Alarm {
+    const release = acquireStoreLock(this.filePath);
+    try {
+      const latestState = this.read();
+      if (latestState.alarms.length >= MAX_ALARMS) {
+        throw new Error(`RadioCLI supports at most ${MAX_ALARMS} alarms.`);
+      }
+      const existingIds = new Set([...this.state.alarms, ...latestState.alarms].map(alarm => alarm.id));
+      let id: string | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const candidate = this.idGenerator();
+        if (candidate && !existingIds.has(candidate)) {
+          id = candidate;
+          break;
+        }
+      }
+      if (!id) throw new Error('Unable to allocate a unique alarm ID after 100 attempts.');
+      const timestamp = this.now().toISOString();
+      const alarm = normalizeAlarm(alarmSchema.parse({
+        ...input,
+        id,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }));
+      const nextState = {...this.state, alarms: [alarm, ...this.state.alarms]};
+      const mergedState = mergeLibraryChanges(this.state, latestState, nextState);
+      this.write(mergedState);
+      this.state = mergedState;
+      return structuredClone(alarm);
+    } finally {
+      release();
+    }
+  }
+
+  updateAlarm(
+    id: string,
+    updates: Partial<Pick<Alarm, 'label' | 'enabled' | 'station' | 'schedule' | 'playback' | 'reliability'>>
+  ): Alarm {
+    return this.mutateAlarm(id, existing => normalizeAlarm(alarmSchema.parse({
+      ...existing,
+      ...updates,
+      updatedAt: this.now().toISOString()
+    })));
+  }
+
+  removeAlarm(id: string): boolean {
+    const release = acquireStoreLock(this.filePath);
+    try {
+      const latestState = this.read();
+      if (!latestState.alarms.some(alarm => alarm.id === id)) {
+        this.state = latestState;
+        return false;
+      }
+      const nextState = {...latestState, alarms: latestState.alarms.filter(alarm => alarm.id !== id)};
+      this.write(nextState);
+      this.state = nextState;
+      return true;
+    } finally {
+      release();
+    }
+  }
+
+  toggleAlarm(id: string, enabled?: boolean): Alarm {
+    return this.mutateAlarm(id, existing => alarmSchema.parse({
+      ...existing,
+      enabled: enabled ?? !existing.enabled,
+      updatedAt: this.now().toISOString()
+    }));
+  }
+
+  getAlarm(id: string): Alarm | undefined {
+    const alarm = this.state.alarms.find(item => item.id === id);
+    return alarm ? structuredClone(alarm) : undefined;
+  }
+
+  listAlarms(): Alarm[] {
+    return structuredClone(this.state.alarms);
+  }
+
+  recordAlarmOutcome(
+    id: string,
+    outcome: AlarmRunRecord,
+    options: {clearNextOverride?: boolean} = {}
+  ): Alarm {
+    return this.mutateAlarm(id, existing => alarmSchema.parse({
+      ...existing,
+      lastRun: outcome,
+      nextOverride: options.clearNextOverride === false ? existing.nextOverride : undefined,
+      updatedAt: this.now().toISOString()
+    }));
+  }
+
+  snoozeAlarm(id: string, until: Date): Alarm {
+    if (!Number.isFinite(until.getTime())) throw new Error('Invalid alarm snooze instant.');
+    const now = this.now();
+    const canonicalUntil = new Date(Math.ceil(until.getTime() / 60_000) * 60_000);
+    if (canonicalUntil.getTime() <= now.getTime()) throw new Error('Alarm snooze must be set to a future time.');
+    return this.mutateAlarm(id, existing => alarmSchema.parse({
+      ...existing,
+      nextOverride: {at: canonicalUntil.toISOString(), createdAt: now.toISOString(), reason: 'snooze'},
+      updatedAt: now.toISOString()
+    }));
+  }
+
+  clearAlarmSnooze(id: string): Alarm {
+    return this.mutateAlarm(id, existing => alarmSchema.parse({
+      ...existing,
+      nextOverride: undefined,
+      updatedAt: this.now().toISOString()
+    }));
   }
 
   addRecent(station: Station): LibraryState {
@@ -359,6 +573,28 @@ export class JsonLibraryStore {
 
     const key = stationKey(station);
     return this.state.favorites.some(item => stationKey(item) === key);
+  }
+
+  private mutateAlarm(id: string, change: (alarm: Alarm) => Alarm): Alarm {
+    const release = acquireStoreLock(this.filePath);
+    try {
+      const latestState = this.read();
+      const existing = latestState.alarms.find(alarm => alarm.id === id);
+      if (!existing) {
+        this.state = latestState;
+        throw new Error(`Alarm not found: ${id}`);
+      }
+      const alarm = change(existing);
+      const nextState = {
+        ...latestState,
+        alarms: latestState.alarms.map(item => item.id === id ? alarm : item)
+      };
+      this.write(nextState);
+      this.state = nextState;
+      return structuredClone(alarm);
+    } finally {
+      release();
+    }
   }
 
   private read(): LibraryState {
@@ -491,6 +727,7 @@ function defaultState(): LibraryState {
     imported: [],
     trackHistory: [],
     searchHistory: [],
+    alarms: [],
     activity: {sessions: []},
     settings: {
       theme: 'green',
@@ -512,6 +749,7 @@ function defaultState(): LibraryState {
 function migrateLibraryState(state: LibraryState): LibraryState {
   return {
     ...state,
+    alarms: state.alarms.map(normalizeAlarm),
     settings: {
       ...state.settings,
       preferredBackend: state.settings.preferredBackend === 'airplay' ? 'auto' : state.settings.preferredBackend,
@@ -519,6 +757,11 @@ function migrateLibraryState(state: LibraryState): LibraryState {
       receiverStyleVersion: 2
     }
   };
+}
+
+function isRadioCliBackup(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && 'format' in value
+    && (value as {format?: unknown}).format === 'radiocli-backup';
 }
 
 function libraryStateForDisk(state: LibraryState): LibraryState {
@@ -581,12 +824,25 @@ function mergeLibraryChanges(base: LibraryState, disk: LibraryState, next: Libra
     imported: mergeKeyedChanges(base.imported, disk.imported, next.imported, stationKey, 1000, true),
     trackHistory: mergeKeyedChanges(base.trackHistory, disk.trackHistory, next.trackHistory, item => `${item.at}:${item.stationKey}:${item.title}`, 100),
     searchHistory: mergeSearchHistory(base.searchHistory, disk.searchHistory, next.searchHistory),
+    alarms: mergeKeyedChanges(base.alarms, disk.alarms, next.alarms, alarm => alarm.id, MAX_ALARMS, true),
     updateCheck: sameValue(base.updateCheck, next.updateCheck) ? disk.updateCheck : next.updateCheck,
     activity: {
       sessions: mergeKeyedChanges(base.activity.sessions, disk.activity.sessions, next.activity.sessions, item => item.id, 2000)
     },
     settings: mergeSettings(base.settings, disk.settings, next.settings)
   };
+}
+
+function normalizeAlarm(alarm: Alarm): Alarm {
+  const schedule = alarm.schedule.type === 'once'
+    ? {type: 'once' as const, at: new Date(alarm.schedule.at).toISOString()}
+    : {
+        type: 'recurring' as const,
+        time: canonicalizeAlarmTime(alarm.schedule.time),
+        weekdays: canonicalizeIsoWeekdays(alarm.schedule.weekdays),
+        timezone: canonicalizeTimeZone(alarm.schedule.timezone)
+      };
+  return {...alarm, schedule};
 }
 
 function mergeKeyedChanges<T>(

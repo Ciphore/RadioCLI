@@ -126,6 +126,11 @@ function asciiGlyph(code: number): string {
     return '-';
   }
 
+  if (code === 0x203a || code === 0x2192) return '>';
+  if (code === 0x2039 || code === 0x2190) return '<';
+  if (code === 0x2191) return '^';
+  if (code === 0x2193) return 'v';
+
   // Drop zero-width and combining marks entirely so they do not skew widths.
   if (code === 0x200b || code === 0xfeff || (code >= 0x0300 && code <= 0x036f)) {
     return '';

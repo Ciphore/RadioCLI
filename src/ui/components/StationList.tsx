@@ -5,6 +5,8 @@ import {displayWidth, stationLocation, stationTags, stationTech, truncate} from 
 import {textMuted, themeAccent} from '../theme.js';
 import {Menu, Pointer} from './Menu.js';
 import {visibleWindow} from '../list-window.js';
+import {useDisplay} from '../display-context.js';
+import {AdaptiveMarquee} from './AdaptiveMarquee.js';
 
 type StationListProps = {
   stations: Station[];
@@ -29,6 +31,7 @@ export function StationList({
   emptyHint = 'Try another view or clear active filters.',
   showCount = true
 }: StationListProps): React.ReactElement {
+  const {reduceMotion} = useDisplay();
   if (stations.length === 0) {
     return (
       <Box flexDirection="column">
@@ -56,6 +59,23 @@ export function StationList({
         keyFor={station => `${station.provider}:${station.id}`}
         render={(station, _index, active) => {
           const favorite = favorites.has(`${station.provider}:${station.id}`);
+          if (width < 42) {
+            const compactNameWidth = Math.max(1, width - 2 - (favorite ? 2 : 0));
+            return (
+              <Box>
+                <Pointer active={active} />
+                <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                  <AdaptiveMarquee
+                    text={station.name}
+                    width={compactNameWidth}
+                    active={active}
+                    reduceMotion={reduceMotion}
+                  />
+                </Text>
+                {favorite ? <Text color="yellow"> ★</Text> : null}
+              </Box>
+            );
+          }
           const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);
           const titleWidth = nameWidth + 2;
           const titleUsed = displayWidth(stationName) + (favorite ? 2 : 0);

@@ -111,7 +111,11 @@ export default function HomePage() {
                 <span className="rc-install-label">Universal · npm</span>
                 <p className="rc-install">
                   <span className="rc-prompt">$</span>
-                  <code>npm install -g @ciphore/radiocli</code>
+                  <code>
+                    npm install -g @ciphore/radiocli
+                    <br />
+                    radiocli setup
+                  </code>
                 </p>
               </div>
               <div className="rc-install-option">

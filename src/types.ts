@@ -21,6 +21,10 @@ export type Screen =
   | 'now-playing'
   | 'library'
   | 'stats'
+  | 'alarms'
+  | 'alarm-editor'
+  | 'alarm-picker'
+  | 'alarm-ringing'
   | 'airplay-settings'
   | 'airplay-code'
   | 'settings'
@@ -156,6 +160,84 @@ export type TrackPlay = {
   at: string;
 };
 
+export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export type AlarmSchedule =
+  | {
+      type: 'once';
+      /** An absolute ISO-8601 instant, including an offset or `Z`. */
+      at: string;
+    }
+  | {
+      type: 'recurring';
+      /** Civil time in canonical 24-hour HH:mm form. */
+      time: string;
+      /** ISO weekdays: Monday=1 through Sunday=7. */
+      weekdays: IsoWeekday[];
+      /** Explicit IANA timezone; recurring alarms remain at this civil time across DST. */
+      timezone: string;
+    };
+
+type AlarmPlaybackConfig = {
+  volume: number;
+  fadeSeconds: number;
+  stopAfterMinutes: number;
+  fallbackStation?: Station;
+};
+
+type AlarmReliabilityConfig = {
+  missedRunGraceMinutes: number;
+  wakeIfSupported: boolean;
+  /** Keep this machine awake until the next concrete occurrence. Machine-local reconciliation is required. */
+  keepAwakeUntilAlarm?: boolean;
+};
+
+type AlarmRunStatus = 'played' | 'failed' | 'missed' | 'dismissed';
+
+export type AlarmRunRecord = {
+  status: AlarmRunStatus;
+  scheduledAt: string;
+  firedAt?: string;
+  finishedAt?: string;
+  message?: string;
+};
+
+type AlarmNextOverride = {
+  at: string;
+  createdAt: string;
+  reason: 'snooze';
+};
+
+export type Alarm = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  station: Station;
+  schedule: AlarmSchedule;
+  playback: AlarmPlaybackConfig;
+  reliability: AlarmReliabilityConfig;
+  createdAt: string;
+  updatedAt: string;
+  lastRun?: AlarmRunRecord;
+  /** One-shot occurrence override. Cleared after the alarm runner records its outcome. */
+  nextOverride?: AlarmNextOverride;
+};
+
+export type AlarmCreateInput = Omit<Alarm, 'id' | 'createdAt' | 'updatedAt' | 'lastRun' | 'nextOverride'>;
+
+/**
+ * Machine-local runtime state. It intentionally does not live in LibraryState or backups.
+ * A guard applies only to one concrete occurrence and is never a recurring alarm preference.
+ */
+export type AlarmPowerGuardState = {
+  alarmId: string;
+  occurrenceAt: string;
+  status: 'requested' | 'active' | 'released' | 'failed';
+  acquiredAt?: string;
+  releasedAt?: string;
+  message?: string;
+};
+
 export type LibraryState = {
   recent: RecentPlay[];
   favorites: Station[];
@@ -163,6 +245,7 @@ export type LibraryState = {
   activity: ListeningActivity;
   trackHistory: TrackPlay[];
   searchHistory: string[];
+  alarms: Alarm[];
   updateCheck?: UpdateCheckState;
   settings: AppSettings;
 };

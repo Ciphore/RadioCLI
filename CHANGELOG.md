@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-04
+
+### Added
+
+- Added one-time and IANA-timezone recurring radio alarms under Overview, with a
+  full-screen TUI editor, station picker, next-run preview, enable/disable,
+  delete confirmation, test tune, repair, and active ringing controls.
+- Added native background registration through macOS launchd, Windows Task
+  Scheduler, and systemd user timers on Linux, plus `radiocli alarm` commands
+  for scripting, inspection, health checks, synchronization, and playback
+  control.
+- Added optional per-alarm wake requests where the OS supports them and a
+  separate cross-platform Alarm Guard that prevents idle sleep until the next
+  occurrence.
+- Added automatic ringing-control launch in the terminal captured when an alarm
+  is synchronized, with reuse of an already-running RadioCLI TUI.
+- Added a navigable **Verify alarm setup** rehearsal that exercises a disposable
+  native job, the saved terminal, authenticated controls, sleep protection,
+  system volume, and a three-second configured-station sample before cleanup.
+- Added `radiocli setup`, an interactive installer that detects supported
+  package managers, previews required playback tools, supports dry runs, guides
+  installation, and verifies the resulting local playback configuration.
+- Added an adaptive Explore experience with a responsive Cosmo world map,
+  height-aware station lists in micro terminals, pointer-accurate map
+  selection, and safe scrolling marquees for long station details.
+- Added richer `radiocli doctor` playback diagnostics, including the resolved
+  mpv path, discovery source, launchability, version output, and actionable
+  launch errors. Windows discovery now covers package-manager shims, common
+  application directories, and registered mpv installations.
+
+### Changed
+
+- Full library backup and restore now carries alarm definitions and latest run outcomes;
+  native jobs, Alarm Guard state, runtime health, and local control credentials
+  remain specific to each machine and are rebuilt by alarm synchronization.
+- macOS terminal Automation permission is requested during alarm setup, and a
+  TUI opened by a ringing alarm now protects the active native job from startup,
+  repair, edit, and delete reconciliation until playback ends.
+- Snooze now closes the completed ringing session, returns to Alarms, and shows
+  the next ring time. Alarm playback temporarily unmutes and raises a low local
+  system output to the configured alarm level on macOS, Windows, and supported
+  Linux audio stacks, restoring the previous state afterward.
+- Alarm list and editor presentation is more concise: historical dismissal text,
+  duplicated controls, and long scheduler caveats were removed; specific field
+  guidance is now inline and Save is presented as a display-color action.
+- Alarm ringing controls now use Enter to transfer the station into normal
+  interactive playback and Space to stop and snooze for ten minutes. The alarm
+  UI and documentation identify scheduling as experimental beta functionality,
+  explain when the terminal may close, and recommend a secondary device for
+  critical wake-ups.
+- Playback-backend guidance now directs users to `radiocli setup` when local
+  tools are missing, with updated CLI help, setup documentation, and status
+  messages covering the guided workflow.
+- Receiver animation updates are isolated from the rest of the application,
+  respect reduced-motion preferences, and use cached visualizer geometry and
+  compact color runs to reduce rendering work without changing visual output.
+- Radio Browser requests now use atlas-aware timeouts and retain clearer
+  provider failure details when station directories are slow or unavailable.
+
+### Fixed
+
+- Alarm lists now scroll long text only on the focused interactive row, keep
+  selection and enabled-state markers fixed, and avoid repeating station and
+  next-run details. Compact and micro layouts use shorter next-wake, scheduler,
+  and beta-safety messages instead of clipping desktop-length copy.
+- Footer shortcut legends now balance actions across every available row,
+  reserve an additional row in compact terminals when space permits, and show
+  concise key-only hints in micro layouts instead of ending in truncated text.
+  The version and update indicator remains independently anchored at bottom right.
+- Rapid keyboard and mouse-wheel navigation now commits the selected row
+  immediately, cancels pending automatic station skips, and preserves alarm
+  editor scrolling; search input keeps ownership of typed alarm-shortcut
+  characters.
+- Player shutdown now coalesces concurrent stop requests, while delayed
+  automatic skipping can be canceled during retuning to avoid duplicate
+  process termination and unintended station changes.
+- Explore maps, station lists, and screen rendering now remain aligned and
+  navigable across compact and true-micro terminal sizes, with improved map
+  centering, cursor mapping, and visible provider errors.
+
+### Security
+
+- Active alarm controls and Alarm Guard ownership checks use authenticated
+  loopback-only endpoints with machine-local private token files.
+
 ## [0.2.1] - 2026-08-22
 
 ### Added
@@ -265,6 +350,7 @@ Initial public release.
 [0.1.9]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.9
 [0.2.0]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.1
+[0.2.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.2
 [0.1.4]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2

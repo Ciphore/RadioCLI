@@ -53,6 +53,27 @@ export function padDisplayEnd(value: string, width: number): string {
   return value + ' '.repeat(Math.max(0, width - displayWidth(value)));
 }
 
+export function sliceDisplay(value: string, start: number, length: number): string {
+  const safeStart = Math.max(0, Math.floor(start));
+  const safeLength = Math.max(0, Math.floor(length));
+  if (safeLength === 0) return '';
+
+  let skippedWidth = 0;
+  let outputWidth = 0;
+  let result = '';
+  for (const grapheme of graphemes(value)) {
+    const graphemeWidth = displayWidth(grapheme);
+    if (skippedWidth + graphemeWidth <= safeStart) {
+      skippedWidth += graphemeWidth;
+      continue;
+    }
+    if (outputWidth + graphemeWidth > safeLength) break;
+    result += grapheme;
+    outputWidth += graphemeWidth;
+  }
+  return result;
+}
+
 export function removeLastGrapheme(value: string): string {
   const parts = graphemes(value);
   parts.pop();

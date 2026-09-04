@@ -104,7 +104,7 @@ export function playbackBackendInstallHint(
   platform: NodeJS.Platform = process.platform,
   osRelease = readLinuxOsRelease()
 ): string {
-  return `Install mpv for playback (${mpvInstallCommand(platform, osRelease)}), then run radiocli doctor.`;
+  return `Run radiocli setup to install mpv for playback (${mpvInstallCommand(platform, osRelease)}), then run radiocli doctor.`;
 }
 
 export function playbackBackendStatusLines(
@@ -115,6 +115,7 @@ export function playbackBackendStatusLines(
   const backendSet = new Set(backends);
   const lines = [
     'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
+    'guided_setup=radiocli setup',
     `install_mpv=${mpvInstallCommand(platform, osRelease)}`,
     `optional_ffplay=${ffplayInstallCommand(platform, osRelease)}`
   ];

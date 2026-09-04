@@ -1,6 +1,6 @@
 ---
 title: CLI Usage
-description: Command-mode entry points for searching, checking, importing, and exporting.
+description: Command-mode entry points for searching, checking, data transfer, and scheduled radio.
 ---
 
 RadioCLI opens the full TUI by default:
@@ -14,12 +14,16 @@ It also supports command mode for scriptable tasks:
 ```bash
 radiocli doctor
 radiocli doctor --json
+radiocli setup
+radiocli setup --dry-run
 radiocli check
 radiocli countries
 radiocli search "japan hits"
 radiocli import stations.m3u
 radiocli export favorites.m3u
 radiocli add-url <stream-url> [station name]
+radiocli alarm list
+radiocli alarm doctor
 ```
 
 `radiocli export` writes `radiocli-favorites.m3u` when no output path is provided.
@@ -28,14 +32,28 @@ radiocli add-url <stream-url> [station name]
 
 Use `radiocli doctor` after installation to confirm whether `mpv` or `ffplay` is
 available, whether playback controls are `full`, `limited`, or `missing`, and to
-print the recommended native install command for your OS. `mpv` is the full-control
-backend; `ffplay` is reported as fallback playback with limited controls.
+print the recommended native install command for your OS. Doctor also prints the
+resolved `mpv` path, how RadioCLI discovered it, its version, and whether it can
+actually launch. `mpv` is the full-control backend; `ffplay` is reported as
+fallback playback with limited controls.
 Use `radiocli doctor --json` for a machine-readable support report; paths under
 your home directory are redacted to `~`.
 
 Use `radiocli check` when debugging playback or provider issues. It reports local
 store paths, playback backends, and provider health. Include that output when filing
 playback issues.
+
+## Guided Setup
+
+Use `radiocli setup` after an npm installation to select and install native
+playback tools. It detects the host package manager, skips tools that are already
+available, asks for confirmation before making system changes, and runs the
+doctor verification when installation finishes.
+
+Use `--yes` for the recommended defaults, `--all --yes` for every supported
+player, `--only mpv,ffmpeg` for an explicit selection, or `--dry-run` to print
+the exact commands without running them. Linux elevation is limited to the
+native package-manager command; the RadioCLI process itself is not elevated.
 
 ## Playlist Import And Export
 
@@ -51,5 +69,123 @@ directories:
 ```bash
 radiocli add-url https://example.com/live.mp3 "Example FM"
 ```
+
+## Alarms And Scheduled Radio
+
+The TUI is the primary alarm interface, but every runtime operation is also
+available under `radiocli alarm`. A station argument uses the
+`provider:id` key printed in the first column of `radiocli search`:
+
+```bash
+radiocli search "morning jazz"
+radiocli alarm add \
+  --station radio-browser:STATION_ID \
+  --time 06:00 \
+  --days weekdays \
+  --timezone America/Los_Angeles \
+  --label "Weekday jazz" \
+  --volume 70 \
+  --fade 30s \
+  --stop-after 90m \
+  --grace 15 \
+  --wake
+```
+
+The station must already exist in favorites, imports, or recents. Recurring
+times use 24-hour `HH:mm`, ISO weekdays `1` through `7` mean Monday through
+Sunday, and the timezone must be an IANA name. `--days` accepts `daily`,
+`weekdays`, `weekends`, or a comma-separated set such as `1,3,5`.
+
+A one-time alarm requires an absolute ISO-8601 minute with `Z` or an explicit
+offset. Seconds must be zero; an ambiguous local timestamp is deliberately not
+accepted:
+
+```bash
+radiocli alarm add \
+  --station radio-browser:STATION_ID \
+  --once 2026-08-24T06:30:00-07:00 \
+  --label "Monday special" \
+  --volume 65 \
+  --stop-after 1h
+```
+
+Creation options are:
+
+- schedule: `--once ISO`, or `--time HH:mm` with optional `--days` and
+  `--timezone`
+- identity: required `--station provider:id`, optional `--label` and
+  `--disabled`
+- playback: `--volume 0-100`, `--fade 30s|1m`, `--stop-after 60m|2h`, and
+  `--fallback provider:id`
+- reliability: `--grace 0-10080`, `--wake`, and `--guard`
+
+List, inspect, and modify alarms with:
+
+```bash
+radiocli alarm list
+radiocli alarm list --json
+radiocli alarm show ALARM_ID
+radiocli alarm edit ALARM_ID --time 07:15 --days weekends
+radiocli alarm edit ALARM_ID --fallback radio-browser:OTHER_ID
+radiocli alarm edit ALARM_ID --clear-fallback --no-wake --no-guard
+radiocli alarm enable ALARM_ID
+radiocli alarm disable ALARM_ID
+radiocli alarm remove ALARM_ID
+```
+
+`edit` accepts `--label`, `--station`, every schedule and playback value option,
+`--grace`, `--wake` / `--no-wake`, `--guard` / `--no-guard`, and
+`--clear-fallback`. Use the separate `enable` and `disable` commands for enabled
+state. Switching a one-time alarm back to recurring requires `--time`; changing
+only its days or timezone is rejected.
+
+Saving an enabled alarm installs its next occurrence in the native scheduler.
+The terminal can close after registration. Use these commands to validate or
+repair the machine-local integration:
+
+```bash
+radiocli alarm doctor
+radiocli alarm doctor --json
+radiocli alarm status
+radiocli alarm sync
+radiocli alarm test ALARM_ID
+```
+
+`doctor` reports scheduler, sleep-inhibitor, Guard, and active-session health.
+`status` returns the detailed JSON state. `sync` rebuilds native registrations
+from the local library, which is useful after restoring a backup, changing the
+host timezone, updating or moving a source checkout, or repairing OS scheduler
+state. `test` performs a real, bounded playback preview; it can make sound and
+stops automatically if the preview cannot complete safely.
+
+While one or more alarms are playing, control an exact occurrence with:
+
+```bash
+radiocli alarm status
+radiocli alarm dismiss --alarm ALARM_ID --occurrence 2026-08-24T13:30:00.000Z
+radiocli alarm snooze 10 --alarm ALARM_ID
+radiocli alarm keep-playing --alarm ALARM_ID
+```
+
+The selectors are optional when exactly one alarm is active. If multiple alarms
+are playing, add `--alarm` and, when necessary, `--occurrence`.
+
+Alarm Guard is separate from the OS wake request. `--wake` asks a capable
+scheduler to wake the machine; it is currently mapped to Windows Task
+Scheduler and remains subject to hardware and power policy. `--guard` starts a
+machine-local helper immediately and prevents idle sleep until the next
+occurrence, which consumes battery or mains power:
+
+```bash
+radiocli alarm guard start ALARM_ID
+radiocli alarm guard status
+radiocli alarm guard stop ALARM_ID
+radiocli alarm guard stop
+```
+
+Guard cannot power on a shut-down machine or override explicit sleep,
+hibernate, a closed-lid policy, logout, or other OS policy. See
+[Reliability](../reliability.mdx) for the platform matrix and operational
+limits.
 
 For interactive keyboard behavior, continue to [TUI Controls](./tui-controls.mdx).

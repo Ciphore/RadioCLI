@@ -15,7 +15,7 @@ export const keyHelpSections: HelpSection[] = [
       {keys: '↑/↓ or n/p', description: 'Move selection'},
       {keys: '←/→ or Tab', description: 'Switch tabs'},
       {keys: '[ / ]', description: 'Page selection by 10'},
-      {keys: '1-8', description: 'Jump to an Overview option'},
+      {keys: '1-9', description: 'Jump to an Overview option'},
       {keys: 'Enter', description: 'Open / tune the selection'},
       {keys: 'b or Esc', description: 'Back to home'},
       {keys: ': ', description: 'Command palette'},
@@ -34,7 +34,19 @@ export const keyHelpSections: HelpSection[] = [
       {keys: 'O', description: 'Open station homepage'},
       {keys: 'y', description: 'Copy stream URL'},
       {keys: 's', description: 'Sleep timer (Now Playing)'},
-      {keys: 'd', description: 'Diagnostics + recent tracks (Now Playing)'}
+      {keys: 'd', description: 'Diagnostics + recent tracks (Now Playing)'},
+      {keys: 'a', description: 'Schedule the selected / playing station'},
+      {keys: '!', description: 'Open controls for a ringing alarm from any screen'}
+    ]
+  },
+  {
+    title: 'Alarms',
+    entries: [
+      {keys: 'Enter / n / e', description: 'Choose Create alarm, use the new shortcut, or edit the selected alarm'},
+      {keys: 'space', description: 'Enable / disable selected alarm'},
+      {keys: 'x twice', description: 'Confirm alarm deletion'},
+      {keys: 't / r / g', description: 'Test-tune / repair / toggle Alarm Guard'},
+      {keys: 'd / s / k', description: 'Dismiss / snooze / keep playing while ringing'}
     ]
   },
   {

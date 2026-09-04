@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, pageFooterText} from './page-footer.js';
+import {balancedFooterLegendRows, fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, microShortcutFooterText, pageFooterText} from './page-footer.js';
+import {displayWidth} from './format.js';
 
 describe('page footer shortcuts', () => {
   it('reuses the Now Playing station-status row for transient display notices', () => {
@@ -30,6 +31,35 @@ describe('page footer shortcuts', () => {
     expect(microPlaybackControlsText('mpv')).toContain('+/- volume');
     expect(microPlaybackControlsText('mpv')).toContain(',/. station');
     expect(microPlaybackControlsText('airplay')).not.toContain('space pause');
+  });
+
+  it('balances long page and global legends across both rows without ellipses', () => {
+    const rows = balancedFooterLegendRows(
+      '↑/↓ or j/k/p move · Enter choose/create/edit · n new · Space toggle · g Guard · x twice delete · t station test · r repair · b Overview',
+      '←/→ tabs · ? help · q quit',
+      48,
+      2,
+      8
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row => displayWidth(row) <= 48)).toBe(true);
+    expect(rows.join('\n')).not.toContain('…');
+    expect(rows.join('\n')).toMatch(/(?:^| · )\?(?: help)?(?: · |$)/m);
+    expect(rows.join('\n')).toMatch(/(?:^| · )q(?: quit)?(?: · |$)/m);
+    expect(displayWidth(rows[1] ?? '')).toBeLessThanOrEqual(40);
+    expect(rows.join('\n')).not.toContain('v0.2.1');
+    expect(rows.every(row => row.trim().length > 0)).toBe(true);
+  });
+
+  it('uses key-only legends in micro layouts', () => {
+    const text = microShortcutFooterText('↑/↓ or j/k/p move · Enter choose/create/edit · n new · Space toggle · g Guard', 26);
+    expect(displayWidth(text)).toBeLessThanOrEqual(26);
+    expect(text).toContain('↑/↓/j/k/p');
+    expect(text).toContain('←/→');
+    expect(text).toContain('?');
+    expect(text).toContain('q');
+    expect(text).not.toMatch(/move|select|help|quit/);
+    expect(text).not.toContain('…');
   });
 
   it('advertises full now-playing controls for mpv', () => {

@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",
@@ -47,6 +47,8 @@
     "check:whitespace": "node scripts/whitespace-check.mjs",
     "check:exports": "knip",
     "check:package": "publint",
+    "audit:runtime": "node scripts/audit-ci.mjs --omit=dev --omit=optional --audit-level=high",
+    "audit:docs": "node scripts/audit-ci.mjs --prefix=apps/docs --omit=dev --audit-level=high",
     "lint": "npm run check:unused && npm run check:whitespace && npm run check:exports",
     "docs:dev": "npm --prefix apps/docs run dev",
     "docs:build": "npm --prefix apps/docs run build",

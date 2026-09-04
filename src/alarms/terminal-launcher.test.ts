@@ -1,0 +1,49 @@
+import {EventEmitter} from 'node:events';
+import {spawn as nodeSpawn,type ChildProcess} from 'node:child_process';
+import {describe,expect,it,vi} from 'vitest';
+import {detectAlarmTerminal,openAlarmControls,prepareAlarmTerminalAccess,verifyAlarmTerminalLaunch} from './terminal-launcher.js';
+
+function spawnRecorder(){
+  const calls:Array<{command:string;args:readonly string[]}>=[];
+  const spawn=vi.fn((command:string,args:readonly string[])=>{calls.push({command,args});const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();queueMicrotask(()=>child.emit('spawn'));return child;});
+  return{calls,spawn};
+}
+
+describe('alarm terminal launcher',()=>{
+  it('remembers recognizable terminal emulators per platform',()=>{
+    expect(detectAlarmTerminal('darwin',{TERM_PROGRAM:'iTerm.app'})).toBe('darwin:iterm');
+    expect(detectAlarmTerminal('darwin',{})).toBe('darwin:apple-terminal');
+    expect(detectAlarmTerminal('win32',{WT_SESSION:'1'})).toBe('win32:windows-terminal');
+    expect(detectAlarmTerminal('win32',{})).toBe('win32:console');
+  });
+
+  it('opens Apple Terminal with RadioCLI and its saved data home',async()=>{
+    const recorded=spawnRecorder();
+    const result=await openAlarmControls({platform:'darwin',env:{RADIOCLI_ALARM_TERMINAL:'darwin:apple-terminal',RADIOCLI_HOME:"/Data/O'Brien"},nodePath:'/usr/bin/node',cliPath:'/app/cli.js',spawn:recorded.spawn});
+    expect(result.opened).toBe(true);
+    expect(recorded.calls[0]?.command).toBe('/usr/bin/osascript');
+    expect(recorded.calls[0]?.args.at(-1)).toContain("RADIOCLI_HOME='/Data/O'\\''Brien'");
+    expect(recorded.calls[0]?.args.at(-1)).toContain("'/app/cli.js'");
+  });
+
+  it('opens the saved Windows Terminal profile in a new RadioCLI tab',async()=>{
+    const recorded=spawnRecorder();
+    await openAlarmControls({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:windows-terminal'},nodePath:'C:\\Node\\node.exe',cliPath:'C:\\RadioCLI\\cli.js',spawn:recorded.spawn});
+    expect(recorded.calls[0]).toEqual({command:'wt.exe',args:['-w','new','new-tab','--title','RadioCLI Alarm','C:\\Node\\node.exe','C:\\RadioCLI\\cli.js']});
+  });
+
+  it('does not open a second terminal when a RadioCLI TUI is already live',async()=>{
+    const recorded=spawnRecorder();
+    const result=await openAlarmControls({platform:'linux',env:{RADIOCLI_ALARM_TERMINAL:'linux:/usr/bin/kitty'},nodePath:'/node',cliPath:'/cli.js',spawn:recorded.spawn,hasLiveTui:()=>true});
+    expect(result).toMatchObject({opened:false,terminal:'existing-tui'});
+    expect(recorded.spawn).not.toHaveBeenCalled();
+  });
+
+  it('requests macOS terminal Automation access during setup rather than at firing time',async()=>{const calls:Array<{command:string;args:readonly string[]}>=[];const spawn=vi.fn((command:string,args:readonly string[])=>{calls.push({command,args});const child=new EventEmitter() as ChildProcess;queueMicrotask(()=>child.emit('close',0));return child;});await prepareAlarmTerminalAccess({platform:'darwin',env:{RADIOCLI_ALARM_TERMINAL:'darwin:apple-terminal'},spawn});expect(calls[0]).toEqual({command:'/usr/bin/osascript',args:['-e','tell application "Terminal" to count windows']});});
+
+  it('surfaces a denied macOS terminal permission without affecting other platforms',async()=>{const spawn=vi.fn(()=>{const child=new EventEmitter() as ChildProcess;queueMicrotask(()=>child.emit('close',1));return child;});await expect(prepareAlarmTerminalAccess({platform:'darwin',env:{RADIOCLI_ALARM_TERMINAL:'darwin:apple-terminal'},spawn})).rejects.toThrow(/permission.*automatic ringing controls/i);await expect(prepareAlarmTerminalAccess({platform:'win32',spawn})).resolves.toBeUndefined();expect(spawn).toHaveBeenCalledOnce();});
+
+  it('rejects setup verification when no graphical terminal can expose ringing controls',async()=>{await expect(verifyAlarmTerminalLaunch({platform:'freebsd',timeoutMs:10})).rejects.toThrow(/no supported graphical terminal/i);});
+
+  it('requires the launched terminal process to complete an authenticated callback',async()=>{const launch=vi.fn((_command:string,args:readonly string[])=>{const index=args.indexOf(process.execPath);expect(index).toBeGreaterThanOrEqual(0);return nodeSpawn(process.execPath,args.slice(index+1),{stdio:'ignore'});});await expect(verifyAlarmTerminalLaunch({platform:'win32',env:{WT_SESSION:'test'},nodePath:process.execPath,spawn:launch,timeoutMs:2_000})).resolves.toBe('win32:windows-terminal');expect(launch).toHaveBeenCalledOnce();});
+});

@@ -14,14 +14,62 @@ src/cli.tsx
       -> provider manager
       -> player controller
       -> JSON library store
+      -> alarm TUI service
       -> Ink screens/components
+  -> src/alarms/cli.ts
+      -> native scheduler adapter
+      -> alarm runner + local control session
+      -> power inhibitor / Alarm Guard
 ```
 
 The CLI has two modes:
 
 - Interactive TUI: `radiocli`
 - Command mode: `radiocli search "tokyo jazz"`, `radiocli check`,
-  `radiocli import stations.m3u`
+  `radiocli import stations.m3u`, `radiocli alarm doctor`
+
+## Alarm Runtime
+
+Alarm definitions are portable library data, while delivery is rebuilt from
+machine-local runtime components:
+
+```text
+alarm definition in JSON library
+  -> next occurrence (absolute instant or IANA civil schedule)
+  -> native per-user scheduler registration
+  -> detached radiocli alarm internal-run process
+  -> provider resolution + local PlayerController
+  -> authenticated loopback ringing controls
+  -> run outcome + next native registration
+```
+
+`SchedulerService` chooses launchd on macOS, Task Scheduler on native Windows,
+or systemd user timers on Linux. Each native job names one exact occurrence.
+The runner validates that occurrence against the latest alarm before playing,
+uses an occurrence lock to suppress duplicate dispatch, records the result, and
+then installs the next occurrence. A four-worker bound keeps bulk synchronization
+from spawning unbounded native commands.
+
+Recurring schedules store `HH:mm`, ISO weekdays, and an IANA timezone. Civil
+time is resolved one minute at a time: a spring-forward gap advances to the
+first valid minute on that civil date, while a fall-back overlap fires only the
+first matching instant. One-time schedules are absolute ISO instants at minute
+precision. The scheduler must be resynchronized after the host timezone changes
+because native registrations contain the already-resolved next instant.
+
+The runner attempts the primary station twice before an optional fallback,
+enforces missed-run grace, inhibits sleep while audio is playing, and stops at
+the configured deadline unless the user chooses Keep playing. Scheduled output
+always resets to local playback; an AirPlay receiver is never selected
+unattended. Fade-in is real volume automation only with `mpv`; fallback players
+start at the configured target volume.
+
+Alarm Guard is a second detached process, separate from native scheduling. It
+holds the platform idle-sleep inhibitor until just after the next occurrence and
+uses an authenticated loopback ownership challenge so stale PID files cannot
+cause an unrelated process to be signaled. Guard state, scheduler health,
+occurrence locks, and active-control discovery are operational machine state,
+not portable library state.
 
 ## Provider Layer
 
@@ -109,6 +157,7 @@ The TUI is an Ink app with explicit screens:
 - World map
 - Nearby
 - Stats
+- Alarms list, editor, station picker, and ringing controls
 - Settings
 
 `computeTerminalLayout()` converts terminal dimensions into list sizes, receiver
@@ -146,6 +195,7 @@ The store is local JSON. It keeps:
 - favorites
 - imported stations
 - listening activity
+- alarm definitions, next snooze override, and recent run outcome
 - settings
 
 Corrupt store/cache files are renamed with a `.bad-*` suffix before defaults are
@@ -153,6 +203,12 @@ used, so user data is not silently overwritten.
 
 Writes use a temp-file-and-rename flow so interrupted writes are less likely to
 leave partial JSON behind.
+
+Full library backup/restore includes alarm definitions. Native scheduler files,
+runtime health, Alarm Guard state, occurrence locks, and authenticated local
+control discovery files live under OS-specific machine-local locations and are
+excluded. Restored alarms therefore require `radiocli alarm sync` on the target
+machine.
 
 Related reading: [Reliability](./reliability.mdx), [Design](./design.mdx), and
 [Privacy and Security](./privacy-security.mdx).

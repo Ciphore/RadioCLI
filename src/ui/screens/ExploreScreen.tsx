@@ -9,6 +9,7 @@ import {ScreenHeader} from '../components/ScreenHeader.js';
 import {exploreMapLand, mapMarker, panelBorder, textMuted, themeAccent} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
+import {truncate} from '../format.js';
 
 type ExploreScreenProps = {
   title: string;
@@ -16,6 +17,7 @@ type ExploreScreenProps = {
   stations: Station[];
   selected: number;
   loading: boolean;
+  error?: string;
   theme: ThemeName;
   favorites: Set<string>;
   filterLabel: string;
@@ -31,6 +33,7 @@ export function ExploreScreen({
   stations,
   selected,
   loading,
+  error,
   theme,
   favorites,
   filterLabel,
@@ -40,7 +43,7 @@ export function ExploreScreen({
   height
 }: ExploreScreenProps): React.ReactElement {
   const {panel: panelBackground, ascii} = useDisplay();
-  const {contentWidth, headerRows, bodyRows, split, listPanelWidth, mapPanelWidth, mapRows, mapColumns, listRows, listPageSize} =
+  const {contentWidth, headerRows, bodyRows, split, listPanelWidth, mapPanelWidth, mapRows, mapColumns, mapOffsetX, listRows, listPageSize} =
     computeExploreMapLayout(width, height, pageSize);
   const cursorMarker = React.useMemo(
     () => [{lat: cursor.latitude, lon: cursor.longitude, selected: true}],
@@ -69,9 +72,11 @@ export function ExploreScreen({
           height={split ? bodyRows : mapRows + 2}
           flexDirection="column"
         >
-          {map.map((row, index) => (
-            <CosmoMapLine key={`map-${index}`} row={row} theme={theme} />
-          ))}
+          <Box marginLeft={mapOffsetX} flexDirection="column" flexShrink={0}>
+            {map.map((row, index) => (
+              <CosmoMapLine key={`map-${index}`} row={row} theme={theme} />
+            ))}
+          </Box>
         </Box>
         <Box
           marginLeft={split ? 1 : 0}
@@ -91,19 +96,25 @@ export function ExploreScreen({
             <Text color={textMuted}>{stations.length.toLocaleString()}</Text>
           </Box>
           <Box height={1} flexShrink={0}>
-            <Text color={textMuted}>{loading ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…') : ' '}</Text>
+            <Text color={textMuted}>
+              {loading
+                ? (ascii ? toAsciiSafe('Loading stations…') : 'Loading stations…')
+                : error
+                  ? truncate(ascii ? toAsciiSafe(error) : error, Math.max(1, listPanelWidth - 2))
+                  : ' '}
+            </Text>
           </Box>
-          <StationList
+          {(!loading || stations.length > 0) && (stations.length > 0 || !error) ? <StationList
               stations={stations}
               selected={selected}
               theme={theme}
               favorites={favorites}
               pageSize={listPageSize}
-              width={Math.max(42, listPanelWidth - 2)}
+              width={Math.max(1, listPanelWidth - 2)}
               showCount={false}
-              emptyTitle={loading ? 'Loading stations…' : 'No stations near this point.'}
+              emptyTitle="No stations near this point."
               emptyHint="Move the map cursor to explore another area."
-            />
+            /> : null}
         </Box>
       </Box>
     </Box>

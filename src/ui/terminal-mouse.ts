@@ -1,6 +1,7 @@
 import type {ExploreCursor} from './app-state.js';
 import {cosmoCoordinateForCell} from './cosmo-world-map.js';
 import {computeExploreMapLayout} from './explore-map-layout.js';
+import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adaptive-explore-layout.js';
 import type {TerminalLayout} from './layout.js';
 import type {Screen} from '../types.js';
 
@@ -45,7 +46,8 @@ export function parseTerminalMouseEvents(input: string | Uint8Array): TerminalMo
 
 const selectableMouseScreens = new Set<Screen>([
   'home', 'countries', 'map', 'stations', 'search', 'nearby', 'explore',
-  'library', 'settings', 'help', 'airplay-settings'
+  'library', 'settings', 'help', 'airplay-settings', 'alarms', 'alarm-editor',
+  'alarm-picker', 'alarm-ringing'
 ]);
 
 export function shouldEnableMouseReporting(
@@ -89,7 +91,19 @@ export function exploreCursorForMouseCell(
   layout: TerminalLayout
 ): ExploreCursor | null {
   if (layout.compact) {
-    return null;
+    const mode = layout.mode === 'micro' ? 'micro' : 'compact';
+    const frame = adaptiveExploreFrameMetrics(mode, layout.contentRows);
+    if (frame.bodyRows <= 0) return null;
+    const mapLayout = computeAdaptiveExploreLayout(mode, frameWidth, frame.bodyRows);
+    const contentLeft = layout.horizontalPadding + 1;
+    const mapInnerLeft = contentLeft + mapLayout.mapOffsetX;
+    const mapInnerTop = 1 + frame.headerRows + frame.headerGap;
+    const col = Math.floor(x - mapInnerLeft);
+    const row = Math.floor(y - mapInnerTop);
+    if (col < 0 || col >= mapLayout.mapColumns || row < 0 || row >= mapLayout.mapRows) return null;
+
+    const coordinate = cosmoCoordinateForCell(col, row, mapLayout.mapColumns, mapLayout.mapRows);
+    return {latitude: coordinate.lat, longitude: coordinate.lon};
   }
 
   const mapLayout = computeExploreMapLayout(frameWidth, layout.contentRows, layout.stationRows);
@@ -97,7 +111,7 @@ export function exploreCursorForMouseCell(
   const contentTop = layout.topRows + 1;
   const mapOuterLeft = contentLeft;
   const mapOuterTop = contentTop + mapLayout.headerRows + 1;
-  const mapInnerLeft = mapOuterLeft + 1;
+  const mapInnerLeft = mapOuterLeft + 1 + mapLayout.mapOffsetX;
   const mapInnerTop = mapOuterTop + 1;
   const col = Math.floor(x - mapInnerLeft);
   const row = Math.floor(y - mapInnerTop);

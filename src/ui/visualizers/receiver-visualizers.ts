@@ -42,7 +42,7 @@ const receiverStyleBuilders = {
   starfield: buildAsciiStarfield,
   mesh: buildMesh,
   ribbon: buildRibbon,
-  mirror: buildMirror,
+  equalizer: buildEqualizer,
   tunnel: buildTunnel,
   kaleidoscope: buildKaleidoscope,
   constellation: buildConstellation,
@@ -251,9 +251,88 @@ function buildFlatZeroSignal(width: number, requestedHeight: number, theme: Them
   }));
 }
 
+function buildEqualizer(
+  pulse: number,
+  width: number,
+  height: number,
+  theme: ThemeName
+): VisualLine[] {
+  const accent = themeAccent(theme);
+  const bandWidth = 3;
+  const bandCount = Math.floor((width - 2) / bandWidth);
+
+  const levels = Array.from({length: bandCount}, (_, i) => {
+    const low = Math.sin(i * 0.18 + pulse * 0.46);
+    const mid = Math.cos(i * 0.32 - pulse * 0.28);
+    const high = Math.sin(i * 0.45 + pulse * 0.68);
+    const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
+    const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
+    return Math.round(eased * height);
+  });
+
+  const peaks = Array.from({length: bandCount}, (_, i) => {
+    let maxLvl = 0;
+    for (let k = 0; k < 8; k++) {
+      const p = (pulse - k + 240) % 240;
+      const low = Math.sin(i * 0.18 + p * 0.46);
+      const mid = Math.cos(i * 0.32 - p * 0.28);
+      const high = Math.sin(i * 0.45 + p * 0.68);
+      const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
+      const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
+      const lvl = Math.round(eased * height);
+      if (lvl > maxLvl) {
+        maxLvl = lvl;
+      }
+    }
+    return maxLvl;
+  });
+
+  const rows: VisualLine[] = [];
+  const colors = themeContributionColors(theme);
+
+  for (let rowIndex = 0; rowIndex < height; rowIndex++) {
+    const threshold = height - rowIndex;
+    let rowText = ' ';
+
+    for (let i = 0; i < bandCount; i++) {
+      const lvl = levels[i]!;
+      const peak = peaks[i]!;
+
+      let bandChar = '  ';
+      if (lvl >= threshold) {
+        bandChar = '██';
+      } else if (peak === threshold) {
+        bandChar = '◆◆';
+      } else {
+        bandChar = '··';
+      }
+
+      rowText += bandChar + ' ';
+    }
+
+    let color = colors[2] ?? accent;
+    if (rowIndex < Math.max(1, height * 0.3)) {
+      color = '#ff5f87';
+    } else if (rowIndex < Math.max(2, height * 0.6)) {
+      color = colors[4] ?? accent;
+    } else {
+      color = colors[3] ?? accent;
+    }
+
+    rows.push({
+      text: rowText.padEnd(width).slice(0, width),
+      color
+    });
+  }
+
+  return rows;
+}
+
 const ultracodeWavelength = 20;
 const ultracodeTravelPerPulse = 80 * 0.03;
 const ultracodeVioletRamp = ['#3e1676', '#491e87', '#542799', '#5f2faa', '#6b37bc', '#763fcd', '#8148df', '#8c50f0'];
+const ultracodeDistanceCache = new Map<string, Float64Array>();
+const ultracodeRampCache = new Map<ThemeName, string[]>();
 
 function buildUltracode(
   pulse: number,
@@ -267,33 +346,50 @@ function buildUltracode(
   const ramp = ultracodeRippleRamp(theme);
   const selectedColor = ramp[ramp.length - 1] ?? accent;
   const travel = pulse * ultracodeTravelPerPulse;
-  const originColumn = Math.floor(renderWidth / 2);
-  const originRow = Math.floor(renderHeight / 2);
+  const distances = ultracodeDistances(renderWidth, renderHeight);
+  const blank = ' '.repeat(renderWidth);
   const rows = Array.from({length: renderHeight}, (_, rowIndex) => {
-    const cells: VisualCell[] = Array.from({length: renderWidth}, (_, columnIndex) => {
+    const segments: VisualSegment[] = [];
+    for (let columnIndex = 0; columnIndex < renderWidth; columnIndex += 1) {
       const level = ultracodeRippleLevel(
-        ultracodeDistance(columnIndex, rowIndex, originColumn, originRow),
+        distances[rowIndex * renderWidth + columnIndex] ?? 0,
         travel,
         ramp.length
       );
+      const color = level === null ? accent : selectedColor;
+      const backgroundColor = level === null ? undefined : ramp[level] ?? selectedColor;
+      const previous = segments.at(-1);
+      if (previous?.color === color && previous.backgroundColor === backgroundColor && previous.bold === undefined) {
+        previous.text += ' ';
+      } else {
+        segments.push({text: ' ', color, backgroundColor, bold: undefined});
+      }
+    }
 
-      return {
-        text: ' ',
-        color: level === null ? accent : selectedColor,
-        backgroundColor: level === null ? undefined : ramp[level] ?? selectedColor
-      };
-    });
-
-    return lineFromCells(cells, accent);
+    return {text: blank, color: accent, segments};
   });
 
   return rows;
 }
 
-function ultracodeDistance(column: number, row: number, originColumn: number, originRow: number): number {
-  const dx = column - originColumn;
-  const dy = (row - originRow) * 2;
-  return Math.sqrt(dx * dx + dy * dy);
+function ultracodeDistances(width: number, height: number): Float64Array {
+  const key = `${width}x${height}`;
+  const cached = ultracodeDistanceCache.get(key);
+  if (cached) return cached;
+
+  const originColumn = Math.floor(width / 2);
+  const originRow = Math.floor(height / 2);
+  const distances = new Float64Array(width * height);
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const dx = column - originColumn;
+      const dy = (row - originRow) * 2;
+      distances[row * width + column] = Math.sqrt(dx * dx + dy * dy);
+    }
+  }
+
+  rememberGeometry(ultracodeDistanceCache, key, distances);
+  return distances;
 }
 
 function ultracodeRippleLevel(distance: number, travel: number, rampLength: number): number | null {
@@ -311,10 +407,15 @@ function ultracodeRippleRamp(theme: ThemeName): string[] {
     return ultracodeVioletRamp;
   }
 
+  const cached = ultracodeRampCache.get(theme);
+  if (cached) return cached;
+
   const colors = themeContributionColors(theme);
   const start = colors[1] ?? '#1c1c1c';
   const end = themeAccent(theme);
-  return Array.from({length: 8}, (_, index) => interpolateHex(start, end, index / 7));
+  const ramp = Array.from({length: 8}, (_, index) => interpolateHex(start, end, index / 7));
+  ultracodeRampCache.set(theme, ramp);
+  return ramp;
 }
 
 type Rgb = [number, number, number];
@@ -657,6 +758,18 @@ function buildAsciiFire(
   // A few additional overlapping plumes keep the center lively without
   // widening the compact hearth silhouette.
   const plumeCount = Math.max(7, Math.min(11, Math.round(width / 13)));
+  const plumes = Array.from({length: plumeCount}, (_, index) => {
+    const phase = hashNoise(index, 3, 0) * Math.PI * 2;
+    return {
+      index,
+      phase,
+      baseCenter: fireLeft + ((index + 0.5) / plumeCount) * fireSpan,
+      flameHeight:
+        0.46 + hashNoise(index, 4, 0) * 0.39 + bass * 0.045 + Math.sin(pulse * 0.052 + phase) * 0.055,
+      swaySpeed: 0.038 + hashNoise(index, 5, 0) * 0.02,
+      baseHalfWidth: fireSpan * (0.095 + hashNoise(index, 6, 0) * 0.035)
+    };
+  });
   const embers = Array.from({length: Math.max(4, Math.round(width / 18))}, (_, index) => {
     const cycle = height + 5 + Math.floor(hashNoise(index, 18, 0) * height);
     const travel = (pulse * (0.13 + hashNoise(index, 19, 0) * 0.1) + hashNoise(index, 20, 0) * cycle) % cycle;
@@ -669,38 +782,36 @@ function buildAsciiFire(
 
   for (let y = 0; y < height; y += 1) {
     const rise = (height - 1 - y) / Math.max(1, height - 1);
+    const activePlumes = plumes.flatMap(plume => {
+      if (rise > plume.flameHeight) return [];
+      const vertical = rise / Math.max(0.01, plume.flameHeight);
+      const sway =
+        Math.sin(pulse * plume.swaySpeed + plume.phase + vertical * 3.4) *
+          (0.005 + vertical * 0.026) +
+        Math.sin(vertical * 8.5 - pulse * 0.09 + plume.index) * vertical * 0.008;
+      return [{
+        ...plume,
+        vertical,
+        center: plume.baseCenter + sway,
+        halfWidth: Math.max(0.002, plume.baseHalfWidth * (0.18 + 0.82 * Math.pow(1 - vertical, 0.7)))
+      }];
+    });
     for (let x = 0; x < width; x += 1) {
       const nx = x / Math.max(1, width - 1);
       let heat = 0;
 
-      for (let index = 0; index < plumeCount; index += 1) {
-        const phase = hashNoise(index, 3, 0) * Math.PI * 2;
-        const baseCenter = fireLeft + ((index + 0.5) / plumeCount) * fireSpan;
-        const flameHeight =
-          0.46 + hashNoise(index, 4, 0) * 0.39 + bass * 0.045 + Math.sin(pulse * 0.052 + phase) * 0.055;
-        if (rise > flameHeight) {
-          continue;
-        }
-
-        const vertical = rise / Math.max(0.01, flameHeight);
-        const sway =
-          Math.sin(pulse * (0.038 + hashNoise(index, 5, 0) * 0.02) + phase + vertical * 3.4) *
-            (0.005 + vertical * 0.026) +
-          Math.sin(vertical * 8.5 - pulse * 0.09 + index) * vertical * 0.008;
-        const center = baseCenter + sway;
-        const baseHalfWidth = fireSpan * (0.095 + hashNoise(index, 6, 0) * 0.035);
-        const halfWidth = Math.max(0.002, baseHalfWidth * (0.18 + 0.82 * Math.pow(1 - vertical, 0.7)));
-        const lateral = Math.abs(nx - center) / halfWidth;
+      for (const plume of activePlumes) {
+        const lateral = Math.abs(nx - plume.center) / plume.halfWidth;
         if (lateral >= 1.15) {
           continue;
         }
 
-        const body = Math.exp(-lateral * lateral * 1.7) * (1 - vertical * 0.3);
+        const body = Math.exp(-lateral * lateral * 1.7) * (1 - plume.vertical * 0.3);
         const upwardCurl =
-          Math.sin(x * 0.31 + rise * 13 - pulse * 0.17 + phase) * 0.1 +
+          Math.sin(x * 0.31 + rise * 13 - pulse * 0.17 + plume.phase) * 0.1 +
           Math.sin(x * 0.67 - rise * 19 - pulse * 0.11) * 0.055;
-        const breakup = hashNoise(Math.floor(x / 2), Math.floor(y / 2), index) * 0.07;
-        const contribution = Math.max(0, body + upwardCurl + breakup - vertical * 0.1);
+        const breakup = hashNoise(Math.floor(x / 2), Math.floor(y / 2), plume.index) * 0.07;
+        const contribution = Math.max(0, body + upwardCurl + breakup - plume.vertical * 0.1);
         heat += contribution * 0.68;
       }
 
@@ -948,17 +1059,14 @@ function buildAsciiStarfield(
 ): VisualLine[] {
   const accent = themeAccent(theme);
   const ramp = themeContributionColors(theme);
-  const cx = (width - 1) / 2;
-  const cy = (height - 1) / 2;
+  const geometry = starfieldGeometry(width, height);
 
   // Dense multi-layer warp field: dust nebula + mid stars + near streaks + flares
   return Array.from({length: height}, (_, y) => {
     const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
-      const dx = x - cx;
-      const dy = (y - cy) * 2.05;
-      const angle = Math.atan2(dy, dx);
-      const dist = Math.sqrt(dx * dx + dy * dy) + 0.001;
-      const maxDist = Math.sqrt(cx * cx + (cy * 2.05) ** 2);
+      const cellIndex = y * width + x;
+      const angle = geometry.angle[cellIndex] ?? 0;
+      const dist = geometry.distance[cellIndex] ?? 0.001;
 
       // Soft nebula dust so the void isn't empty
       const nebula =
@@ -976,18 +1084,15 @@ function buildAsciiStarfield(
       for (let layer = 0; layer < 4; layer += 1) {
         const layerSpeed = 0.35 + layer * 0.55;
         // Quantize angle into star "lanes" so stars feel discrete
-        const laneCount = 48 + layer * 36;
-        const lane = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * laneCount);
-        const laneAngle = (lane / laneCount) * Math.PI * 2 - Math.PI;
-        const angDiff = Math.abs(Math.atan2(Math.sin(angle - laneAngle), Math.cos(angle - laneAngle)));
+        const angDiff = geometry.angularDifference[layer]?.[cellIndex] ?? Math.PI;
         if (angDiff > 0.04 + layer * 0.01) {
           continue;
         }
 
-        const seed = lane * 17 + layer * 91;
-        const phase = hashNoise(seed, layer, 0);
+        const seed = geometry.seed[layer]?.[cellIndex] ?? 0;
+        const phase = geometry.phase[layer]?.[cellIndex] ?? 0;
         const depth = ((pulse * layerSpeed * 0.45 + phase * 40 + seed) % 100) / 100;
-        const starDist = Math.pow(depth, 1.55) * maxDist * (0.15 + phase * 0.85);
+        const starDist = Math.pow(depth, 1.55) * geometry.maxDistance * (0.15 + phase * 0.85);
         const along = Math.abs(dist - starDist);
         // Near stars elongate into streaks
         const streak = layer >= 2 ? 0.8 + depth * 4.5 : 0.35 + depth * 1.2;
@@ -1113,65 +1218,6 @@ function buildRibbon(
       const glyph = shade > 0.66 ? '█' : shade > 0.36 ? '▓' : '▒';
       const colorIndex = Math.min(palette.length - 1, Math.max(1, Math.round(shade * (palette.length - 1))));
       paintCell(grid, x, y, glyph, palette[colorIndex] ?? accent);
-    }
-  }
-
-  return grid.map(row => lineFromCells(row, accent));
-}
-
-function buildMirror(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const grid = emptyMotionGrid(width, height, '#0a0e16');
-  const colors = themeContributionColors(theme);
-  const accent = themeAccent(theme);
-  const baseY = Math.round((height - 1) * 0.66);
-  const bandWidth = 2;
-  const bands = Math.ceil((width + 1) / bandWidth);
-  const sample = (band: number, p: number): number =>
-    clampNumber(
-      (Math.sin(band * 0.4 + p * 0.3) * 0.42 +
-        Math.sin(band * 0.13 - p * 0.18) * 0.34 +
-        Math.sin(band * 0.66 + p * 0.52) * 0.24 +
-        1) /
-        2,
-      0,
-      1
-    );
-
-  for (let band = 0; band < bands; band += 1) {
-    const x = band * bandWidth;
-    const up = Math.round(sample(band, pulse) * baseY);
-    let peak = 0;
-    for (let k = 0; k < 10; k += 1) {
-      peak = Math.max(peak, Math.round(sample(band, pulse - k) * baseY));
-    }
-
-    for (let d = 0; d <= up; d += 1) {
-      const frac = d / Math.max(1, baseY);
-      const colorIndex = Math.min(colors.length - 1, 1 + Math.round(frac * (colors.length - 2)));
-      paintCell(grid, x, baseY - d, '█', colors[colorIndex] ?? accent);
-    }
-
-    const reflection = Math.round(up * 0.45);
-    for (let d = 1; d <= reflection; d += 1) {
-      paintCell(grid, x, baseY + d, d > reflection - 1 ? '░' : '▒', '#27313d');
-    }
-
-    if (peak > 0) {
-      paintCell(grid, x, baseY - peak, '▀', '#ffffff');
-    }
-  }
-
-  const baseline = grid[baseY];
-  if (baseline) {
-    for (let x = 0; x < width; x += 1) {
-      if (baseline[x]?.text === ' ') {
-        paintCell(grid, x, baseY, '─', '#1d2530');
-      }
     }
   }
 
@@ -1304,35 +1350,31 @@ function buildPulseGrid(
   height: number,
   theme: ThemeName
 ): VisualLine[] {
-  const canvas = createBraille(width, height);
+  const grid = emptyMotionGrid(width, height, '#0a0e16');
   const accent = themeAccent(theme);
   const colors = themeContributionColors(theme);
-  const dotsWide = Math.max(1, width * 2);
-  const dotsHigh = Math.max(1, height * 4);
-  const cx = (dotsWide - 1) / 2;
-  const cy = (dotsHigh - 1) / 2;
-  const ringGap = Math.max(5, Math.min(dotsWide, dotsHigh) * 0.24);
-  const travel = (pulse * 0.65) % ringGap;
-  const stroke = Math.max(0.65, ringGap * 0.1);
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  const levels = ['·', '∘', '•', '●', '◉'];
 
-  for (let y = 0; y < dotsHigh; y += 1) {
-    for (let x = 0; x < dotsWide; x += 1) {
-      const radius = Math.hypot(x - cx, y - cy);
-      const phase = ((radius - travel) % ringGap + ringGap) % ringGap;
-      const distanceToRing = Math.min(phase, ringGap - phase);
-      if (distanceToRing > stroke) continue;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x % 2 === 1) {
+        continue;
+      }
 
-      const ring = Math.floor((radius + ringGap - travel) / ringGap);
-      const intensity = 1 - distanceToRing / stroke;
-      const colorIndex = Math.min(
-        colors.length - 1,
-        Math.max(1, colors.length - 1 - (ring % Math.max(1, colors.length - 1)))
-      );
-      brailleSet(canvas, x, y, intensity > 0.82 ? '#ffffff' : colors[colorIndex] ?? accent);
+      const dx = (x - cx) / 2.0;
+      const dy = y - cy;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      const wave = Math.sin(r * 0.7 - pulse * 0.3) * 0.5 + 0.5;
+      const value = clampNumber(wave, 0, 1);
+      const levelIndex = Math.min(levels.length - 1, Math.floor(value * levels.length));
+      const colorIndex = Math.min(colors.length - 1, Math.max(1, Math.round(value * (colors.length - 1))));
+      paintCell(grid, x, y, levels[levelIndex] ?? '·', value > 0.16 ? colors[colorIndex] ?? accent : '#1a2029');
     }
   }
 
-  return brailleToLines(canvas, accent);
+  return grid.map(row => lineFromCells(row, accent));
 }
 
 function buildLissajous(
@@ -2595,33 +2637,35 @@ function buildAurora(
 
   return Array.from({length: height}, (_, y) => {
     const ny = y / Math.max(1, height - 1);
+    const curtainRows = Array.from({length: curtains}, (_, c) => {
+      const fold =
+        0.08 +
+        c * 0.15 +
+        0.06 * Math.sin(pulse * 0.035 + c * 1.9) +
+        0.03 * Math.sin(y * 0.28 + pulse * 0.05 + c) +
+        0.02 * Math.sin(y * 0.55 - pulse * 0.04 + c * 0.7);
+      const halfWidth = 0.045 + 0.02 * Math.sin(pulse * 0.03 + c) + 0.015 * Math.sin(y * 0.4 + c);
+      const vertical =
+        0.35 +
+        0.65 * Math.sin(Math.PI * clampNumber(ny * 1.15 - 0.05, 0, 1)) *
+          (0.7 + 0.3 * Math.sin(pulse * 0.06 + c * 1.1 + y * 0.15));
+      return {c, fold, halfWidth, vertical};
+    });
     const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
       const nx = x / Math.max(1, width - 1);
       let field = 0;
       let filament = 0;
 
-      for (let c = 0; c < curtains; c += 1) {
-        // Curtain folds drift slowly; each sheet has different phase & width
-        const fold =
-          0.08 +
-          c * 0.15 +
-          0.06 * Math.sin(pulse * 0.035 + c * 1.9) +
-          0.03 * Math.sin(y * 0.28 + pulse * 0.05 + c) +
-          0.02 * Math.sin(y * 0.55 - pulse * 0.04 + c * 0.7);
-        const halfWidth = 0.045 + 0.02 * Math.sin(pulse * 0.03 + c) + 0.015 * Math.sin(y * 0.4 + c);
-        const dist = Math.abs(nx - fold);
+      for (const curtain of curtainRows) {
+        // Curtain folds drift slowly; each sheet has different phase & width.
+        const dist = Math.abs(nx - curtain.fold);
         // Soft body of the curtain (filled, not holey)
-        const body = Math.exp(-Math.pow(dist / halfWidth, 2));
-        // Vertical brightness: bright mid-band, dimmer top & bottom edge
-        const vertical =
-          0.35 +
-          0.65 * Math.sin(Math.PI * clampNumber(ny * 1.15 - 0.05, 0, 1)) *
-            (0.7 + 0.3 * Math.sin(pulse * 0.06 + c * 1.1 + y * 0.15));
-        field += body * vertical * (0.85 + 0.15 * Math.sin(pulse * 0.08 + c));
+        const body = Math.exp(-Math.pow(dist / curtain.halfWidth, 2));
+        field += body * curtain.vertical * (0.85 + 0.15 * Math.sin(pulse * 0.08 + curtain.c));
 
         // Fine vertical filaments inside the curtain
         if (body > 0.15) {
-          const micro = Math.sin(x * (2.8 + c * 0.4) + pulse * 0.25 + y * 0.1);
+          const micro = Math.sin(x * (2.8 + curtain.c * 0.4) + pulse * 0.25 + y * 0.1);
           filament += body * Math.max(0, micro) * 0.35;
         }
       }
@@ -5147,10 +5191,11 @@ function rgbColor(red: number, green: number, blue: number): string {
 }
 
 function lineFromCells(cells: VisualCell[], fallbackColor: string): VisualLine {
-  const text = cells.map(cell => cell.text).join('');
+  let text = '';
   const segments: VisualSegment[] = [];
 
   for (const cell of cells) {
+    text += cell.text;
     const invisibleForeground = cell.text.trim() === '' && cell.backgroundColor === undefined;
     const color = invisibleForeground ? fallbackColor : cell.color;
     const bold = invisibleForeground ? undefined : cell.bold;
@@ -5369,6 +5414,68 @@ function cubeCornerGlyph(depth: number): string {
 function hashNoise(x: number, y: number, pulse: number): number {
   const value = Math.sin(x * 12.9898 + y * 78.233 + pulse * 0.037) * 43758.5453;
   return value - Math.floor(value);
+}
+
+type StarfieldGeometry = {
+  angle: Float64Array;
+  distance: Float64Array;
+  maxDistance: number;
+  angularDifference: Float64Array[];
+  seed: Int32Array[];
+  phase: Float64Array[];
+};
+
+const STARFIELD_GEOMETRY_CACHE_LIMIT = 4;
+const starfieldGeometryCache = new Map<string, StarfieldGeometry>();
+
+function starfieldGeometry(width: number, height: number): StarfieldGeometry {
+  const key = `${width}x${height}`;
+  const cached = starfieldGeometryCache.get(key);
+  if (cached) return cached;
+
+  const size = Math.max(0, width * height);
+  const angle = new Float64Array(size);
+  const distance = new Float64Array(size);
+  const angularDifference = Array.from({length: 4}, () => new Float64Array(size));
+  const seed = Array.from({length: 4}, () => new Int32Array(size));
+  const phase = Array.from({length: 4}, () => new Float64Array(size));
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  const maxDistance = Math.sqrt(cx * cx + (cy * 2.05) ** 2);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const dx = x - cx;
+      const dy = (y - cy) * 2.05;
+      const cellAngle = Math.atan2(dy, dx);
+      angle[index] = cellAngle;
+      distance[index] = Math.sqrt(dx * dx + dy * dy) + 0.001;
+      for (let layer = 0; layer < 4; layer += 1) {
+        const laneCount = 48 + layer * 36;
+        const lane = Math.floor(((cellAngle + Math.PI) / (Math.PI * 2)) * laneCount);
+        const laneAngle = (lane / laneCount) * Math.PI * 2 - Math.PI;
+        angularDifference[layer]![index] = Math.abs(
+          Math.atan2(Math.sin(cellAngle - laneAngle), Math.cos(cellAngle - laneAngle))
+        );
+        const cellSeed = lane * 17 + layer * 91;
+        seed[layer]![index] = cellSeed;
+        phase[layer]![index] = hashNoise(cellSeed, layer, 0);
+      }
+    }
+  }
+
+  const geometry = {angle, distance, maxDistance, angularDifference, seed, phase};
+  rememberGeometry(starfieldGeometryCache, key, geometry);
+  return geometry;
+}
+
+function rememberGeometry<T>(cache: Map<string, T>, key: string, value: T): void {
+  if (cache.size >= STARFIELD_GEOMETRY_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
 }
 
 function winterPrecipitationSpeed(index: number): number {

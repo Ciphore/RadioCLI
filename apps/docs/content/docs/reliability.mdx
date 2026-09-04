@@ -38,6 +38,116 @@ requirement.
 - locked, atomic local JSON writes with concurrent-process merge protection
 - defensive playlist import
 - functional compact navigation for tiny terminals
+- native per-user alarm registration on launchd, Windows Task Scheduler, and
+  systemd Linux; occurrence locks make duplicate native dispatch idempotent
+- IANA-timezone recurrence, explicit missed-run grace, primary-station retry,
+  optional fallback station, stop-after, and machine-local runtime health
+- authenticated loopback controls for alarms that began while no TUI was open
+- best-effort playback sleep inhibition and optional pre-alarm Guard
+
+## Scheduled Radio Delivery
+
+Saving an enabled alarm resolves its next occurrence and registers one native
+per-user job. The terminal can close afterward; the native scheduler starts a
+detached RadioCLI process, which validates the occurrence, plays the station,
+records the result, and registers the next run. Once authenticated local controls
+are ready, it opens the supported terminal emulator captured when the job was
+last synchronized and starts the RadioCLI TUI directly on the ringing screen.
+An already-running TUI is reused instead of opening a duplicate.
+
+For Apple Terminal and iTerm2, saving or repairing an alarm performs a harmless
+Automation check while the user is present. macOS may ask whether Node can
+control the terminal; choosing Allow enables the later ringing window. Denying
+it does not prevent headless audio, and RadioCLI immediately reports that
+automatic terminal controls need attention instead of waiting until wake time.
+When a ringing TUI starts, it discovers active playback before native scheduler
+reconciliation and never unloads, deletes, or repairs the job currently carrying
+that audio.
+
+| Platform | Native integration | Catch-up | Wake behavior |
+| --- | --- | --- | --- |
+| macOS | launchd LaunchAgent | launchd can run after wake/login | No exact-wake claim; the wake checkbox is not mapped to a privileged power event |
+| Windows | Task Scheduler interactive-token task | `StartWhenAvailable` | `WakeToRun` is requested when enabled, but hardware and power policy decide |
+| Linux with systemd user session | systemd user timer | persistent timer catches up after the user session resumes | No `WakeSystem` claim without system privileges |
+| Linux without systemd user scheduling | Unsupported | None | None |
+
+Terminal reopening supports Apple Terminal, iTerm2, WezTerm, Ghostty, and kitty
+on macOS; Windows Terminal with Command Prompt fallback on Windows; and common
+GUI terminal emulators on Linux. Integrated terminals that cannot be launched
+independently fall back to the platform terminal where possible. If a graphical
+terminal is unavailable, audio still plays and opening `radiocli` manually
+reveals the authenticated ringing controls.
+
+All three supported adapters require the computer to be powered on and the user
+to have a logged-in interactive audio session with usable local speakers. A
+powered-off machine cannot run RadioCLI. Exact behavior across ordinary sleep,
+hibernate, explicit sleep, a closed laptop lid, logout, locked sessions, battery
+policy, firmware timers, and audio-device policy cannot be guaranteed. Never use
+RadioCLI as the only alarm for safety-critical, medical, travel, or emergency
+timing.
+
+Alarm Guard is different from an OS wake request. Guard starts now and holds an
+idle-sleep inhibitor until just after the next occurrence: `caffeinate` on
+macOS, a logind inhibitor via `systemd-inhibit` on Linux, or
+`SetThreadExecutionState` through PowerShell on Windows. It can improve delivery
+when the machine would otherwise idle-sleep, but it consumes battery or mains
+power and does not override shutdown, hibernate, explicit sleep, lid policy,
+logout, or other OS decisions. Guard state is machine-local and is reconciled
+again after each alarm change.
+
+Recurring alarms use minute precision, ISO weekdays, and an explicit IANA
+timezone. In a spring daylight-saving gap, RadioCLI uses the first valid minute
+later on that civil date. In a fall overlap, it fires the first matching instant
+only once. One-time alarms must be unambiguous absolute ISO-8601 minutes with an
+offset or `Z`. Resynchronize after changing the host timezone; recurring alarm
+definitions keep their own IANA timezone, while the platform job contains the
+already-resolved next instant.
+
+When a native job starts late, the missed-run grace decides whether it still
+plays. A due alarm tries its primary station twice, with a short bounded backoff,
+then tries the configured fallback. It stops after the requested number of
+minutes unless playback is transferred into the interactive TUI. True fade-in requires `mpv`;
+`ffplay` and VLC start at the target volume because they lack dependable runtime
+volume control. Scheduled audio is local-speaker only; unattended AirPlay is
+intentionally disabled.
+
+Before starting the player, RadioCLI also checks the default local system output.
+If it is muted or below the alarm's configured volume, the runner unmutes it and
+raises it to at least that level, then restores the previous device state when
+the alarm ends. This uses macOS output-volume scripting, Windows Core Audio
+through built-in PowerShell, or `wpctl`, `pactl`, or `amixer` on Linux. If the
+host exposes none of those controls, player volume still applies and runtime
+diagnostics report that the system output could not be raised.
+
+## Alarm Troubleshooting
+
+Use the following in order:
+
+```bash
+radiocli alarm doctor
+radiocli alarm status
+radiocli alarm sync
+radiocli alarm test ALARM_ID
+```
+
+`doctor` summarizes native scheduler support, unhealthy registrations, sleep
+inhibition, Guard processes, and active alarms. Add `--json` for a detailed
+report. `status` prints detailed runtime JSON. `sync` recreates registrations
+from the local definitions after a backup restore, host-timezone change,
+installation move, or scheduler failure. `test` makes sound: it executes a
+bounded preview of the alarm and stops if its safety deadline is exceeded.
+
+For a source checkout, build before registration so the native job points at
+`dist/cli.js`. If the checkout or Node executable moves, rebuild and run
+`radiocli alarm sync`; `doctor` reports a missing executable or registration.
+Global npm and Homebrew installs provide the built command, but should still be
+resynchronized if an installation move invalidates its stored path.
+
+An npm or source install runs scheduled work through the Node executable. macOS
+can therefore show `node` in its Background Activity notice even though the
+LaunchAgent belongs to RadioCLI. A trustworthy RadioCLI-branded notice requires
+a signed `.app` bundle with its helper registered through Service Management;
+the launchd label alone does not change executable identity.
 
 ## Known Limits
 
@@ -48,6 +158,8 @@ requirement.
   failures, not broken station streams.
 - Station health is local and opportunistic; there is not yet a long-term health
   score per station.
+- Native wake behavior is inherently best-effort and Linux scheduling currently
+  requires a working systemd user manager.
 - The country-density map is symbolic. Explore uses a Natural Earth braille map
   with a movable scan cursor and true distance ranking, but it can only place
   stations that providers expose with valid coordinates.

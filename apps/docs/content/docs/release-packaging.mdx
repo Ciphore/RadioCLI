@@ -10,7 +10,9 @@ RadioCLI uses two distribution lanes:
 
 npm, pnpm, and Bun can install the npm package. The shipped executable still
 runs with Node.js, and package-manager installs should not install system
-packages from lifecycle scripts. Native playback and interactive controls come
+packages from lifecycle scripts. The explicit, user-invoked `radiocli setup`
+command may install selected native tools after displaying and confirming its
+plan. Native playback and interactive controls come
 from `mpv`, with `ffplay` from FFmpeg as an optional playback-only fallback.
 Linux users install `mpv` through their distro package manager. Windows users
 install Node.js and `mpv` through `winget` or Scoop, then install RadioCLI
@@ -29,7 +31,7 @@ npm pack --dry-run
 Test the packed tarball locally:
 
 ```bash
-VERSION=0.2.1
+VERSION=0.2.2
 npm pack
 npm install -g "./ciphore-radiocli-$VERSION.tgz"
 radiocli --help
@@ -45,8 +47,8 @@ npm publish --access public
 ```
 
 After publishing, `npm install -g @ciphore/radiocli` should install the
-executable and all JavaScript dependencies. Users should run `radiocli doctor`
-if playback is not ready.
+executable and all JavaScript dependencies. Users can run `radiocli setup` for
+guided native-tool installation or `radiocli doctor` for read-only diagnostics.
 
 Optional client smoke checks:
 
@@ -77,7 +79,7 @@ The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`
 After each npm publish, fetch the npm tarball URL and SHA:
 
 ```bash
-VERSION=0.2.1
+VERSION=0.2.2
 TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
 curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
 shasum -a 256 "/tmp/radiocli-$VERSION.tgz"
@@ -109,6 +111,11 @@ winget install --id shinchiro.mpv -e
 npm install -g @ciphore/radiocli
 radiocli doctor
 ```
+
+The `shinchiro.mpv` WinGet installer does not currently add its `MPV Player`
+directory to `PATH`. RadioCLI resolves that standard installation directly and
+also checks registered Windows application locations. Doctor should report an
+`mpv_path`, its `mpv_discovery` source, and `mpv_launch=ready`.
 
 Scoop users can install `mpv` with:
 

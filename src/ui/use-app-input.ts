@@ -6,7 +6,6 @@ import type {PlayerController} from '../player/player-controller.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {
   applyTextInput,
-  clamp,
   favoriteTarget,
   isEditableInput,
   isPlainPrintableInput,
@@ -19,6 +18,7 @@ import {
 } from './app-state.js';
 import {parseTerminalMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
 import {completeCommand} from './help-content.js';
+import {commitImmediateSelection} from './selection-state.js';
 
 type CurrentRef<T> = {
   current: T;
@@ -33,6 +33,7 @@ type AppInputOptions = {
   adjustVolume: (delta: number) => void;
   airPlayCode: string;
   canEnterAirPlayCode: boolean;
+  cancelPendingAutoSkip: () => void;
   beginLearningTransportKey: (action: MediaTransportAction) => void;
   capturingTransportAction: MediaTransportAction | null;
   commandMode: boolean;
@@ -57,6 +58,9 @@ type AppInputOptions = {
   openAirPlayCode: () => void;
   openAirPlaySettings: () => void;
   openScreen: (screen: Screen) => void;
+  handleAlarmInput: (input: string, key: Record<string, unknown>) => boolean;
+  openAlarmForStation: (station?: Station | null) => void;
+  openActiveAlarms: () => void;
   playAdjacent: (direction: 1 | -1) => void;
   playStation: (station: Station) => Promise<void>;
   player: PlayerController;
@@ -71,8 +75,8 @@ type AppInputOptions = {
   saveLearnedTransportKey: (action: MediaTransportAction, input: string) => void;
   screen: Screen;
   searchQuery: string;
-  selected: number;
-  selectedStation: Station | null;
+  selectedRef: CurrentRef<number>;
+  selectedStationForInput: () => Station | null;
   selectAirPlayDeviceAt: (index: number) => void;
   setCapturingTransportAction: Dispatch<SetStateAction<MediaTransportAction | null>>;
   setAirPlayCode: Dispatch<SetStateAction<string>>;
@@ -104,6 +108,7 @@ export function useAppInput({
   adjustVolume,
   airPlayCode,
   canEnterAirPlayCode,
+  cancelPendingAutoSkip,
   beginLearningTransportKey,
   capturingTransportAction,
   commandMode,
@@ -128,6 +133,9 @@ export function useAppInput({
   openAirPlayCode,
   openAirPlaySettings,
   openScreen,
+  handleAlarmInput,
+  openAlarmForStation,
+  openActiveAlarms,
   playAdjacent,
   playStation,
   player,
@@ -142,8 +150,8 @@ export function useAppInput({
   saveLearnedTransportKey,
   screen,
   searchQuery,
-  selected,
-  selectedStation,
+  selectedRef,
+  selectedStationForInput,
   selectAirPlayDeviceAt,
   setCapturingTransportAction,
   setAirPlayCode,
@@ -170,6 +178,14 @@ export function useAppInput({
   toggleSkipBrokenStreams,
   updateFromSettings
 }: AppInputOptions): void {
+  const commitSelection = (next: number): void => {
+    commitImmediateSelection(selectedRef, setSelected, next, currentItemCount(screen));
+  };
+  const moveSelection = (delta: number): void => {
+    if (hasStationSelection(screen)) cancelPendingAutoSkip();
+    commitSelection(selectedRef.current + delta);
+  };
+
   useEffect(() => {
     const onData = (data: Buffer | string) => {
       const rawInput = String(data);
@@ -194,7 +210,8 @@ export function useAppInput({
         const click = primaryMousePress(mouseEvents);
         lastRawTransportAtRef.current = Date.now();
         if (wheelDelta !== 0 && shouldScrollSelectionWithWheel(screen, commandMode, editingCountryFilter)) {
-          setSelected(value => clamp(value + wheelDelta * 3, currentItemCount(screen) - 1));
+          if (handleAlarmInput('', {scrollDelta: wheelDelta * 3})) return;
+          moveSelection(wheelDelta * 3);
           return;
         }
 
@@ -229,18 +246,23 @@ export function useAppInput({
       stdin.off('data', onData);
     };
   }, [
+    cancelPendingAutoSkip,
     capturingTransportAction,
     commandMode,
+    currentItemCount,
     editingCountryFilter,
     editingSearch,
+    handleAlarmInput,
     lastRawTransportAtRef,
     playAdjacent,
     player,
     moveExploreCursorToCell,
     saveLearnedTransportKey,
     screen,
+    selectedRef,
     setCapturingTransportAction,
     setMessage,
+    setSelected,
     settingsRef,
     stdin,
     togglePause
@@ -291,6 +313,60 @@ export function useAppInput({
       return;
     }
 
+    if (handleAlarmInput(input, key)) {
+      return;
+    }
+
+    // An active text field owns its keystrokes before app-wide shortcuts. In
+    // particular, a normal "a" in a station query must not invoke the global
+    // schedule-this-station shortcut and leave Search for the alarm editor.
+    if (screen === 'search' && editingSearch) {
+      if (key.return) {
+        const inputStation = selectedStationForInput();
+        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && inputStation) {
+          void playStation(inputStation);
+        } else {
+          void runSearch();
+        }
+        return;
+      }
+
+      if (key.escape) {
+        setEditingSearch(false);
+        return;
+      }
+
+      const arrowAction = searchEditingArrowAction(key, currentItemCount('search') > 0);
+      if (arrowAction) {
+        if (arrowAction === 'history-older') {
+          recallSearchHistory('older');
+        } else if (arrowAction === 'history-newer') {
+          recallSearchHistory('newer');
+        } else if (arrowAction === 'select-previous') {
+          moveSelection(-1);
+        } else {
+          moveSelection(1);
+        }
+        return;
+      }
+
+      if (isEditableInput(input, key)) {
+        setSearchQuery(value => applyTextInput(value, input, key));
+        setEditingSearch(true);
+        return;
+      }
+    }
+
+    if (input === '!' || (input === 'A' && screen !== 'explore')) {
+      openActiveAlarms();
+      return;
+    }
+
+    if (input === 'a' && ['stations', 'search', 'nearby', 'library', 'now-playing'].includes(screen)) {
+      openAlarmForStation(favoriteTarget(screen, selectedStationForInput(), playingStation));
+      return;
+    }
+
     if (key.shift && key.leftArrow) {
       playAdjacent(-1);
       return;
@@ -316,46 +392,10 @@ export function useAppInput({
       return;
     }
 
-    if (screen === 'search' && editingSearch) {
-      if (key.return) {
-        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && selectedStation) {
-          void playStation(selectedStation);
-        } else {
-          void runSearch();
-        }
-        return;
-      }
-
-      if (key.escape) {
-        setEditingSearch(false);
-        return;
-      }
-
-      const arrowAction = searchEditingArrowAction(key, currentItemCount('search') > 0);
-      if (arrowAction) {
-        if (arrowAction === 'history-older') {
-          recallSearchHistory('older');
-        } else if (arrowAction === 'history-newer') {
-          recallSearchHistory('newer');
-        } else if (arrowAction === 'select-previous') {
-          setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
-        } else {
-          setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
-        }
-        return;
-      }
-
-      if (isEditableInput(input, key)) {
-        setSearchQuery(value => applyTextInput(value, input, key));
-        setEditingSearch(true);
-        return;
-      }
-    }
-
     if ((screen === 'countries' || screen === 'map') && editingCountryFilter) {
       if (key.return || key.escape) {
         setEditingCountryFilter(false);
-        setSelected(0);
+        commitSelection(0);
         return;
       }
 
@@ -501,18 +541,18 @@ export function useAppInput({
     }
 
     if (input === ']') {
-      setSelected(value => clamp(value + 10, currentItemCount(screen) - 1));
+      moveSelection(10);
       return;
     }
 
     if (input === '[') {
-      setSelected(value => clamp(value - 10, currentItemCount(screen) - 1));
+      moveSelection(-10);
       return;
     }
 
-    if (screen === 'home' && /^[1-8]$/.test(input)) {
+    if (screen === 'home' && /^[1-9]$/.test(input)) {
       const menuIndex = Number(input) - 1;
-      setSelected(menuIndex);
+      commitSelection(menuIndex);
       const target = homeItems[menuIndex]?.screen;
       if (target) {
         openScreen(target);
@@ -556,17 +596,17 @@ export function useAppInput({
     }
 
     if (input === 'f') {
-      toggleFavorite(favoriteTarget(screen, selectedStation, playingStation));
+      toggleFavorite(favoriteTarget(screen, selectedStationForInput(), playingStation));
       return;
     }
 
     if (input === 'O') {
-      openStationHomepage(favoriteTarget(screen, selectedStation, playingStation));
+      openStationHomepage(favoriteTarget(screen, selectedStationForInput(), playingStation));
       return;
     }
 
     if (input === 'y') {
-      void copyStationUrl(favoriteTarget(screen, selectedStation, playingStation));
+      void copyStationUrl(favoriteTarget(screen, selectedStationForInput(), playingStation));
       return;
     }
 
@@ -586,28 +626,28 @@ export function useAppInput({
     }
 
     if (input === 'n') {
-      setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
+      moveSelection(1);
       return;
     }
 
     if (input === 'p') {
-      setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
+      moveSelection(-1);
       return;
     }
 
     if (key.downArrow) {
-      setSelected(value => clamp(value + 1, currentItemCount(screen) - 1));
+      moveSelection(1);
       return;
     }
 
     if (key.upArrow) {
-      setSelected(value => clamp(value - 1, currentItemCount(screen) - 1));
+      moveSelection(-1);
       return;
     }
 
     if (key.return) {
       if (screen === 'home') {
-        const target = homeItems[selected]?.screen;
+        const target = homeItems[selectedRef.current]?.screen;
         if (target) {
           openScreen(target);
         }
@@ -615,7 +655,7 @@ export function useAppInput({
       }
 
       if (screen === 'countries') {
-        const country = filteredCountries[selected];
+        const country = filteredCountries[selectedRef.current];
         if (country) {
           void loadCountry(country);
         }
@@ -623,7 +663,7 @@ export function useAppInput({
       }
 
       if (screen === 'settings') {
-        const item = settingsItems[selected];
+        const item = settingsItems[selectedRef.current];
         if (item === 'Cycle display color') {
           cycleDisplayColor();
         } else if (item === 'Toggle Radio Garden experimental adapter') {
@@ -680,20 +720,21 @@ export function useAppInput({
       }
 
       if (screen === 'airplay-settings') {
-        selectAirPlayDeviceAt(selected);
+        selectAirPlayDeviceAt(selectedRef.current);
         return;
       }
 
       if (screen === 'map') {
-        const country = filteredCountries[selected];
+        const country = filteredCountries[selectedRef.current];
         if (country) {
           void loadCountry(country);
         }
         return;
       }
 
-      if (selectedStation) {
-        void playStation(selectedStation);
+      const inputStation = selectedStationForInput();
+      if (inputStation) {
+        void playStation(inputStation);
       }
     }
   });
@@ -706,8 +747,12 @@ function shouldScrollSelectionWithWheel(screen: Screen, commandMode: boolean, ed
 
   return [
     'home', 'countries', 'map', 'stations', 'search', 'nearby', 'explore',
-    'library', 'settings', 'help', 'airplay-settings'
+    'library', 'settings', 'help', 'airplay-settings', 'alarms', 'alarm-editor', 'alarm-picker', 'alarm-ringing'
   ].includes(screen);
+}
+
+function hasStationSelection(screen: Screen): boolean {
+  return ['stations', 'search', 'nearby', 'explore', 'library'].includes(screen);
 }
 
 function exploreMoveForInput(input: string): {direction: ExploreMoveDirection; fast: boolean} | null {

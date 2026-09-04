@@ -1,0 +1,99 @@
+---
+title: Alarms (Beta)
+description: Create, verify, and troubleshoot scheduled radio alarms across macOS, Windows, and Linux.
+---
+
+# Alarms (Beta)
+
+RadioCLI alarms are experimental. They are designed for wake-to-radio and
+scheduled listening, but hardware, operating-system power policy, login state,
+audio devices, and live-stream availability can still prevent sound. Use a
+secondary device as the primary alarm for critical, medical, travel, or
+emergency timing.
+
+## Create An Alarm
+
+Open **Overview → Alarms (beta)** and choose **Create alarm**, or press `n`.
+Pressing `a` on a selected or playing station opens the same editor with that
+station filled in.
+
+The editor includes:
+
+- a one-time date or recurring weekday schedule with an explicit IANA timezone
+- segmented hour/minute controls and a Monday-through-Sunday checklist
+- primary and fallback stations from current playback, favorites, imports,
+  recents, and existing alarms
+- alarm volume, mpv fade-in, automatic stop time, and local-speaker output
+- missed-run grace, a best-effort OS wake request, and optional Alarm Guard
+- a station test tune, next-occurrence preview, Save, and Cancel
+
+Saving is local-first. An enabled alarm also registers its next occurrence with
+launchd on macOS, Task Scheduler on Windows, or a systemd user timer on Linux.
+After successful registration, the terminal does not need to remain open.
+
+## Verify The Complete Setup
+
+Choose **Verify alarm setup** at the bottom of the alarm list. Verification
+rehearses a disposable native job, terminal launch and authenticated controls,
+sleep protection, system-volume handling, and a short sample from the next
+configured alarm. It removes temporary artifacts before reporting success.
+
+Run Verify after creating the first alarm and whenever the terminal app,
+playback backend, audio device, installation path, OS permissions, timezone, or
+power settings change. A successful rehearsal proves that the tested path works
+now; it cannot guarantee future hardware wake, network access, or stream health.
+
+## When The Alarm Rings
+
+RadioCLI starts the configured station through a detached runner. If necessary,
+it opens the terminal captured during setup and shows the ringing screen.
+
+- `Enter` transfers the station into the interactive RadioCLI player and opens
+  the normal Playing screen. The visualizer and ordinary playback controls then
+  own the stream, and the alarm session ends.
+- `Space` stops the station and snoozes the alarm for 10 minutes.
+- `Up` and `Down` choose an exact occurrence when multiple alarms overlap.
+- `b` returns to the app while the detached alarm continues playing. Press `!`
+  from any screen to reopen its controls.
+
+The runner raises and unmutes supported local system output when it is below the
+configured alarm volume. During an interactive handoff, that audible level is
+preserved for regular playback. Scheduled alarms use local speakers; unattended
+AirPlay is not supported.
+
+## Background Delivery And Power
+
+All platforms require a powered-on machine, a logged-in interactive audio
+session, usable local speakers, and a reachable station. Windows can request
+`WakeToRun`; launchd and systemd user scheduling can catch up after wake or
+session resume. Exact wake still depends on hardware, firmware, lid, battery,
+hibernate, and administrator policy.
+
+Alarm Guard is separate from the scheduler wake request. It prevents ordinary
+idle sleep until the next occurrence using `caffeinate`, `systemd-inhibit`, or
+Windows execution-state APIs. It consumes power and cannot override shutdown,
+hibernate, explicit sleep, a closed lid, logout, or enforced OS policy.
+
+See [Reliability](./reliability.mdx) for the platform matrix, permission flow,
+timezone and DST semantics, fallback behavior, volume integration, and known
+limitations.
+
+## Diagnose And Repair
+
+From the alarm list, press `r` to repair native registrations or select
+**Verify alarm setup** for a full rehearsal. The CLI provides deeper status:
+
+```bash
+radiocli alarm doctor
+radiocli alarm status
+radiocli alarm sync
+radiocli alarm test ALARM_ID
+```
+
+Run `sync` after moving the RadioCLI installation, restoring a backup, changing
+the host timezone, or repairing scheduler files. See [CLI usage](./getting-started/cli.mdx)
+for alarm creation, editing, selectors, and JSON status output.
+
+Alarm definitions are included in full local-library backups. Native scheduler
+jobs, active control tokens, Guard processes, and machine health are deliberately
+not portable and must be recreated with `radiocli alarm sync` on the destination.

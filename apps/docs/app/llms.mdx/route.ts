@@ -15,6 +15,7 @@ With npm:
 
 \`\`\`bash
 npm install -g @ciphore/radiocli
+radiocli setup
 \`\`\`
 
 On macOS with Homebrew:

@@ -15,6 +15,7 @@ import type {
 import {AdaptiveContent} from './AdaptiveContent.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {displayWidth} from './format.js';
+import {defaultExploreCursor} from './app-state.js';
 
 const station: Station = {
   id: 'kexp',
@@ -25,6 +26,16 @@ const station: Station = {
   codec: 'MP3',
   bitrate: 128,
   tags: ['indie']
+};
+const secondStation: Station = {
+  ...station,
+  id: 'kcrw',
+  name: 'KCRW 89.9 FM'
+};
+const thirdStation: Station = {
+  ...station,
+  id: 'kuow',
+  name: 'KUOW 94.9 FM'
 };
 
 const country: Country = {name: 'United States', code: 'US', stationCount: 12_345};
@@ -68,6 +79,7 @@ const library: LibraryState = {
   },
   trackHistory: [],
   searchHistory: [],
+  alarms: [],
   settings
 };
 const playback: PlaybackState = {
@@ -124,12 +136,42 @@ describe('AdaptiveContent', () => {
     expect(renderAdaptive('search', 'micro', 24, 7)).toContain('tokyo jazz');
   });
 
+  it.each([
+    {mode: 'compact' as const, width: 50, height: 10},
+    {mode: 'micro' as const, width: 24, height: 7}
+  ])('keeps the favorite mark visible in $mode station lists', ({mode, width, height}) => {
+    const frame = renderAdaptive('library', mode, width, height);
+    expect(frame).toContain('★');
+    expect(frame.match(/★/gu)).toHaveLength(1);
+  });
+
   it('keeps a real search field in micro mode without an editing label', () => {
     const frame = renderAdaptive('search', 'micro', 24, 7);
 
     expect(frame).toContain('┌──────────────────────┐');
     expect(frame).toContain('│› tokyo jazz');
     expect(frame).not.toContain('Editing:');
+  });
+
+  it('keeps a detailed cursor map and selected station in true micro Explore', () => {
+    const frame = renderAdaptive('explore', 'micro', 24, 7, settings.receiverStyle, [station, secondStation, thirdStation]);
+    const lines = frame.split('\n');
+
+    expect(frame).toContain('●');
+    expect(frame).toContain('KEXP');
+    expect(frame).toContain('KCRW');
+    expect(frame).not.toContain('KUOW');
+    expect(lines.filter(line => /[\u2801-\u28ff]/u.test(line))).toHaveLength(4);
+    expect(Math.max(...lines.map(displayWidth))).toBeLessThanOrEqual(24);
+  });
+
+  it('allocates additional map detail as compact Explore grows', () => {
+    const frame = renderAdaptive('explore', 'compact', 50, 16);
+
+    expect(frame).toContain('RADIOCLI  Explore');
+    expect(frame).toContain('●');
+    expect(frame).toContain('KEXP');
+    expect(frame.split('\n').filter(line => /[\u2801-\u28ff]/u.test(line)).length).toBeGreaterThanOrEqual(8);
   });
 
   it('separates micro headers and footers from page content and keeps the RadioCLI spectrum logo', () => {
@@ -144,7 +186,7 @@ describe('AdaptiveContent', () => {
     expect(nowPlaying.split('\n').at(-1)).toBe('');
   });
 
-  it.each(['library', 'explore', 'countries', 'nearby', 'stats', 'settings'] as const)(
+  it.each(['library', 'countries', 'nearby', 'stats', 'settings'] as const)(
     'gives the %s micro screen matching space below its header and above its footer',
     screen => {
       const lines = renderAdaptive(screen, 'micro', 24, 7).split('\n');
@@ -154,7 +196,7 @@ describe('AdaptiveContent', () => {
     }
   );
 
-  it.each(['library', 'explore', 'countries', 'nearby', 'stats', 'settings'] as const)(
+  it.each(['library', 'countries', 'nearby', 'stats', 'settings'] as const)(
     'gives the %s compact screen matching space below its header and above its footer',
     screen => {
       const lines = renderAdaptive(screen, 'compact', 50, 10).split('\n');
@@ -192,7 +234,8 @@ function renderAdaptive(
   mode: 'compact' | 'micro',
   width: number,
   height: number,
-  receiverStyle: ReceiverStyle = settings.receiverStyle
+  receiverStyle: ReceiverStyle = settings.receiverStyle,
+  renderStations: Station[] = [station]
 ): string {
   const renderLibrary = {...library, settings: {...settings, receiverStyle}};
   return render(
@@ -207,7 +250,7 @@ function renderAdaptive(
         playback={playback}
         playingStation={station}
         nowPlaying={{title: 'Artist — Track', updatedAt: '2026-08-09T00:00:00.000Z'}}
-        stations={[station]}
+        stations={renderStations}
         countries={[country]}
         airPlayDevices={[device]}
         airPlayCode="1234"
@@ -217,13 +260,13 @@ function renderAdaptive(
         editingCountryFilter={false}
         loadingCountries={false}
         loadingStations={false}
+        exploreCursor={defaultExploreCursor}
         library={renderLibrary}
         diagnostics={diagnostics}
         backends={['mpv']}
         favoriteKeys={new Set(['radio-browser:kexp'])}
         stationTitle="Library"
         filterLabel="none"
-        pulse={2}
         sleepLabel="Sleep off"
       />
     </DisplayContext.Provider>

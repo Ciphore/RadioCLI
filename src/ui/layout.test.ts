@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {computeTerminalLayout} from './layout.js';
+import {computeExploreMapLayout} from './explore-map-layout.js';
 
 describe('computeTerminalLayout', () => {
   it('switches to compact mode for tiny terminals', () => {
@@ -23,6 +24,13 @@ describe('computeTerminalLayout', () => {
     expect(computeTerminalLayout(67, 40).mode).toBe('compact');
     expect(computeTerminalLayout(100, 21).mode).toBe('compact');
     expect(computeTerminalLayout(68, 22).mode).toBe('full');
+  });
+
+  it('reserves two compact footer rows and adds a third when height permits', () => {
+    expect(computeTerminalLayout(50, 10).footerRows).toBe(2);
+    expect(computeTerminalLayout(50, 13).footerRows).toBe(2);
+    expect(computeTerminalLayout(50, 14).footerRows).toBe(3);
+    expect(computeTerminalLayout(33, 14).footerRows).toBe(1);
   });
 
   it('never manufactures width that the terminal does not have', () => {
@@ -77,5 +85,24 @@ describe('computeTerminalLayout', () => {
     expect(layout.footerRows).toBe(3);
     expect(layout.contentRows).toBe(28);
     expect(layout.stationRows).toBe(22);
+  });
+});
+
+describe('computeExploreMapLayout', () => {
+  it('prevents horizontal stretching of the braille world projection', () => {
+    for (const [width, height] of [[68, 17], [80, 22], [100, 25], [118, 35], [158, 40]] as const) {
+      const map = computeExploreMapLayout(width, height, 20);
+      expect(map.mapColumns).toBeLessThanOrEqual(map.mapRows * 4);
+      expect(map.mapOffsetX + map.mapColumns).toBeLessThanOrEqual(map.mapPanelWidth - 2);
+      expect(map.mapColumns).toBeGreaterThan(0);
+      expect(map.mapRows).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps intermediate-width Explore side-by-side without stretching the map', () => {
+    const map = computeExploreMapLayout(100, 24, 10);
+    expect(map.split).toBe(true);
+    expect(map.mapPanelWidth + map.listPanelWidth + 1).toBe(map.contentWidth);
+    expect(map.mapColumns).toBeLessThanOrEqual(map.mapRows * 4);
   });
 });

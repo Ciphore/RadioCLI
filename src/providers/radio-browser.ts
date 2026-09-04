@@ -53,11 +53,16 @@ const locationSchema = z
 
 const geoAtlasLimit = 100_000;
 const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
-const geoAtlasTimeoutMs = 20_000;
+// The atlas is much larger than ordinary directory responses. A single shared
+// 20-second deadline used to give each of four mirrors roughly five seconds to
+// connect, download, and parse up to 100k rows. Use a size-aware per-attempt
+// budget while retaining an overall bound and stale-cache fallback.
+const geoAtlasAttemptTimeoutMs = 30_000;
+const geoAtlasTotalTimeoutMs = 75_000;
 
 class ProviderUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, cause?: Error) {
+    super(message, cause ? {cause} : undefined);
     this.name = 'ProviderUnavailableError';
   }
 }
@@ -338,7 +343,11 @@ export class RadioBrowserProvider {
         limit: String(geoAtlasLimit),
         order: 'name'
       },
-      {maxAgeMs: geoAtlasMaxAgeMs, timeoutMs: geoAtlasTimeoutMs}
+      {
+        maxAgeMs: geoAtlasMaxAgeMs,
+        timeoutMs: geoAtlasTotalTimeoutMs,
+        attemptTimeoutMs: geoAtlasAttemptTimeoutMs
+      }
     );
 
     return dedupeStations(this.normalizeStations(rows)).filter(hasValidCoordinates);
@@ -347,7 +356,7 @@ export class RadioBrowserProvider {
   private async request<T>(
     path: string,
     params: Record<string, string> = {},
-    options: {maxAgeMs?: number; timeoutMs?: number} = {}
+    options: {maxAgeMs?: number; timeoutMs?: number; attemptTimeoutMs?: number} = {}
   ): Promise<T> {
     const cacheKey = buildCacheKey(path, params);
     if (options.maxAgeMs) {
@@ -374,7 +383,11 @@ export class RadioBrowserProvider {
 
       try {
         const mirrorsLeft = mirrors.length - mirrorIndex;
-        const attemptTimeoutMs = Math.max(1, Math.floor(remainingMs / mirrorsLeft));
+        const fairShareTimeoutMs = Math.max(1, Math.floor(remainingMs / mirrorsLeft));
+        const attemptTimeoutMs = Math.max(
+          1,
+          Math.min(remainingMs, options.attemptTimeoutMs ?? fairShareTimeoutMs)
+        );
         const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs);
         this.activeBaseUrl = baseUrl;
         if (options.maxAgeMs) {
@@ -396,8 +409,25 @@ export class RadioBrowserProvider {
       return stale;
     }
 
-    throw new ProviderUnavailableError(lastError?.message ?? `${this.label} request failed.`);
+    throw new ProviderUnavailableError(
+      `${this.label} unavailable: ${describeRequestError(lastError)}`,
+      lastError ?? undefined
+    );
   }
+}
+
+function describeRequestError(error: Error | null): string {
+  if (!error) return 'request failed';
+  const cause = error.cause;
+  if (cause && typeof cause === 'object') {
+    const code = 'code' in cause && typeof cause.code === 'string' ? cause.code : null;
+    const message = 'message' in cause && typeof cause.message === 'string' ? cause.message : null;
+    if (code && message) return `${error.message} (${code}: ${message})`;
+    if (code) return `${error.message} (${code})`;
+    if (message && message !== error.message) return `${error.message} (${message})`;
+  }
+
+  return error.message || 'request failed';
 }
 
 function defaultRadioBrowserMirrors(): string[] {

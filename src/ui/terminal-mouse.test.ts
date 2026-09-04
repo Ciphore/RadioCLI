@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {computeTerminalLayout} from './layout.js';
 import {computeExploreMapLayout} from './explore-map-layout.js';
+import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adaptive-explore-layout.js';
 import {
   exploreCursorForMouseCell,
   parseSgrMouseEvents,
@@ -38,6 +39,8 @@ describe('terminal mouse helpers', () => {
   it('captures the mouse only for Explore or overflowing selectable screens', () => {
     expect(shouldEnableMouseReporting('explore', 0, 20)).toBe(true);
     expect(shouldEnableMouseReporting('settings', 21, 10)).toBe(true);
+    expect(shouldEnableMouseReporting('alarm-editor', 18, 6)).toBe(true);
+    expect(shouldEnableMouseReporting('alarm-editor', 6, 18)).toBe(false);
     expect(shouldEnableMouseReporting('settings', 10, 21)).toBe(false);
     expect(shouldEnableMouseReporting('now-playing', 100, 10)).toBe(false);
     expect(shouldEnableMouseReporting('countries', 100, 10, false)).toBe(false);
@@ -60,5 +63,39 @@ describe('terminal mouse helpers', () => {
     expect(cursor?.longitude).toBeCloseTo(0, 1);
     expect(cursor?.latitude).toBeCloseTo(90 - ((Math.floor(mapLayout.mapRows / 2) + 0.5) / mapLayout.mapRows) * 180, 4);
     expect(exploreCursorForMouseCell(mapInnerLeft + mapLayout.mapColumns, mapInnerTop, frameWidth, layout)).toBeNull();
+  });
+
+  it('maps the intermediate-width side-by-side Explore panel', () => {
+    const layout = computeTerminalLayout(100, 30, 2);
+    const mapLayout = computeExploreMapLayout(layout.frameWidth, layout.contentRows, layout.stationRows);
+    expect(mapLayout.split).toBe(true);
+    const mapInnerLeft = 3 + mapLayout.mapOffsetX;
+    const mapInnerTop = layout.topRows + mapLayout.headerRows + 3;
+
+    expect(exploreCursorForMouseCell(mapInnerLeft - 1, mapInnerTop, layout.frameWidth, layout)).toBeNull();
+    const center = exploreCursorForMouseCell(
+      mapInnerLeft + Math.floor(mapLayout.mapColumns / 2),
+      mapInnerTop + Math.floor(mapLayout.mapRows / 2),
+      layout.frameWidth,
+      layout
+    );
+    expect(Math.abs(center?.longitude ?? 180)).toBeLessThanOrEqual(180 / mapLayout.mapColumns + 1e-9);
+  });
+
+  it('maps clicks inside true-micro Explore and rejects its station row', () => {
+    const layout = computeTerminalLayout(24, 8, 1);
+    const frame = adaptiveExploreFrameMetrics('micro', layout.contentRows);
+    const map = computeAdaptiveExploreLayout('micro', layout.frameWidth, frame.bodyRows);
+    const mapLeft = 1 + map.mapOffsetX;
+    const mapTop = 1 + frame.headerRows + frame.headerGap;
+    const center = exploreCursorForMouseCell(
+      mapLeft + Math.floor(map.mapColumns / 2),
+      mapTop + Math.floor(map.mapRows / 2),
+      layout.frameWidth,
+      layout
+    );
+
+    expect(Math.abs(center?.longitude ?? 180)).toBeLessThanOrEqual(180 / map.mapColumns + 1e-9);
+    expect(exploreCursorForMouseCell(mapLeft, mapTop + map.mapRows, layout.frameWidth, layout)).toBeNull();
   });
 });

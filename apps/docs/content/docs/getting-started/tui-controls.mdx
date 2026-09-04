@@ -18,6 +18,8 @@ volume or mute state, and an active sleep timer.
 | `v` | Cycle receiver style |
 | `+` / `-` | Adjust volume |
 | `f` | Favorite the selected or playing station |
+| `a` | Schedule the selected or playing station |
+| `!` | Open controls for any alarm already playing in the background |
 | `O` | Open the station homepage in your browser |
 | `y` | Copy the station stream URL to the clipboard |
 | `?` | Toggle the Help screen |
@@ -40,11 +42,21 @@ available but labels interactive playback controls as limited and shows an
 | World map | `/` filter, `Up` / `Down` move, `Enter` open country, `w` list, `b` home |
 | Station lists | `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Now Playing | `space` / `F8` pause, `f` favorite, `m` mute, `s` sleep, `d` diagnostics and recent tracks, `b` home |
+| Alarms | `Up` / `Down` or `j` / `k` / `p` move, `Enter` create/edit, `n` new, `space` enable/disable, `g` Guard, `t` test tune, `r` repair, `x` twice delete, `b` home |
+| Alarm editor | `Up` / `Down` or `j` / `k` move, `Enter` open a control, arrow keys adjust, `Ctrl+S` save, `b` / `Esc` cancel |
+| Alarm station picker | `Up` / `Down` or `j` / `k` move, `Enter` choose, `b` / `Esc` editor |
+| Alarm ringing | `Enter` transfer into normal Playing, `Space` stop and snooze 10 minutes, `Up` / `Down` select concurrent alarm, `b` return |
 | Settings | `Enter` change selected, `g` Radio Garden, `l` location, `x` skip broken streams, `o` audio output, `a` AirPlay, `r` health, `b` home |
 | AirPlay | `Up` / `Down` choose, `Enter` select receiver, `c` code entry, `r` refresh, `b` settings |
 | AirPlay Code | type receiver code, `Backspace` edit, `Enter` submit, `Esc` AirPlay |
 | Stats | `b` home |
 | Help | `?` or `b` close |
+
+Explore keeps an aspect-correct Braille world map in full, compact, and micro
+layouts. Compact windows always place stations beside the map, while true micro
+places the selected station below it. Long selected station and metadata lines
+scroll after a short pause in compact and micro layouts. Enable Reduce Motion to
+keep those lines truncated instead.
 
 Press `?` from any screen to open Help, a full reference of keybindings and
 `:` commands. In the command palette, `Tab` completes the command name.
@@ -54,6 +66,73 @@ or an overflowing menu/list is active, leaving native scrollback available on
 other screens. Settings can disable mouse support completely. Keyboard controls
 and Explore's WASD movement remain available when a terminal or tmux setup does
 not pass mouse events through.
+
+## Alarms Workspace
+
+Open **Alarms** from Overview; it is the item immediately before Settings. The
+list shows enabled state, schedule and timezone, station, next occurrence, and
+scheduler degradation. Choose the visible **Create alarm** row or
+press `n` for a blank alarm; press `a`
+from a selected/playing station to open a prefilled editor.
+
+The editor covers:
+
+- label, enabled state, primary station, one-time or recurring schedule, local
+  date, segmented 24-hour time, weekday checklist, and IANA timezone
+- independent alarm volume, fade-in seconds, automatic stop time, optional
+  fallback station, and fixed local-speaker output
+- missed-run grace, best-effort OS wake request, and Alarm Guard
+- a next-occurrence review, a no-state-change test tune, Save, and Cancel
+
+Time is a segmented digital control whose active hours or minutes are highlighted
+in the current display color. Use `Up` and `Down` to change hours, press `Enter`
+to advance to minutes, adjust again, then press `Enter` to finish. `Left` and
+`Right` still move directly between segments. Weekdays open as a nested
+Monday-through-Sunday checklist; move with `Up` and `Down`, toggle any
+combination with `Space`, and press `Enter` to confirm. Bounded values such as volume,
+fade, stop-after, and missed-run grace use arrow-adjustable controls instead of
+requiring text replacement. Free-form values such as label and timezone retain
+normal text editing. The station picker draws from the current station, favorites, imports,
+recents, and stations already used by alarms. Saving persists the definition
+locally and synchronizes the native OS job; if that setup is degraded, the alarm
+remains visible with a repair marker. Press `r` from the list to retry all
+registrations.
+
+Choose **Verify alarm setup** at the bottom of the alarm list to rehearse the
+complete path on the current machine. RadioCLI installs and queries a disposable
+native scheduler job, opens the saved terminal through an authenticated
+loopback handshake, verifies dismiss/snooze connectivity, acquires and releases
+sleep protection, raises and restores system output, and plays a three-second
+sample from the next configured alarm. The disposable job is removed before the
+report finishes.
+
+The report separates hard blockers from limitations. A wake request can be
+accepted by the scheduler while still depending on hardware, lid, power,
+login-session, and administrator policy. Run Verify again after changing the
+terminal, playback backend, audio device, OS permissions, or power settings.
+
+`t` on the alarm list test-tunes only the primary station and does not fire the
+alarm or change run history. The CLI's `radiocli alarm test` is a separate,
+bounded end-to-end alarm preview.
+
+When an alarm starts, RadioCLI publishes an authenticated local control session.
+If the TUI is open it presents the high-contrast ringing screen; if you open the
+TUI after playback began, press `!` from any screen. `Space` stops playback and
+snoozes for 10 minutes. `Enter` transfers the station into RadioCLI's normal
+interactive player and opens Playing with its visualizer and controls. `b`
+returns to the app while the detached alarm continues. The TUI polls for
+concurrent active alarms and lets you select the exact one before acting.
+
+The terminal does not need to remain open after a native job is registered.
+Playback still requires a powered-on machine, a logged-in interactive audio
+session, working local speakers, and a reachable stream. Alarm Guard prevents
+idle sleep but consumes power and cannot override a closed lid, explicit sleep,
+hibernate, shutdown, or OS policy. Full details are in
+[Reliability](../reliability.mdx).
+
+Alarms are experimental beta functionality. Use a secondary device as the
+primary alarm whenever timing is critical. See the dedicated
+[Alarms guide](../alarms.mdx) for setup, verification, delivery, and repair.
 
 ## Command Palette
 

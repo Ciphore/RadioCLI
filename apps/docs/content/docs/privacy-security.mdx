@@ -12,8 +12,8 @@ RadioCLI does not require secrets or accounts.
 - Location lookup uses approximate IP-based location from `ipapi.co`. Disable it
   with `l`, Settings, or `:location off`.
 - Explore uses only the cursor coordinate you move in the terminal.
-- Recents, favorites, settings, imports, listening activity, and provider cache
-  data are stored locally on your machine.
+- Recents, favorites, settings, imports, listening activity, alarm definitions,
+  and provider cache data are stored locally on your machine.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
   to `mpv`, `ffplay`, or the experimental macOS AirPlay worker.
 - AirPlay discovery uses Bonjour on your local network. AirPlay streaming runs
@@ -21,6 +21,33 @@ RadioCLI does not require secrets or accounts.
 - Favoriting a Radio Browser station sends a best-effort vote to that public
   directory by default. Disable **Share favorite votes with Radio Browser** in
   Settings to keep favorites local-only.
+
+## Alarm Data And Local Control
+
+Alarm scheduling does not use a RadioCLI account, hosted scheduler, push service,
+or cloud relay. Definitions, station choices, reliability settings, snooze
+override, and the latest run result live in the JSON library and are included in
+a full RadioCLI JSON backup.
+
+The following state is deliberately machine-local and excluded from backups:
+
+- launchd, systemd, or Windows Task Scheduler registration artifacts
+- scheduler and power-inhibitor health records
+- Alarm Guard process/lease state and occurrence locks
+- active-alarm discovery files and their random bearer tokens
+
+After restoring a backup on another machine, run `radiocli alarm sync` to create
+that machine's native jobs. Alarm playback resolves the configured public station
+and connects to its stream just like normal playback; RadioCLI does not upload
+the alarm or proxy its audio.
+
+While an alarm is playing, the detached runner opens an HTTP control endpoint on
+`127.0.0.1` only. Discovery files and 32-byte random bearer tokens use private
+machine-local storage permissions where the OS supports POSIX modes. Dismiss,
+snooze, keep-playing, and Guard ownership requests must authenticate; there is no
+network-facing control server. The detached runner may open the locally saved
+terminal emulator to expose those controls. It does not pass the bearer token on
+the command line; the TUI discovers it through the private machine-local file.
 
 ## Location Lookup
 

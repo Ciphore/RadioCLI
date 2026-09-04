@@ -80,7 +80,7 @@ describe('PlayerController lifecycle', () => {
     const controller = new PlayerController(() => settings());
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
-      'No playback backend found. Install mpv for playback'
+      'No playback backend found. Run radiocli setup to install mpv for playback'
     );
     expect(spawnMock).not.toHaveBeenCalled();
     expect(controller.getState()).toMatchObject({backend: 'none', state: 'stopped', ready: false});
@@ -101,7 +101,7 @@ describe('PlayerController lifecycle', () => {
     setDetectedBackends(controller, ['airplay']);
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
-      'No playback backend found. Install mpv for playback'
+      'No playback backend found. Run radiocli setup to install mpv for playback'
     );
     expect(spawnMock).not.toHaveBeenCalled();
   });
@@ -181,6 +181,25 @@ describe('PlayerController lifecycle', () => {
 
     await controller.stop();
     expect(controller.getState()).toMatchObject({backend: 'vlc', state: 'stopped', ready: false});
+  });
+
+  it('coalesces concurrent stop requests while a replacement station is selected', async () => {
+    vi.useFakeTimers();
+    commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay', tuneTimeoutSeconds: 3}));
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await vi.advanceTimersByTimeAsync(500);
+    await playing;
+
+    const firstStop = controller.stop();
+    const secondStop = controller.stop();
+    await Promise.all([firstStop, secondStop]);
+
+    expect(firstStop).toBe(secondStop);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({state: 'stopped', ready: false});
   });
 
   it('starts the AirPlay worker and forwards passcodes', async () => {

@@ -10,6 +10,7 @@ export type StationContext = {
   title: string;
   subtitle: string;
   stations: Station[];
+  error?: string;
   query?: string;
   country?: Country;
   hasMore?: boolean;
@@ -248,6 +249,10 @@ export function activeTabForScreen(screen: Screen): Screen {
 
   if (screen === 'airplay-settings' || screen === 'airplay-code') {
     return 'settings';
+  }
+
+  if (screen === 'alarms' || screen === 'alarm-editor' || screen === 'alarm-picker' || screen === 'alarm-ringing') {
+    return 'home';
   }
 
   return screen;

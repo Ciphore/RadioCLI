@@ -4,6 +4,7 @@ import type {Station, ThemeName} from '../../types.js';
 import {StationList} from '../components/StationList.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {textMuted} from '../theme.js';
+import {truncate} from '../format.js';
 
 type StationScreenProps = {
   title: string;
@@ -11,6 +12,7 @@ type StationScreenProps = {
   stations: Station[];
   selected: number;
   loading: boolean;
+  error?: string;
   theme: ThemeName;
   favorites: Set<string>;
   filterLabel: string;
@@ -24,6 +26,7 @@ export function StationScreen({
   stations,
   selected,
   loading,
+  error,
   theme,
   favorites,
   filterLabel,
@@ -42,7 +45,8 @@ export function StationScreen({
       />
       <Box marginTop={1} flexDirection="column">
         {loading ? <Text color={textMuted}>Loading stations…</Text> : null}
-        {!loading || stations.length > 0 ? (
+        {!loading && error ? <Text color={textMuted}>{truncate(error, width)}</Text> : null}
+        {(!loading || stations.length > 0) && (stations.length > 0 || !error) ? (
           <StationList
             stations={stations}
             selected={selected}

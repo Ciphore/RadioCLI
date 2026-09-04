@@ -8,10 +8,12 @@ import {SettingsScreen} from './SettingsScreen.js';
 import {HomeScreen} from './HomeScreen.js';
 import {ExploreScreen} from './ExploreScreen.js';
 import {CountriesScreen} from './CountriesScreen.js';
+import {StationScreen} from './StationScreen.js';
 import {buildContributionGraph, contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
 import {settingsGroups, settingsItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
 import {StationList} from '../components/StationList.js';
+import {displayWidth} from '../format.js';
 
 const station: Station = {
   id: 'station-1',
@@ -56,7 +58,6 @@ function renderNowPlaying(asciiMode: boolean, showDiagnostics: boolean) {
         metadata={null}
         theme="green"
         favorite
-        pulse={0}
         diagnostics={diagnostics}
         showDiagnostics={showDiagnostics}
         stationTime="12:00"
@@ -93,6 +94,7 @@ const library: LibraryState = {
   activity: {sessions: []},
   trackHistory: [],
   searchHistory: [],
+  alarms: [],
   settings
 };
 
@@ -279,7 +281,7 @@ describe('SettingsScreen rendering', () => {
   });
 });
 
-function renderExplore(asciiMode: boolean) {
+function renderExplore(asciiMode: boolean, width = 100, height = 24) {
   const mode = resolveDisplayMode({asciiMode}, {});
   return render(
     <DisplayContext.Provider value={mode}>
@@ -294,8 +296,8 @@ function renderExplore(asciiMode: boolean) {
         filterLabel=""
         cursor={defaultExploreCursor}
         pageSize={8}
-        width={100}
-        height={24}
+        width={width}
+        height={height}
       />
     </DisplayContext.Provider>
   );
@@ -317,6 +319,60 @@ describe('Explore world map rendering', () => {
   it('replaces braille with ASCII in ASCII-safe mode', () => {
     const frame = renderExplore(true).lastFrame() ?? '';
     expect(/[⠀-⣿]/.test(frame)).toBe(false);
+  });
+
+  it('shows the station loading state exactly once', () => {
+    const mode = resolveDisplayMode({}, {});
+    const frame = render(
+      <DisplayContext.Provider value={mode}>
+        <ExploreScreen
+          title="Explore"
+          subtitle="Scanning"
+          stations={[]}
+          selected={0}
+          loading
+          theme="green"
+          favorites={new Set<string>()}
+          filterLabel="none"
+          cursor={defaultExploreCursor}
+          pageSize={8}
+          width={100}
+          height={24}
+        />
+      </DisplayContext.Provider>
+    ).lastFrame() ?? '';
+
+    expect(frame.match(/Loading stations/g)).toHaveLength(1);
+  });
+
+  it('keeps intermediate-width map and stations side-by-side inside the frame', () => {
+    const frame = renderExplore(false, 68, 17).lastFrame() ?? '';
+    const panelLine = frame.split('\n').find(line => line.includes('┌') && line.indexOf('┌') !== line.lastIndexOf('┌'));
+
+    expect(panelLine).toBeDefined();
+    expect(frame).toContain('KEXP');
+    expect(Math.max(...frame.split('\n').map(displayWidth))).toBeLessThanOrEqual(68);
+  });
+
+  it('does not describe provider errors as an empty nearby result', () => {
+    const frame = render(
+      <StationScreen
+        title="Nearby"
+        subtitle="Approximate location"
+        stations={[]}
+        selected={0}
+        loading={false}
+        error="Could not load nearby stations."
+        theme="green"
+        favorites={new Set<string>()}
+        filterLabel="none"
+        pageSize={8}
+        width={80}
+      />
+    ).lastFrame() ?? '';
+
+    expect(frame).toContain('Could not load nearby stations.');
+    expect(frame).not.toContain('No nearby stations found.');
   });
 });
 
@@ -356,6 +412,7 @@ describe('StatsScreen rendering', () => {
       imported: [],
       trackHistory: [],
       searchHistory: [],
+      alarms: [],
       activity: {
         sessions: [
           {

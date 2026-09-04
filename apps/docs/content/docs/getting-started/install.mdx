@@ -10,7 +10,7 @@ installed:
 
 ```bash
 npm install -g @ciphore/radiocli
-radiocli doctor
+radiocli setup
 radiocli
 ```
 
@@ -23,7 +23,8 @@ radiocli
 ```
 
 Both paths install the same `radiocli` command. The npm package is the universal
-option, but system playback tools such as `mpv` must be installed separately.
+option; its guided `radiocli setup` step installs selected system playback tools
+through Homebrew, WinGet, Scoop, Chocolatey, or the detected Linux package manager.
 
 ## Requirements
 
@@ -71,9 +72,40 @@ not install system playback tools like `mpv` or FFmpeg.
 
 ```bash
 npm install -g @ciphore/radiocli
-radiocli doctor
+radiocli setup
 radiocli
 ```
+
+The setup receiver detects tools that are already installed, offers `mpv`,
+FFmpeg/`ffplay`, and VLC, shows every native command before it runs, and finishes
+with playback verification. `mpv` is selected by default everywhere. FFmpeg is
+also selected by default on macOS because it enables experimental AirPlay.
+
+```text
+RADIOCLI  SETUP RECEIVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+System  macOS Apple Silicon · Node v22.18.0
+Manager brew
+
+Choose components (installed items will be skipped):
+  mpv      Full playback controls (Y/n)
+  FFmpeg   AirPlay + ffplay fallback (Y/n)
+  VLC      Additional playback fallback (y/N)
+```
+
+For automation or to inspect the plan first:
+
+```bash
+radiocli setup --yes                   # recommended defaults
+radiocli setup --all --yes             # mpv, FFmpeg, and VLC
+radiocli setup --only mpv,ffmpeg       # explicit selection
+radiocli setup --dry-run               # print commands only
+```
+
+RadioCLI uses an animated activity bar and elapsed time while each package
+manager runs. Package managers do not report a portable, reliable percentage,
+so the bar intentionally shows activity rather than inventing completion data.
+In redirected output or CI, setup emits plain start/result log lines instead.
 
 pnpm and Bun can install the same package for users who already use those
 package managers:
@@ -112,6 +144,7 @@ On Debian/Ubuntu:
 ```bash
 sudo apt install mpv
 npm install -g @ciphore/radiocli
+radiocli setup
 radiocli
 ```
 
@@ -128,7 +161,7 @@ Then install RadioCLI with npm:
 
 ```bash
 npm install -g @ciphore/radiocli
-radiocli doctor
+radiocli setup
 radiocli
 ```
 
@@ -140,9 +173,15 @@ Use Windows Terminal or PowerShell with Node.js 22 or newer and native `mpv`:
 winget install --id OpenJS.NodeJS.LTS -e
 winget install --id shinchiro.mpv -e
 npm install -g @ciphore/radiocli
-radiocli doctor
+radiocli setup
 radiocli
 ```
+
+The WinGet package currently installs `mpv.exe` under `Program Files\MPV Player`
+without adding it to `PATH`. RadioCLI checks that directory and Windows' registered
+application locations directly, so reopening the terminal or editing `PATH` is not
+required. `radiocli doctor` prints the resolved path, discovery method, version,
+and whether the executable launches successfully.
 
 Scoop users can install `mpv` through the extras bucket instead:
 
@@ -180,6 +219,29 @@ shows limited-control footer text, and `radiocli doctor` reports
 CI covers command-mode typecheck, tests, builds, package checks, and fresh
 install smoke checks on Ubuntu, macOS, and Windows.
 
+## Alarm Scheduling Requirements
+
+Radio alarms use the native per-user scheduler, with no additional setup inside
+RadioCLI on supported hosts:
+
+- macOS uses launchd LaunchAgents.
+- Native Windows uses Task Scheduler interactive-token tasks.
+- Linux requires a working systemd user manager and `systemctl --user`.
+
+Linux systems without systemd user scheduling are reported as unsupported; WSL
+must provide a working user manager and an interactive audio path to use alarms.
+All platforms require a logged-in audio session and local speakers when the job
+runs. The terminal itself may close after an alarm is saved and registered.
+At firing time RadioCLI opens the supported terminal captured during scheduling
+and shows its ringing controls, or reuses an existing RadioCLI TUI. Unsupported
+integrated terminals fall back to a platform terminal when possible.
+
+Run `radiocli alarm doctor` to check scheduler and sleep-inhibitor readiness,
+and `radiocli alarm sync` after restoring a backup or changing the host
+timezone. Wake-from-sleep is best-effort, not a promise that the computer will
+wake from every sleep, lid, hibernate, or power state. See
+[Reliability](../reliability.mdx) for the platform matrix and Alarm Guard tradeoffs.
+
 ## Local Checkout
 
 ```bash
@@ -190,6 +252,15 @@ npm run build
 npm link
 radiocli
 ```
+
+Native alarm jobs retain the Node executable and built `dist/cli.js` paths that
+existed when they were registered. After moving the checkout, changing the Node
+installation, or rebuilding at a new path, run `radiocli alarm sync`.
+
+Because npm and source installs run through Node, macOS may label their
+Background Activity entry as `node`. RadioCLI does not disguise that process;
+native RadioCLI naming requires a separately distributed, signed macOS app and
+bundled helper.
 
 If you do not want to link the package globally:
 

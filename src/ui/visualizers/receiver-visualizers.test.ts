@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {describe, expect, it} from 'vitest';
 import {defaultReceiverStyle, receiverStyleNames, type PlaybackState, type ReceiverStyle, type Station} from '../../types.js';
 import {buildVisualizer, visualizerHeight} from './receiver-visualizers.js';
@@ -35,6 +36,10 @@ function frameSignature(rows: ReturnType<typeof buildVisualizer>): string {
   return JSON.stringify(rows);
 }
 
+function frameHash(rows: ReturnType<typeof buildVisualizer>): string {
+  return createHash('sha256').update(frameSignature(rows)).digest('hex');
+}
+
 function visibleCellCount(rows: ReturnType<typeof buildVisualizer>): number {
   return rows.reduce((total, row) => {
     if (!row.segments) {
@@ -60,6 +65,7 @@ const newlyResponsiveStyles = [
   'leds',
   'matrix',
   'hologram',
+  'equalizer',
   'cube',
   'fire',
   'fireworks',
@@ -95,6 +101,7 @@ const removedReceiverStyles = [
   'wave-stack',
   'glitch-blocks',
   'motion-area',
+  'mirror',
   'circuit-pulse',
   'shard-field',
   'honeycomb',
@@ -236,6 +243,7 @@ describe('receiver visualizers', () => {
       'lava-lamp'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
+    expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
     expect(receiverStyleNames.indexOf('braille-wave')).toBe(receiverStyleNames.indexOf('ribbon') + 1);
     expect(receiverStyleNames.indexOf('caustics')).toBe(receiverStyleNames.indexOf('spectrogram') + 1);
     expect(receiverStyleNames.indexOf('spinning-donut')).toBe(receiverStyleNames.indexOf('cube') + 1);
@@ -281,6 +289,19 @@ describe('receiver visualizers', () => {
     }
   });
 
+  it('keeps optimized Ultra Code frames byte-for-byte identical', () => {
+    const expected = new Map([
+      [0, '1cfd93ef3dfc17e22b21bfc8068af84449d2276e7feccd5b1ed2bbe7d1ee02c5'],
+      [1, '116758d37e23ae18907a47269735e5b5cadaa21377fbc8c8a59bd6111ca7b88d'],
+      [17, '98b916a484db2c341e5c266e43c005d1a4e9266d5dd1887b42d621f39322d7c0'],
+      [63, 'b0093bcada12cc256eb39809c3bb6a324bd48ab84b9119b5f9c1b6117c22c6c2']
+    ]);
+
+    for (const [pulse, hash] of expected) {
+      expect(frameHash(buildVisualizer('ultracode', pulse, 83, 13, station, playback, 'violet'))).toBe(hash);
+    }
+  });
+
   it('animates every immersive style as its synthetic pulse changes', () => {
     const pulses = [3, 11, 29, 61];
 
@@ -311,8 +332,9 @@ describe('receiver visualizers', () => {
   it('excludes retired receiver styles from the UI cycle', () => {
     const styles = new Set<string>(receiverStyleNames);
 
-    expect(styles.has('equalizer')).toBe(false);
+    expect(styles.has('equalizer')).toBe(true);
     expect(styles.has('ultracode')).toBe(true);
+    expect(styles.has('mirror')).toBe(false);
     for (const style of removedReceiverStyles) {
       expect(styles.has(style)).toBe(false);
     }
@@ -344,12 +366,20 @@ describe('receiver visualizers', () => {
     }
   });
 
-  it('draws Pulse Grid as separated circular braille rings in micro mode', () => {
+  it('draws Pulse Grid with its original spaced radial glyphs in micro mode', () => {
     const rows = buildVisualizer('pulse-grid', 2, 20, 4, station, playback, 'ruby', 'micro');
-    const runs = rows.map(row => row.text.match(/\S+/g)?.length ?? 0);
 
-    expect(frameText(rows)).toMatch(/[⠀-⣿]/);
-    expect(Math.min(...runs)).toBeGreaterThanOrEqual(3);
+    expect(frameText(rows)).toMatch(/[·∘•●◉]/);
+    expect(frameText(rows)).not.toMatch(/[⠀-⣿]/);
+    expect(rows.every(row => [...row.text].every((glyph, index) => index % 2 === 0 || glyph === ' '))).toBe(true);
+  });
+
+  it('keeps Pulse Grid rings perfectly radial instead of deforming their contours', () => {
+    const rows = buildVisualizer('pulse-grid', 7, 81, 13, station, playback, 'teal');
+    const text = rows.map(row => row.text);
+
+    expect(text).toEqual([...text].reverse());
+    expect(text.every(row => row === [...row].reverse().join(''))).toBe(true);
   });
 
   it('keeps the micro Hex Pulse balanced around both axes', () => {

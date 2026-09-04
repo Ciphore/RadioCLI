@@ -15,6 +15,7 @@ import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {buildVisualizer, visualizerHeight} from '../visualizers/receiver-visualizers.js';
+import {useReceiverPulse} from '../receiver-animation.js';
 
 type NowPlayingProps = {
   station: Station | null;
@@ -22,7 +23,6 @@ type NowPlayingProps = {
   metadata: IcyNowPlaying | null;
   theme: ThemeName;
   favorite: boolean;
-  pulse: number;
   diagnostics: PlaybackDiagnostics;
   showDiagnostics: boolean;
   stationTime: string;
@@ -44,7 +44,6 @@ export function NowPlayingScreen({
   metadata,
   theme,
   favorite,
-  pulse,
   diagnostics,
   showDiagnostics,
   stationTime,
@@ -53,6 +52,7 @@ export function NowPlayingScreen({
   width,
   height
 }: NowPlayingProps): React.ReactElement {
+  const pulse = useReceiverPulse();
   const {panel: panelBackground, ascii} = useDisplay();
   // In ASCII mode route every rendered string through the glyph mapper so no
   // braille, block, box-drawing, or punctuation (·, ★) leaks to the terminal.
@@ -192,7 +192,9 @@ export function receiverStationIdentity(
 function renderSegments(segments: VisualSegment[]): React.ReactNode {
   let offset = 0;
   return segments.map(segment => {
-    const key = `${offset}-${segment.color}-${segment.backgroundColor ?? ''}-${segment.bold ? 'bold' : ''}`;
+    // Keep identity tied to geometry, not animated color. Color-bearing keys
+    // forced React to unmount and recreate hundreds of Text nodes per frame.
+    const key = offset;
     offset += segment.text.length;
     return (
       <Text key={key} color={segment.color} backgroundColor={segment.backgroundColor} bold={segment.bold}>

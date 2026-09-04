@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "getting-started",
+    "alarms",
     "demo",
     "architecture",
     "design",

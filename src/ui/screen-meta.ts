@@ -44,6 +44,10 @@ export const screenMetadata: Record<PrimaryScreen, ScreenMetadata> = {
 const secondaryTitles: Partial<Record<Screen, string>> = {
   stations: 'Stations',
   map: 'World map',
+  alarms: 'Alarms',
+  'alarm-editor': 'Alarm editor',
+  'alarm-picker': 'Choose station',
+  'alarm-ringing': 'Alarm ringing',
   'airplay-settings': 'AirPlay',
   'airplay-code': 'AirPlay code',
   help: 'Help'

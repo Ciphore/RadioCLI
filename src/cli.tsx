@@ -8,9 +8,12 @@ import {JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {resolveCommand} from './player/command.js';
+import {diagnoseCommand, type CommandDiagnostic} from './player/command-diagnostics.js';
 import {airPlaySenderHealth} from './player/airplay-sender-health.js';
 import {appVersion} from './version.js';
 import {checkForUpdate, updateCommandForInstall} from './update-check.js';
+import {runAlarmCommand} from './alarms/cli.js';
+import {runSetup} from './setup.js';
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
   const args = process.argv.slice(2);
@@ -46,17 +49,33 @@ export async function runCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (command === 'alarm') {
+    await runAlarmCommand(rest);
+    return;
+  }
+
+  if (command === 'setup') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      printSetupHelp();
+      return;
+    }
+    await runSetup({args: rest});
+    return;
+  }
+
   if (!isKnownCommand(command)) {
     throw new Error(`Unknown command: ${command}\nRun radiocli help.`);
   }
 
   if (command === 'doctor') {
     const backends = detectPlaybackBackends();
+    const mpvDiagnostic = diagnoseCommand('mpv');
     if (rest.includes('--json')) {
-      console.log(JSON.stringify(doctorReport(backends), null, 2));
+      console.log(JSON.stringify(doctorReport(backends, mpvDiagnostic), null, 2));
       return;
     }
     console.log(`backends=${backends.join(',') || 'none'}`);
+    printMpvDiagnostic(mpvDiagnostic);
     printPlaybackBackendStatus(backends);
     return;
   }
@@ -158,12 +177,14 @@ Usage:
   radiocli version         Print the installed version
   radiocli check           Show provider/backend health
   radiocli doctor [--json] Show local playback setup guidance
+  radiocli setup           Install and verify native playback tools
   radiocli update          Show update availability and install command
   radiocli countries       Print top countries
   radiocli search <query>  Search public stations
   radiocli import <file>   Import .m3u, .pls, or .xspf streams
   radiocli export [file]   Export favorites/imports as .m3u
   radiocli add-url <url> [name]
+  radiocli alarm <command> Manage alarms and scheduled radio
 `);
 }
 
@@ -180,7 +201,21 @@ export function isDirectRun(entryPath: string | undefined, moduleUrl: string): b
 }
 
 function isKnownCommand(command: string): boolean {
-  return ['check', 'doctor', 'update', 'countries', 'search', 'import', 'export', 'add-url'].includes(command);
+  return ['check', 'doctor', 'setup', 'update', 'countries', 'search', 'import', 'export', 'add-url', 'alarm'].includes(command);
+}
+
+function printSetupHelp(): void {
+  console.log(`RadioCLI Setup
+
+Usage:
+  radiocli setup                         Interactive guided setup
+  radiocli setup --yes                   Install recommended defaults
+  radiocli setup --all --yes             Install mpv, FFmpeg, and VLC
+  radiocli setup --only mpv,ffmpeg       Select specific components
+  radiocli setup --dry-run               Show commands without installing
+  radiocli setup --package-manager <pm>  Use brew, winget, scoop, choco,
+                                         apt, dnf, pacman, apk, or zypper
+`);
 }
 
 function printPlaybackBackendStatus(backends: string[]): void {
@@ -189,7 +224,7 @@ function printPlaybackBackendStatus(backends: string[]): void {
   }
 }
 
-function doctorReport(backends: string[]): Record<string, unknown> {
+function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic): Record<string, unknown> {
   const commands = Object.fromEntries(
     ['mpv', 'ffplay', 'vlc', 'cvlc', 'ffmpeg', 'dns-sd'].map(command => [command, redactHome(resolveCommand(command))])
   );
@@ -201,6 +236,7 @@ function doctorReport(backends: string[]): Record<string, unknown> {
     architecture: process.arch,
     backends,
     commands,
+    mpv: redactDiagnostic(mpvDiagnostic),
     airPlay: {
       available: airPlay.available,
       safe: airPlay.safe,
@@ -211,6 +247,23 @@ function doctorReport(backends: string[]): Record<string, unknown> {
     },
     guidance: playbackBackendStatusLines(backends)
   };
+}
+
+function printMpvDiagnostic(diagnostic: CommandDiagnostic): void {
+  console.log(`mpv_path=${redactHome(diagnostic.path) ?? 'not-found'}`);
+  console.log(`mpv_discovery=${diagnostic.discovery}`);
+  console.log(`mpv_launch=${diagnostic.launchable ? 'ready' : 'failed'}`);
+  if (diagnostic.version) console.log(`mpv_version=${diagnostic.version}`);
+  if (diagnostic.error) console.log(`mpv_error=${diagnostic.error}`);
+  if (diagnostic.launchable && diagnostic.discovery !== 'path') {
+    console.log('mpv_hint=RadioCLI found mpv outside PATH and can use it directly; no PATH changes are required.');
+  } else if (!diagnostic.path && process.platform === 'win32') {
+    console.log('mpv_hint=Install with winget, then rerun Doctor; RadioCLI also checks the standard MPV Player install directory.');
+  }
+}
+
+function redactDiagnostic(diagnostic: CommandDiagnostic): CommandDiagnostic {
+  return {...diagnostic, path: redactHome(diagnostic.path)};
 }
 
 function redactHome(path: string | null): string | null {

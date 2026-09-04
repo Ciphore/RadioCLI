@@ -293,6 +293,31 @@ describe('RadioBrowserProvider', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('gives large atlas downloads a size-aware timeout before trying another mirror', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('atlas attempt aborted')), {once: true});
+      })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const provider = new RadioBrowserProvider(
+      ['https://primary.example', 'https://secondary.example'],
+      cacheForTest()
+    );
+
+    const request = provider
+      .nearby({latitude: 48.8566, longitude: 2.3522, source: 'test'}, 2)
+      .then(() => null, error => error as Error);
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(request).resolves.toMatchObject({message: expect.stringMatching(/Radio Browser unavailable/)});
+    vi.useRealTimers();
+  });
+
   it('upvotes Radio Browser stations and ignores non-Radio-Browser stations', async () => {
     const fetch = mockFetch(url => {
       expect(url.pathname).toBe('/json/vote/tokyo-jazz');

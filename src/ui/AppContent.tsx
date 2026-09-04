@@ -28,6 +28,8 @@ import {selectedAirPlayDevice} from './airplay-settings.js';
 import type {ExploreCursor, StationContext} from './app-state.js';
 import type {TerminalLayout} from './layout.js';
 import {AdaptiveContent} from './AdaptiveContent.js';
+import {AlarmsScreen, AlarmEditorScreen, AlarmPickerScreen, AlarmRingingScreen} from './screens/AlarmsScreen.js';
+import type {AlarmTuiController} from './use-alarm-tui.js';
 
 type AppContentProps = {
   airPlayDevices: AirPlayDevice[];
@@ -52,7 +54,6 @@ type AppContentProps = {
   playback: PlaybackState;
   playingStation: Station | null;
   providerHealth: Record<string, string>;
-  pulse: number;
   searchQuery: string;
   screen: Screen;
   selected: number;
@@ -64,6 +65,7 @@ type AppContentProps = {
   storePath: string;
   theme: ThemeName;
   updateCheck?: UpdateCheckState;
+  alarmTui: AlarmTuiController;
 };
 
 export function AppContent({
@@ -89,7 +91,6 @@ export function AppContent({
   playback,
   playingStation,
   providerHealth,
-  pulse,
   searchQuery,
   screen,
   selected,
@@ -100,9 +101,14 @@ export function AppContent({
   stationTime,
   storePath,
   theme,
-  updateCheck
+  updateCheck,
+  alarmTui
 }: AppContentProps): React.ReactElement {
   if (layout.compact) {
+    if (screen === 'alarms') return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
+    if (screen === 'alarm-editor' && alarmTui.draft) return <AlarmEditorScreen draft={alarmTui.draft} field={alarmTui.editorField} editing={alarmTui.editingField} control={alarmTui.editorControl} timeSegment={alarmTui.timeSegment} weekdayIndex={alarmTui.weekdayIndex} error={alarmTui.validationError} saving={alarmTui.saving} theme={theme} width={frameWidth} height={layout.contentRows} />;
+    if (screen === 'alarm-picker') return <AlarmPickerScreen choices={alarmTui.pickerChoices} selected={selected} fallback={alarmTui.pickerFallback} theme={theme} width={frameWidth} height={layout.contentRows} />;
+    if (screen === 'alarm-ringing') return <AlarmRingingScreen sessions={alarmTui.activeAlarms} alarms={library.alarms} selected={alarmTui.activeSelected} snoozeMinutes={alarmTui.snoozeMinutes} theme={theme} width={frameWidth} height={layout.contentRows} />;
     return (
       <AdaptiveContent
         mode={layout.mode === 'micro' ? 'micro' : 'compact'}
@@ -124,18 +130,24 @@ export function AppContent({
         editingCountryFilter={editingCountryFilter}
         loadingCountries={loadingCountries}
         loadingStations={loadingStations}
+        exploreCursor={exploreCursor}
         library={library}
         diagnostics={diagnostics}
         backends={backends}
         updateCheck={updateCheck}
         favoriteKeys={favoriteKeys}
         stationTitle={stationContext.title}
+        stationError={stationContext.error}
         filterLabel={filterLabel}
-        pulse={pulse}
         sleepLabel={sleepLabel}
       />
     );
   }
+
+  if (screen === 'alarms') return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
+  if (screen === 'alarm-editor' && alarmTui.draft) return <AlarmEditorScreen draft={alarmTui.draft} field={alarmTui.editorField} editing={alarmTui.editingField} control={alarmTui.editorControl} timeSegment={alarmTui.timeSegment} weekdayIndex={alarmTui.weekdayIndex} error={alarmTui.validationError} saving={alarmTui.saving} theme={theme} width={frameWidth} height={layout.contentRows} />;
+  if (screen === 'alarm-picker') return <AlarmPickerScreen choices={alarmTui.pickerChoices} selected={selected} fallback={alarmTui.pickerFallback} theme={theme} width={frameWidth} height={layout.contentRows} />;
+  if (screen === 'alarm-ringing') return <AlarmRingingScreen sessions={alarmTui.activeAlarms} alarms={library.alarms} selected={alarmTui.activeSelected} snoozeMinutes={alarmTui.snoozeMinutes} theme={theme} width={frameWidth} height={layout.contentRows} />;
 
   if (screen === 'home') {
     return <HomeScreen selected={selected} theme={theme} library={library} />;
@@ -198,6 +210,7 @@ export function AppContent({
         stations={displayStations}
         selected={selected}
         loading={loadingStations}
+        error={stationContext.error}
         theme={theme}
         favorites={favoriteKeys}
         filterLabel={filterLabel}
@@ -217,6 +230,7 @@ export function AppContent({
         stations={displayStations}
         selected={selected}
         loading={loadingStations}
+        error={stationContext.error}
         theme={theme}
         favorites={favoriteKeys}
         filterLabel={filterLabel}
@@ -234,7 +248,6 @@ export function AppContent({
         metadata={nowPlaying}
         theme={theme}
         favorite={stationFavorite}
-        pulse={pulse}
         diagnostics={diagnostics}
         showDiagnostics={showDiagnostics}
         stationTime={stationTime}

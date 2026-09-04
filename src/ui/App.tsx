@@ -4,16 +4,16 @@ import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import {receiverStyleNames, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
+import {type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {nextReceiverStyle, nextTheme, textDim, textMuted, themeAccent} from './theme.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {homeItems, settingsItems} from './screen-items.js';
 import {AppContent} from './AppContent.js';
 import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout, type TerminalLayout} from './layout.js';
-import {truncate} from './format.js';
+import {displayWidth, truncate} from './format.js';
 import {playbackFooterText, playbackStateForPendingStation} from './playback-footer.js';
-import {fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, pageFooterText} from './page-footer.js';
+import {balancedFooterLegendRows, fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, microShortcutFooterText, pageFooterText} from './page-footer.js';
 import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell, shouldEnableMouseReporting} from './terminal-mouse.js';
 import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
@@ -25,6 +25,10 @@ import {appVersion} from '../version.js';
 import {checkForUpdate, installUpdate, shouldCheckForUpdate, updateCommandForInstall} from '../update-check.js';
 import {helpItemCount} from './help-content.js';
 import {EXIT_CONFIRMATION_MS, ctrlCExitDecision} from './exit-confirmation.js';
+import {createAlarmTuiService, serializeAlarmTuiService, type AlarmTuiService} from './alarm-tui-service.js';
+import {useAlarmTui} from './use-alarm-tui.js';
+import {toAsciiSafe} from './ascii.js';
+import {registerTuiPresence} from '../alarms/tui-presence.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -38,11 +42,8 @@ import {
   initialStationContexts,
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
-  nextReceiverPulse,
   nextSleepTimerMinutes,
   normalizeMediaKeyBindings,
-  shouldAnimateReceiver,
-  shouldResetReceiverPulse,
   shouldSkipAfterTuneError,
   stationApproximateTime,
   stationContextKeyForScreen,
@@ -55,19 +56,17 @@ import {
   type StationContext,
   type StationContextKey,
   type ExploreCursor,
-  type ExploreMoveDirection,
-  type ReceiverPulseSnapshot
+  type ExploreMoveDirection
 } from './app-state.js';
+import {ReceiverAnimationProvider} from './receiver-animation.js';
 
 type AppProps = {
   store?: JsonLibraryStore;
   providers?: ProviderManager;
+  alarmService?: AlarmTuiService;
+  alarmPreview?: (station: Station) => Promise<void>;
 };
 
-const LIVE_RECEIVER_STYLES = new Set<AppSettings['receiverStyle']>(receiverStyleNames);
-const LIVE_RECEIVER_PULSE_MS = 80;
-const SKYLINE_RECEIVER_PULSE_MS = 120;
-const AMBIENT_RECEIVER_PULSE_MS = 140;
 const LOADING_SPINNER_MS = 120;
 const VISUALIZER_MESSAGE_MS = 4500;
 const LISTENING_HEARTBEAT_MS = 30_000;
@@ -75,6 +74,7 @@ const COUNTRY_STATIONS_PAGE_SIZE = 120;
 const COUNTRY_STATIONS_LOAD_AHEAD = 12;
 const SEARCH_RESULTS_PAGE_SIZE = 90;
 const SEARCH_RESULTS_LOAD_AHEAD = 12;
+const BROKEN_STREAM_AUTO_SKIP_DELAY_MS = 1000;
 
 type BooleanSetting = 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport';
 
@@ -86,13 +86,14 @@ const settingToggleLabel: Record<BooleanSetting, string> = {
   mouseSupport: 'Mouse and trackpad scrolling'
 };
 
-export function App({store: providedStore, providers: providedProviders}: AppProps): React.ReactElement {
+export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
   const {stdout} = useStdout();
   const {columns, rows} = useWindowSize();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
+  const alarmService = useMemo(() => providedAlarmService ? serializeAlarmTuiService(providedAlarmService) : createAlarmTuiService(), [providedAlarmService]);
   const installedVersion = useMemo(() => appVersion(), []);
 
   const [library, setLibrary] = useState<LibraryState>(() => store.snapshot());
@@ -121,7 +122,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const [location, setLocation] = useState<LocationGuess | null>(null);
   const [exploreCursor, setExploreCursor] = useState<ExploreCursor>(defaultExploreCursor);
   const [providerHealth, setProviderHealth] = useState<Record<string, string>>({});
-  const [pulse, setPulse] = useState(0);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [commandMode, setCommandMode] = useState(false);
   const [commandText, setCommandText] = useState('');
@@ -152,7 +152,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const transientMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transientFooterMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitConfirmationUntilRef = useRef(0);
-  const receiverPulseSnapshotRef = useRef<ReceiverPulseSnapshot | null>(null);
   const helpReturnScreenRef = useRef<Screen>('home');
   const countriesLoadAttemptedRef = useRef(false);
   const tuneRequestRef = useRef(0);
@@ -221,6 +220,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'now-playing': 1,
     library: 0,
     stats: 1,
+    alarms: 0,
+    'alarm-editor': 0,
+    'alarm-picker': 0,
+    'alarm-ringing': 0,
     'airplay-settings': 0,
     'airplay-code': 1,
     settings: settingsItems.length,
@@ -237,6 +240,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     'now-playing': 1,
     library: stationCounts.library,
     stats: 1,
+    alarms: library.alarms.length,
+    'alarm-editor': 0,
+    'alarm-picker': 0,
+    'alarm-ringing': 0,
     'airplay-settings': availableAirPlayDevices.length,
     'airplay-code': 1,
     settings: settingsItems.length,
@@ -272,6 +279,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     );
 
   useEffect(() => player.onChange(setPlayback), [player]);
+  useEffect(() => stdin.isTTY ? registerTuiPresence() : undefined, [stdin]);
 
   const playingStationRef = useRef<Station | null>(null);
   playingStationRef.current = playingStation;
@@ -339,40 +347,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
 
   }, [renderedStationContextKey, screen, selected]);
-
-  useEffect(() => {
-    const current: ReceiverPulseSnapshot = {
-      screen,
-      receiverStyle: library.settings.receiverStyle,
-      playbackState: playback.state,
-      playbackReady: playback.ready
-    };
-
-    if (shouldResetReceiverPulse(receiverPulseSnapshotRef.current, current)) {
-      setPulse(0);
-    }
-
-    receiverPulseSnapshotRef.current = current;
-  }, [library.settings.receiverStyle, playback.ready, playback.state, screen]);
-
-  useEffect(() => {
-    if (
-      !shouldAnimateReceiver(screen, playback) ||
-      library.settings.reduceMotion ||
-      process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
-      process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
-    ) {
-      return;
-    }
-
-    const intervalMs = library.settings.receiverStyle === 'skyline'
-      ? SKYLINE_RECEIVER_PULSE_MS
-      : LIVE_RECEIVER_STYLES.has(library.settings.receiverStyle)
-        ? LIVE_RECEIVER_PULSE_MS
-        : AMBIENT_RECEIVER_PULSE_MS;
-    const timer = setInterval(() => setPulse(nextReceiverPulse), intervalMs);
-    return () => clearInterval(timer);
-  }, [library.settings.receiverStyle, library.settings.reduceMotion, playback.ready, playback.state, screen]);
 
   useEffect(() => {
     if (
@@ -570,10 +544,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     const remembered = selectedByScreenRef.current[destination] ?? 0;
     const nextSelection = options.resetSelection ? 0 : remembered;
 
-    if (destination === 'now-playing' && screenRef.current !== 'now-playing') {
-      setPulse(0);
-    }
-
     setScreen(destination);
     setSelected(clamp(nextSelection, (itemCountsRef.current[destination] ?? 0) - 1));
     if (options.clearMessage !== false) {
@@ -633,7 +603,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     setStationContextFor('explore', {
       title: 'Explore world',
       subtitle: `Scanning all geotagged stations near ${formatExploreCursor(cursor)}`,
-      stations: previousExploreStations
+      stations: previousExploreStations,
+      error: undefined
     });
     try {
       const stations = await providers.nearby(exploreCursorLocation(cursor), 90);
@@ -656,7 +627,13 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       if (requestId !== exploreRequestRef.current) {
         return;
       }
-      setMessage(error instanceof Error ? error.message : 'Could not load world stations.');
+      const loadError = discoveryLoadError('Could not load world stations.', error);
+      setStationContextFor('explore', {
+        ...stationContextsRef.current.explore,
+        subtitle: `World station directory unavailable near ${formatExploreCursor(cursor)}`,
+        error: loadError
+      });
+      setMessage(loadError);
     } finally {
       if (requestId === exploreRequestRef.current) {
         setLoadingStations(false);
@@ -934,6 +911,10 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     nearbyRequestRef.current = requestId;
     setLoadingStations(true);
     setMessage(null);
+    setStationContextFor('nearby', {
+      ...stationContextsRef.current.nearby,
+      error: undefined
+    });
     go('nearby', {resetSelection: stationContextsRef.current.nearby.stations.length === 0});
     try {
       if (!settingsRef.current.enableNearbyLocation) {
@@ -945,7 +926,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setStationContextFor('nearby', {
           title: 'Nearby',
           subtitle: 'IP-based location is off. Enable it in Settings or use :location on.',
-          stations: []
+          stations: [],
+          error: undefined
         });
         return;
       }
@@ -962,7 +944,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
         setStationContextFor('nearby', {
           title: 'Nearby',
           subtitle: 'Location detection was unavailable',
-          stations: []
+          stations: [],
+          error: 'Could not determine an approximate location.'
         });
         return;
       }
@@ -976,7 +959,12 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       });
     } catch (error) {
       if (requestId !== nearbyRequestRef.current) return;
-      setMessage(error instanceof Error ? error.message : 'Could not load nearby stations.');
+      const loadError = discoveryLoadError('Could not load nearby stations.', error);
+      setStationContextFor('nearby', {
+        ...stationContextsRef.current.nearby,
+        error: loadError
+      });
+      setMessage(loadError);
     } finally {
       if (requestId === nearbyRequestRef.current) setLoadingStations(false);
     }
@@ -1016,6 +1004,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
 
     if (screenRef.current === queue.sourceScreen) {
+      selectedRef.current = index;
       setSelected(index);
     }
   }, []);
@@ -1074,7 +1063,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           skipBrokenTimerRef.current = setTimeout(() => {
             skipBrokenTimerRef.current = null;
             playStationRef.current(nextStation, {...options, queue});
-          }, 250);
+          }, BROKEN_STREAM_AUTO_SKIP_DELAY_MS);
           return;
         }
 
@@ -1104,6 +1093,14 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     }
   }, [playStation, store]);
   playStationRef.current = playStation;
+
+  const cancelPendingAutoSkip = useCallback(() => {
+    if (!skipBrokenTimerRef.current) return;
+    clearTimeout(skipBrokenTimerRef.current);
+    skipBrokenTimerRef.current = null;
+    setTuningStation(null);
+    setMessage('Auto-skip canceled. Choose a station and press Enter.');
+  }, []);
 
   const showTransientFooterMessage = useCallback((nextMessage: string, durationMs = VISUALIZER_MESSAGE_MS) => {
     if (transientFooterMessageTimerRef.current) {
@@ -1265,7 +1262,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
 
   const cycleReceiverStyle = useCallback(() => {
     const receiverStyle = nextReceiverStyle(settingsRef.current.receiverStyle);
-    setPulse(0);
     updateSettings({receiverStyle});
     showTransientMessage(`Receiver style: ${receiverStyle}`);
   }, [showTransientMessage, updateSettings]);
@@ -1287,7 +1283,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
       const current = stationContextsRef.current.nearby;
       setStationContextFor('nearby', {
         ...current,
-        subtitle: 'Location lookup off · showing the last loaded results'
+        subtitle: 'Location lookup off · showing the last loaded results',
+        error: undefined
       });
     }
   }, [loadNearby, setStationContextFor, updateSettings]);
@@ -1438,6 +1435,27 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   }, [go]);
 
   const selectedStation = displayStations[selected] ?? null;
+  const selectedStationForInput = useCallback(
+    () => displayStationsRef.current[selectedRef.current] ?? null,
+    []
+  );
+
+  const alarmTui = useAlarmTui({
+    service: alarmService,
+    store,
+    library,
+    setLibrary,
+    screen,
+    selected,
+    setSelected,
+    go,
+    setMessage,
+    playingStation,
+    previewStation: alarmPreview ?? (station => playStation(station))
+  });
+  for (const alarmScreen of ['alarms', 'alarm-editor', 'alarm-picker', 'alarm-ringing'] as const) {
+    itemCountsRef.current[alarmScreen] = alarmTui.itemCount(alarmScreen) ?? 0;
+  }
 
   const openScreen = useCallback(
     (target: Screen) => {
@@ -1600,6 +1618,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     adjustVolume,
     airPlayCode,
     canEnterAirPlayCode,
+    cancelPendingAutoSkip,
     copyStationUrl,
     openStationHomepage,
     beginLearningTransportKey,
@@ -1624,6 +1643,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     openAirPlayCode,
     openAirPlaySettings,
     openScreen,
+    handleAlarmInput: alarmTui.handleInput,
+    openAlarmForStation: alarmTui.openForStation,
+    openActiveAlarms: alarmTui.openActive,
     playAdjacent,
     playStation,
     player,
@@ -1640,8 +1662,8 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     saveLearnedTransportKey,
     screen,
     searchQuery,
-    selected,
-    selectedStation,
+    selectedRef,
+    selectedStationForInput,
     selectAirPlayDeviceAt,
     setCapturingTransportAction,
     setCommandMode,
@@ -1685,7 +1707,7 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     width: frameWidth,
     spinnerFrame
   });
-  const pageFooter = pageFooterText({
+  const basePageFooter = pageFooterText({
     canEnterAirPlayCode,
     capturingTransportAction,
     commandMode,
@@ -1695,6 +1717,9 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
     playbackBackend: playback.backend,
     screen
   });
+  const pageFooter = alarmTui.activeAlarms.length > 0 && screen !== 'alarm-ringing'
+    ? `ALARM PLAYING · ! controls · ${basePageFooter}`
+    : basePageFooter;
   const pageFooterOwnsCompactRow = Boolean(
     commandMode ||
     capturingTransportAction ||
@@ -1705,7 +1730,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
   const hasActiveMicroPlayback = Boolean(
     footerStation && (footerPlayback.state === 'playing' || footerPlayback.state === 'paused')
   );
-  const compactFooter = footerMessage ?? message ?? (pageFooterOwnsCompactRow ? pageFooter : playbackFooter ?? pageFooter);
   const microFooter = footerMessage ?? message ?? (
     pageFooterOwnsCompactRow
       ? pageFooter
@@ -1715,10 +1739,27 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           ? microPlaybackControlsText(playback.backend)
           : pageFooter
   );
-  const compactGlobalFooter = `←/→ tabs · ? help · q quit · v${installedVersion}`;
+  const compactGlobalFooter = '←/→ tabs · ? help · q quit';
+  const versionLabel = `v${installedVersion}`;
+  const versionReserve = displayWidth(versionLabel) + 2;
   const fullStatusRows = fullStatusFooterRows(screen, message, footerMessage, playbackFooter);
+  const fullLegendRows = balancedFooterLegendRows(pageFooter, globalFooter, frameWidth, 2, versionReserve);
+  const compactStatus = footerMessage ?? message ?? playbackFooter;
+  const compactLegendRowCount = Math.max(1, layout.footerRows - (compactStatus ? 1 : 0));
+  const compactLegendRows = balancedFooterLegendRows(pageFooter, compactGlobalFooter, frameWidth, compactLegendRowCount, versionReserve);
+  const microLegendWidth = Math.max(1,frameWidth-versionReserve);
+  const microLegend = commandMode || capturingTransportAction || footerMessage || message
+    ? microFooter
+    : microShortcutFooterText(microFooter, microLegendWidth);
+  const footerText = (value: string): string => displayMode.ascii ? toAsciiSafe(value) : value;
 
   return (
+    <ReceiverAnimationProvider
+      screen={screen}
+      playback={playback}
+      receiverStyle={library.settings.receiverStyle}
+      reduceMotion={Boolean(library.settings.reduceMotion)}
+    >
     <DisplayContext.Provider value={displayMode}>
     <Box
       flexDirection="column"
@@ -1762,7 +1803,6 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           playback={footerPlayback}
           playingStation={footerStation}
           providerHealth={providerHealth}
-          pulse={pulse}
           searchQuery={searchQuery}
           screen={screen}
           selected={selected}
@@ -1775,34 +1815,32 @@ export function App({store: providedStore, providers: providedProviders}: AppPro
           storePath={store.filePath}
           theme={theme}
           updateCheck={library.updateCheck}
+          alarmTui={alarmTui}
         />
       </Box>
       <Box height={layout.footerRows} width={frameWidth} flexDirection="column" flexShrink={0} backgroundColor={displayMode.app}>
         {layout.mode === 'full' ? (
           <>
             {fullStatusRows.map(statusRow => (
-              <Text key={statusRow.key} color={themeAccent(theme)}>{truncate(statusRow.text, frameWidth)}</Text>
+              <Text key={statusRow.key} color={themeAccent(theme)}>{footerText(truncate(statusRow.text, frameWidth))}</Text>
             ))}
-            <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>
-              {truncate(pageFooter, frameWidth)}
-            </Text>
-            <Box>
-              <Text color={textDim}>{truncate(globalFooter, Math.max(1, frameWidth - installedVersion.length - 3))}</Text>
-              <Box flexGrow={1} />
-              <Text color={textDim}>v{installedVersion}</Text>
-            </Box>
+            <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>{footerText(fullLegendRows[0] ?? ' ')}</Text>
+            <Box><Text color={textDim}>{footerText(fullLegendRows[1] ?? ' ')}</Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box>
           </>
         ) : (
           <>
-            <Text color={commandMode || capturingTransportAction || footerMessage || message ? themeAccent(theme) : textMuted}>
-              {truncate(layout.mode === 'micro' ? microFooter : compactFooter, frameWidth)}
-            </Text>
-            {layout.footerRows > 1 ? <Text color={textDim}>{truncate(compactGlobalFooter, frameWidth)}</Text> : null}
+            {layout.mode === 'micro' ? <Box><Text color={commandMode || capturingTransportAction || footerMessage || message ? themeAccent(theme) : textMuted}>
+              {footerText(truncate(microLegend, microLegendWidth))}
+            </Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box> : <>
+              {compactStatus ? <Text color={footerMessage || message ? themeAccent(theme) : textMuted}>{footerText(truncate(compactStatus, frameWidth))}</Text> : null}
+              {compactLegendRows.map((row, index) => index===compactLegendRows.length-1?<Box key={`legend-${index}`}><Text color={textDim}>{footerText(row)}</Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box>:<Text key={`legend-${index}`} color={index === 0 ? textMuted : textDim}>{footerText(row)}</Text>)}
+            </>}
           </>
         )}
       </Box>
     </Box>
     </DisplayContext.Provider>
+    </ReceiverAnimationProvider>
   );
 }
 
@@ -1892,6 +1930,15 @@ function formatDistanceKm(distanceKm: number): string {
   return `${Math.round(distanceKm).toLocaleString()} km`;
 }
 
+function discoveryLoadError(fallback: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : '';
+  if (!detail || detail === fallback || fallback.includes(detail)) {
+    return fallback;
+  }
+
+  return `${fallback} ${detail}`;
+}
+
 function nextAvailablePlaybackBackend(
   current: AppSettings['preferredBackend'],
   backends: string[]
@@ -1955,6 +2002,9 @@ function librarySubtitle(library: LibraryState): string {
 
 function mouseVisibleRows(screen: Screen, layout: TerminalLayout): number {
   if (screen === 'help') return Math.max(3, layout.contentRows - 4);
+  if (screen === 'alarms' || screen === 'alarm-editor') return Math.max(1, layout.contentRows - 7);
+  if (screen === 'alarm-picker') return Math.max(1, layout.contentRows - 5);
+  if (screen === 'alarm-ringing') return Math.max(1, layout.contentRows - 7);
   if (layout.compact) return Math.max(1, layout.contentRows - 3);
 
   if (screen === 'countries') return layout.countryRows;

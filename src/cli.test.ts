@@ -50,7 +50,16 @@ describe('CLI command dispatch', () => {
     await runCommand(['help']);
 
     expect(logs.join('\n')).toContain('radiocli doctor');
+    expect(logs.join('\n')).toContain('radiocli setup');
     expect(logs.join('\n')).toContain('radiocli add-url <url> [name]');
+    expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('prints setup help without probing or changing the system', async () => {
+    await runCommand(['setup', '--help']);
+
+    expect(logs.join('\n')).toContain('radiocli setup --dry-run');
+    expect(logs.join('\n')).toContain('--package-manager <pm>');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 
@@ -67,6 +76,8 @@ describe('CLI command dispatch', () => {
     expect(logs.join('\n')).toContain('npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg');
     expect(logs.join('\n')).toContain('controls=missing');
     expect(logs.join('\n')).toContain('install_mpv=');
+    expect(logs.join('\n')).toContain('mpv_path=');
+    expect(logs.join('\n')).toContain('mpv_launch=');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 
@@ -78,12 +89,14 @@ describe('CLI command dispatch', () => {
       platform: string;
       backends: string[];
       commands: Record<string, string | null>;
+      mpv: {path: string | null; discovery: string; launchable: boolean};
       guidance: string[];
     };
     expect(report.radioCliVersion).toMatch(/^\d+\.\d+\.\d+/);
     expect(report.platform).toBe(process.platform);
     expect(report.backends).toEqual([]);
     expect(report.commands).toHaveProperty('mpv');
+    expect(report.mpv).toMatchObject({discovery: expect.any(String), launchable: expect.any(Boolean)});
     expect(report.guidance).toContain('playback=missing');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });

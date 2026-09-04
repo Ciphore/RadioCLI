@@ -68,6 +68,10 @@ describe('app state helpers', () => {
     expect(activeTabForScreen('map')).toBe('countries');
     expect(activeTabForScreen('airplay-settings')).toBe('settings');
     expect(activeTabForScreen('airplay-code')).toBe('settings');
+    expect(activeTabForScreen('alarms')).toBe('home');
+    expect(activeTabForScreen('alarm-editor')).toBe('home');
+    expect(activeTabForScreen('alarm-picker')).toBe('home');
+    expect(activeTabForScreen('alarm-ringing')).toBe('home');
   });
 
   it('filters station lists consistently with command filters', () => {

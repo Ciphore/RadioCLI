@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: Shipped scope for RadioCLI.
+description: Shipped scope and focused follow-up work for RadioCLI.
 ---
 
 ## Shipped In 0.1
@@ -12,5 +12,25 @@ description: Shipped scope for RadioCLI.
 - playlist import/export
 - provider cache and tune timeouts
 - open-source repo hygiene
+
+## Shipped In 0.2.2
+
+- TUI-first one-time and recurring radio alarms, listed under Overview before
+  Settings
+- native per-user background scheduling with launchd, Windows Task Scheduler,
+  and systemd user timers
+- missed-run grace, primary retry, fallback station, stop-after, snooze, and
+  authenticated ringing controls
+- automatic reopening of the saved supported terminal for ringing controls
+- optional OS wake requests where available and machine-local Alarm Guard idle
+  sleep inhibition
+
+## Follow-up Work
+
+- native scheduling adapters for Linux systems without systemd user sessions
+- broader wake-from-sleep capability detection as OS and hardware APIs allow
+- a signed macOS app bundle and Service Management helper so Background Activity
+  can identify RadioCLI instead of the Node runtime
+- unattended remote audio outputs; alarms currently use local speakers only
 
 See [Changelog](./changelog.mdx) for the full release history.

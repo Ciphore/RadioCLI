@@ -31,7 +31,7 @@ export function computeTerminalLayout(columns = 100, rows = 30, footerRows = 2):
   const desiredFooterRows = mode === 'full'
     ? clamp(Math.round(footerRows), 2, 4)
     : mode === 'compact'
-      ? (safeRows >= 14 ? 2 : 1)
+      ? (safeRows >= 14 ? 3 : 2)
       : 1;
   const reservedFooterRows = Math.min(desiredFooterRows, Math.max(0, safeRows - topRows - 1));
   const contentRows = Math.max(1, safeRows - reservedFooterRows - topRows);

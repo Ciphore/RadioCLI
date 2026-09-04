@@ -61,6 +61,7 @@ export class PlayerController {
   private mpvVolumeFlush: Promise<PlaybackControlResult> | null = null;
   private confirmedMpvVolume = 70;
   private mpvSessionId = 0;
+  private stopPromise: Promise<void> | null = null;
 
   constructor(private readonly getSettings: () => AppSettings) {}
 
@@ -301,12 +302,22 @@ export class PlayerController {
     return {ok: true};
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    const operation = this.performStop();
+    this.stopPromise = operation.finally(() => {
+      this.stopPromise = null;
+    });
+    return this.stopPromise;
+  }
+
+  private async performStop(): Promise<void> {
     const child = this.process;
+    const startupInProgress = this.state.state === 'loading' && !this.state.ready;
     this.stopMpvPolling();
     this.rejectPendingAirPlayReady(new Error('AirPlay playback stopped.'));
     this.rejectPendingAirPlayRetune(new Error('AirPlay playback stopped.'));
-    if (this.backend === 'mpv') {
+    if (this.backend === 'mpv' && !startupInProgress) {
       await this.sendMpv({command: ['quit']}).catch(() => undefined);
     } else if (this.backend === 'airplay') {
       this.sendAirPlayCommand({type: 'stop'});
