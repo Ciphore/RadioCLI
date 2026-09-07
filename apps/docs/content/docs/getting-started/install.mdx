@@ -26,6 +26,25 @@ Both paths install the same `radiocli` command. The npm package is the universal
 option; its guided `radiocli setup` step installs selected system playback tools
 through Homebrew, WinGet, Scoop, Chocolatey, or the detected Linux package manager.
 
+## Upgrade An Existing Installation
+
+RadioCLI preserves preferences, favorites, history, alarms, and agent settings
+outside the installed package. Check or install the latest release with:
+
+```bash
+radiocli update
+radiocli update --install
+```
+
+The detected Homebrew, npm, pnpm, or Bun package manager performs the upgrade.
+When local agent control is enabled, the install form also repairs detected MCP
+registrations. RadioCLI registers MCP clients through an upgrade-stable launcher:
+the package-manager shim on Unix, or the absolute Node and installed CLI paths on
+Windows so stdio never depends on `.cmd` shell behavior. Restart RadioCLI
+and any open agent clients after upgrading. If an installation was moved or an
+older registration is already stale, run `radiocli mcp status` followed by
+`radiocli mcp repair`.
+
 ## Requirements
 
 RadioCLI needs:
@@ -91,6 +110,8 @@ Choose components (installed items will be skipped):
   mpv      Full playback controls (Y/n)
   FFmpeg   AirPlay + ffplay fallback (Y/n)
   VLC      Additional playback fallback (y/N)
+  Agent control via MCP (detected coding agents) (Y/n)
+  Open the RadioCLI TUI for agent playback (macOS will ask the agent app to control Terminal on first use) (Y/n)
 ```
 
 For automation or to inspect the plan first:
@@ -100,7 +121,18 @@ radiocli setup --yes                   # recommended defaults
 radiocli setup --all --yes             # mpv, FFmpeg, and VLC
 radiocli setup --only mpv,ffmpeg       # explicit selection
 radiocli setup --dry-run               # print commands only
+radiocli setup --mcp                   # enable and configure detected MCP clients
+radiocli setup --mcp --agent-ui        # open a separate terminal TUI (default)
+radiocli setup --mcp --headless-agent  # opt out of external terminal windows
+radiocli setup --no-mcp                # disable/remove MCP entries
 ```
+
+Agent playback opens the RadioCLI TUI in a terminal window by default on every
+platform. On macOS, the first request from each agent host (for example, ChatGPT)
+also produces Apple's Automation consent dialog. RadioCLI cannot grant that
+permission on the host's behalf; approve it when prompted. If a user does not
+want external terminal windows or OS app-control prompts, choose headless mode
+during setup or under **Settings → Agent control & MCP**.
 
 RadioCLI uses an animated activity bar and elapsed time while each package
 manager runs. Package managers do not report a portable, reliable percentage,

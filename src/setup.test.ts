@@ -73,6 +73,16 @@ describe('RadioCLI setup', () => {
     expect(() => parseSetupArgs(['--all', '--only=mpv'])).toThrow('either --all or --only');
     expect(() => parseSetupArgs(['--package-manager', 'curl'])).toThrow('--package-manager accepts');
     expect(() => parseSetupArgs(['--wat'])).toThrow('Unknown setup option');
+    expect(() => parseSetupArgs(['--mcp', '--no-mcp'])).toThrow('either --mcp or --no-mcp');
+    expect(() => parseSetupArgs(['--mcp', '--agent-ui', '--headless-agent'])).toThrow('either --agent-ui or --headless-agent');
+    expect(() => parseSetupArgs(['--agent-ui'])).toThrow('require --mcp');
+  });
+
+  it('supports explicit MCP setup choices', () => {
+    expect(parseSetupArgs(['--yes', '--mcp'])).toMatchObject({yes: true, mcp: true, agentUi: null});
+    expect(parseSetupArgs(['--yes', '--mcp', '--agent-ui'])).toMatchObject({mcp: true, agentUi: true});
+    expect(parseSetupArgs(['--yes', '--mcp', '--headless-agent'])).toMatchObject({mcp: true, agentUi: false});
+    expect(parseSetupArgs(['--yes', '--no-mcp'])).toMatchObject({yes: true, mcp: false});
   });
 
   it('shows an executable dry-run plan without invoking installers', async () => {
@@ -96,6 +106,20 @@ describe('RadioCLI setup', () => {
     expect(text).toContain('winget install --id VideoLAN.VLC');
     expect(text).toContain('Dry run complete');
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('previews MCP enablement during a dry run without configuring clients', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => { text += String(chunk); });
+    await runSetup({
+      platform: 'linux',
+      args: ['--dry-run', '--mcp', '--only=mpv', '--package-manager=apt'],
+      input: new PassThrough(),
+      output,
+      hasCommand: () => false
+    });
+    expect(text).toContain('Agent integration: would be enabled and installed for detected MCP clients.');
   });
 
   it('runs selected installers sequentially and prints final verification', async () => {

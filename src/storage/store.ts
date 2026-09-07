@@ -82,7 +82,25 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   transparentBackground: z.boolean().default(false),
   asciiMode: z.boolean().default(false),
   reduceMotion: z.boolean().default(false),
-  mouseSupport: z.boolean().default(true)
+  mouseSupport: z.boolean().default(true),
+  automaticUpdateChecks: z.boolean().default(true),
+  agentControl: z.object({
+    enabled: z.boolean().default(false),
+    openUiOnPlay: z.boolean().default(true),
+    focusNowPlaying: z.boolean().default(true),
+    completionPreset: z.object({
+      action: z.enum(['play', 'pause', 'resume', 'stop']).default('play'),
+      source: z.enum(['recent', 'favorite', 'popular', 'country']).default('recent'),
+      countryCode: z.string().length(2).optional(),
+      ifPlaying: z.enum(['keep', 'replace']).default('keep'),
+      openUi: z.boolean().optional()
+    }).default({action: 'play', source: 'recent', ifPlaying: 'keep'})
+  }).default({
+    enabled: false,
+    openUiOnPlay: true,
+    focusNowPlaying: true,
+    completionPreset: {action: 'play', source: 'recent', ifPlaying: 'keep'}
+  })
 });
 
 const absoluteInstantSchema = z.string().refine(
@@ -232,6 +250,13 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     tuneTimeoutSeconds: 12,
     skipBrokenStreams: true,
     mouseSupport: true,
+    automaticUpdateChecks: true,
+    agentControl: {
+      enabled: false,
+      openUiOnPlay: true,
+      focusNowPlaying: true,
+      completionPreset: {action: 'play', source: 'recent', ifPlaying: 'keep'}
+    },
     mediaKeys: defaultMediaKeys
   })
 });
@@ -741,6 +766,13 @@ function defaultState(): LibraryState {
       tuneTimeoutSeconds: 12,
       skipBrokenStreams: true,
       mouseSupport: true,
+      automaticUpdateChecks: true,
+      agentControl: {
+        enabled: false,
+        openUiOnPlay: true,
+        focusNowPlaying: true,
+        completionPreset: {action: 'play', source: 'recent', ifPlaying: 'keep'}
+      },
       mediaKeys: defaultMediaKeys
     }
   };

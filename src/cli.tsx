@@ -11,14 +11,31 @@ import {resolveCommand} from './player/command.js';
 import {diagnoseCommand, type CommandDiagnostic} from './player/command-diagnostics.js';
 import {airPlaySenderHealth} from './player/airplay-sender-health.js';
 import {appVersion} from './version.js';
-import {checkForUpdate, updateCommandForInstall} from './update-check.js';
+import {checkForUpdate, installUpdate, updateCommandForInstall} from './update-check.js';
 import {runAlarmCommand} from './alarms/cli.js';
 import {runSetup} from './setup.js';
+import {runAgentCliCommand, runMcpCommand} from './agent/cli.js';
+import {decodeAgentCommand} from './agent/service.js';
+import {runHeadlessAgentHost} from './agent/headless-host.js';
+import {configureMcpIntegrations} from './agent/mcp-install.js';
+import {defaultAgentControlSettings} from './types.js';
+
+const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
   const args = process.argv.slice(2);
 
-  if (args.length > 0) {
+  if (args[0] === 'agent-ui') {
+    const encoded = args[1];
+    if (!encoded) throw new Error('Missing RadioCLI agent startup request.');
+    const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
+    render(<App initialAgentCommand={decodeAgentCommand(encoded)} />, {
+      exitOnCtrlC: false,
+      kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']}
+    });
+  } else if (args[0] === 'agent-host') {
+    await runHeadlessAgentHost();
+  } else if (args.length > 0) {
     await runCommand(args).catch(error => {
       console.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
@@ -54,6 +71,16 @@ export async function runCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (command === 'mcp') {
+    await runMcpCommand(rest, runtime);
+    return;
+  }
+
+  if (command === 'agent') {
+    await runAgentCliCommand(rest, runtime);
+    return;
+  }
+
   if (command === 'setup') {
     if (rest.includes('--help') || rest.includes('-h')) {
       printSetupHelp();
@@ -81,6 +108,8 @@ export async function runCommand(args: string[]): Promise<void> {
   }
 
   if (command === 'update') {
+    const unknown = rest.filter(arg => arg !== '--install');
+    if (unknown.length > 0) throw new Error('Usage: radiocli update [--install]');
     const updateCheck = await checkForUpdate();
     const updateCommand = updateCommandForInstall();
     if (updateCheck.error) {
@@ -91,6 +120,23 @@ export async function runCommand(args: string[]): Promise<void> {
       console.log(`available=${updateCheck.updateAvailable ? 'yes' : 'no'}`);
     }
     console.log(`command=${updateCommand.command}`);
+    if (rest.includes('--install')) {
+      const result = await installUpdate(updateCommand.command);
+      if (!result.ok) throw new Error(`Update install failed. Run manually: ${result.command}${result.output ? `\n${result.output}` : ''}`);
+      console.log('updated=yes');
+      const agentControl = new JsonLibraryStore().snapshot().settings.agentControl ?? defaultAgentControlSettings;
+      if (agentControl.enabled) {
+        try {
+          const repaired = await configureMcpIntegrations(true, runtime);
+          const failed = repaired.filter(item => item.status === 'failed');
+          console.log(`mcp_repaired=${failed.length ? 'partial' : 'yes'}`);
+          if (failed.length) console.log(`mcp_failures=${failed.map(item => `${item.client}: ${item.detail}`).join('; ')}`);
+        } catch (error) {
+          console.log(`mcp_repaired=failed ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      console.log('restart_required=yes');
+    }
     return;
   }
 
@@ -178,7 +224,10 @@ Usage:
   radiocli check           Show provider/backend health
   radiocli doctor [--json] Show local playback setup guidance
   radiocli setup           Install and verify native playback tools
+  radiocli mcp <command>   Install, inspect, or run the MCP integration
+  radiocli agent <command> Scriptable radio controls for local agents
   radiocli update          Show update availability and install command
+  radiocli update --install Install the latest release and repair enabled MCP entries
   radiocli countries       Print top countries
   radiocli search <query>  Search public stations
   radiocli import <file>   Import .m3u, .pls, or .xspf streams
@@ -201,7 +250,7 @@ export function isDirectRun(entryPath: string | undefined, moduleUrl: string): b
 }
 
 function isKnownCommand(command: string): boolean {
-  return ['check', 'doctor', 'setup', 'update', 'countries', 'search', 'import', 'export', 'add-url', 'alarm'].includes(command);
+  return ['check', 'doctor', 'setup', 'update', 'countries', 'search', 'import', 'export', 'add-url', 'alarm', 'mcp', 'agent'].includes(command);
 }
 
 function printSetupHelp(): void {
@@ -213,6 +262,10 @@ Usage:
   radiocli setup --all --yes             Install mpv, FFmpeg, and VLC
   radiocli setup --only mpv,ffmpeg       Select specific components
   radiocli setup --dry-run               Show commands without installing
+  radiocli setup --mcp                   Enable and configure agent MCP clients
+  radiocli setup --mcp --agent-ui        Open a terminal TUI for agent playback (default)
+  radiocli setup --mcp --headless-agent  Opt out of external terminal windows
+  radiocli setup --no-mcp                Disable and remove agent MCP entries
   radiocli setup --package-manager <pm>  Use brew, winget, scoop, choco,
                                          apt, dnf, pacman, apk, or zypper
 `);

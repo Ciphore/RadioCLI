@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
-import {displayWidth, stationLocation, stationTags, stationTech, truncate} from '../format.js';
+import {stationLocation, stationTags, stationTech, truncate} from '../format.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {Menu, Pointer} from './Menu.js';
 import {visibleWindow} from '../list-window.js';
@@ -76,21 +76,22 @@ export function StationList({
               </Box>
             );
           }
-          const stationName = truncate(station.name, favorite ? Math.max(1, nameWidth - 2) : nameWidth);
+          const stationNameWidth = favorite ? Math.max(1, nameWidth - 2) : nameWidth;
           const titleWidth = nameWidth + 2;
-          const titleUsed = displayWidth(stationName) + (favorite ? 2 : 0);
-          const titlePadding = ' '.repeat(Math.max(1, titleWidth - titleUsed));
           const standardMetadata = `${stationLocation(station)} · ${stationTech(station)}`;
           const selectedMetadata = station.tags.length > 0 ? stationTags(station) : standardMetadata;
 
           return (
             <Box>
               <Pointer active={active} />
-              <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                {stationName}
-              </Text>
-              {favorite ? <Text color="yellow"> ★</Text> : null}
-              <Text>{titlePadding}</Text>
+              <Box width={titleWidth}>
+                <Box width={stationNameWidth}>
+                  <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                    <AdaptiveMarquee text={station.name} width={stationNameWidth} active={active} reduceMotion={reduceMotion} />
+                  </Text>
+                </Box>
+                {favorite ? <Text color="yellow"> ★</Text> : null}
+              </Box>
               <Text color={active ? themeAccent(theme) : textMuted}>
                 {truncate(active ? selectedMetadata : standardMetadata, metaWidth)}
               </Text>

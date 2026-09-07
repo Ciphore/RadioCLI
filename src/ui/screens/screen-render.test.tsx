@@ -1,5 +1,6 @@
+import {act} from 'react';
 import {render} from 'ink-testing-library';
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {AppSettings, LibraryState, PlaybackDiagnostics, PlaybackState, Station, TrackPlay} from '../../types.js';
 import {DisplayContext, resolveDisplayMode} from '../display-context.js';
 import {HelpScreen} from './HelpScreen.js';
@@ -10,7 +11,7 @@ import {ExploreScreen} from './ExploreScreen.js';
 import {CountriesScreen} from './CountriesScreen.js';
 import {StationScreen} from './StationScreen.js';
 import {buildContributionGraph, contributionLevel, contributionScaleSeconds, StatsScreen} from './StatsScreen.js';
-import {settingsGroups, settingsItems} from '../screen-items.js';
+import {homeItems, settingsGroups, settingsItems, settingsRootItems} from '../screen-items.js';
 import {defaultExploreCursor} from '../app-state.js';
 import {StationList} from '../components/StationList.js';
 import {displayWidth} from '../format.js';
@@ -99,15 +100,28 @@ const library: LibraryState = {
 };
 
 describe('HomeScreen rendering', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('does not repeat playback status already shown in the app header', () => {
     const frame = render(<HomeScreen selected={0} theme="green" library={library} />).lastFrame() ?? '';
 
     expect(frame).not.toContain('Receiver:');
     expect(frame).not.toContain('paused · mpv');
   });
+
+  it('aligns every option description behind a compact fixed title column', () => {
+    const frame = render(<HomeScreen selected={0} theme="green" library={library} />).lastFrame() ?? '';
+    const lines = frame.split('\n');
+    const detailColumns = homeItems.map(item => lines.find(line => line.includes(item.detail))?.indexOf(item.detail) ?? -1);
+    expect(new Set(detailColumns).size).toBe(1);
+    expect(detailColumns[0]).toBeGreaterThan(0);
+    expect(frame).not.toMatch(/· (Receiver display|Favorites, recent|Move a map|Find stations|Browse by country|Approximate IP|Listening graph|Wake to radio|Audio output)/);
+  });
 });
 
 describe('StationList rendering', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('replaces standard metadata with selected-station tags on the same row', () => {
     const frame = render(
       <StationList
@@ -126,26 +140,47 @@ describe('StationList rendering', () => {
     expect(frame).not.toContain('United States');
     expect(frame).not.toContain('MP3');
   });
+
+  it('marquees only the focused long station name while keeping metadata anchored', async () => {
+    vi.useFakeTimers();
+    const longStation = {...station, name: 'An Exceptionally Long Station Name That Cannot Fit In Its Column'};
+    const otherStation = {...station, id: 'station-2', name: 'Another Exceptionally Long Station Name That Cannot Fit In Its Column'};
+    const view = render(
+      <StationList stations={[longStation, otherStation]} selected={0} theme="green" favorites={new Set<string>()} pageSize={2} width={80} showCount={false} />
+    );
+    const initial = view.lastFrame() ?? '';
+    const metadataColumn = initial.split('\n')[0]?.indexOf('indie') ?? -1;
+    expect(initial).toContain('An Exceptionally Long Station N');
+    expect(initial).toContain('Another Exceptionally Long Sta…');
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    const moved = view.lastFrame() ?? '';
+    expect(moved).not.toBe(initial);
+    expect(moved.split('\n')[0]?.indexOf('indie')).toBe(metadataColumn);
+    expect(moved).toContain('Another Exceptionally Long Sta…');
+  });
 });
 
 describe('SettingsScreen rendering', () => {
   it('orders settings into a user-centered hierarchy', () => {
     expect(settingsGroups.map(group => group.label)).toEqual([
-      'Playback',
-      'Display',
-      'Discovery & privacy',
-      'Data',
+      'Playback & audio',
+      'Appearance',
+      'Discovery & providers',
+      'Data & library',
+      'Agent control & MCP',
       'Media keys',
-      'Maintenance'
+      'Updates'
     ]);
     expect(settingsItems.indexOf('Audio output')).toBeLessThan(settingsItems.indexOf('Cycle display color'));
     expect(settingsItems.indexOf('Export preferences and library')).toBeLessThan(settingsItems.indexOf('Check for updates'));
+    expect(settingsRootItems.at(-1)).toBe('Updates');
   });
 
   it('shows export and import together in the Data section', () => {
-    const settingsIndex = Math.max(0, settingsItems.indexOf('Export preferences and library'));
+    const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'data')?.items.indexOf('Export preferences and library') ?? 0);
     const frame = render(
       <SettingsScreen
+        page="data"
         selected={settingsIndex}
         settings={settings}
         appVersion="0.1.9"
@@ -166,11 +201,6 @@ describe('SettingsScreen rendering', () => {
     expect(frame).toMatch(/Import preferences and library\s+restore JSON backup/);
     expect(frame).not.toMatch(/Export preferences and library {8,}JSON backup/);
     const valueColumns = ([
-      ['ASCII-safe display', 'on'],
-      ['Reduce motion', 'off'],
-      ['Mouse and trackpad scrolling', 'auto'],
-      ['Nearby location', 'off'],
-      ['Radio Garden adapter', 'off'],
       ['Export preferences and library', 'JSON backup'],
       ['Import preferences and library', 'restore JSON backup']
     ] as const).map(([label, value]) => {
@@ -180,10 +210,11 @@ describe('SettingsScreen rendering', () => {
     expect(new Set(valueColumns)).toEqual(new Set([39]));
   });
 
-  it('renders the new display and playback toggles with their values', () => {
-    const settingsIndex = Math.max(0, settingsItems.indexOf('Resume last station on launch'));
+  it('renders playback controls on their dedicated page', () => {
+    const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'playback')?.items.indexOf('Resume last station on launch') ?? 0);
     const {lastFrame} = render(
       <SettingsScreen
+        page="playback"
         selected={settingsIndex}
         settings={settings}
         appVersion="0.1.9"
@@ -201,15 +232,15 @@ describe('SettingsScreen rendering', () => {
     const frame = lastFrame() ?? '';
 
     expect(frame).toContain('Resume last station on launch');
-    expect(frame).toContain('ASCII-safe display');
-    expect(frame).toContain('Reduce motion');
-    expect(frame).toContain('Transparent background');
+    expect(frame).toContain('Audio output');
+    expect(frame).not.toContain('ASCII-safe display');
   });
 
   it('changes the update settings row when an update is available', () => {
-    const settingsIndex = Math.max(0, settingsItems.indexOf('Check for updates'));
+    const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'updates')?.items.indexOf('Check for updates') ?? 0);
     const {lastFrame} = render(
       <SettingsScreen
+        page="updates"
         selected={settingsIndex}
         settings={settings}
         appVersion="0.1.9"
@@ -228,12 +259,14 @@ describe('SettingsScreen rendering', () => {
 
     expect(frame).toContain('Install update');
     expect(frame).toContain('v0.1.10 available');
+    expect(frame).toMatch(/Automatically check for updates\s+on/);
   });
 
   it('keeps the selected update row visible in a constrained Settings pane', () => {
-    const settingsIndex = Math.max(0, settingsItems.indexOf('Check for updates'));
+    const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'updates')?.items.indexOf('Check for updates') ?? 0);
     const {lastFrame} = render(
       <SettingsScreen
+        page="updates"
         selected={settingsIndex}
         settings={settings}
         appVersion="0.1.9"
@@ -251,13 +284,14 @@ describe('SettingsScreen rendering', () => {
     );
     const frame = lastFrame() ?? '';
 
-    expect(frame).toContain('> Check for updates');
+    expect(frame).toContain('> Check now');
   });
 
   it('keeps the mouse compatibility control beside the display controls', () => {
-    const settingsIndex = Math.max(0, settingsItems.indexOf('Reduce motion'));
+    const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'appearance')?.items.indexOf('Reduce motion') ?? 0);
     const {lastFrame} = render(
       <SettingsScreen
+        page="appearance"
         selected={settingsIndex}
         settings={settings}
         appVersion="0.1.9"
@@ -377,8 +411,11 @@ describe('Explore world map rendering', () => {
 });
 
 describe('CountriesScreen rendering', () => {
-  it('keeps long country rows to one terminal line', () => {
-    const frame = render(
+  afterEach(() => vi.useRealTimers());
+
+  it('marquees a focused long name while keeping the row to one terminal line', async () => {
+    vi.useFakeTimers();
+    const view = render(
       <CountriesScreen
         countries={[
           {
@@ -394,13 +431,29 @@ describe('CountriesScreen rendering', () => {
         theme="green"
         pageSize={1}
         width={48}
+        reduceMotion={false}
       />
-    ).lastFrame() ?? '';
+    );
+    const frame = view.lastFrame() ?? '';
 
     expect(frame).toContain('>');
-    expect(frame).toContain('…');
+    expect(frame).not.toContain('…');
     expect(frame).not.toContain('Very Long Name');
     expect(frame).toMatch(/\(TL\) {2}123,456,789 stations/);
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(view.lastFrame()).not.toBe(frame);
+  });
+
+  it('keeps the station-count column fixed while scrolling between short and long country names', () => {
+    const countries = [
+      {name: 'Mali', code: 'ML', stationCount: 12},
+      {name: "The Lao People's Democratic Republic", code: 'LA', stationCount: 34}
+    ];
+    const row = (selected: number) => (render(
+      <CountriesScreen countries={countries} selected={selected} loading={false} filter="" editingFilter={false} theme="green" pageSize={1} width={80} reduceMotion />
+    ).lastFrame() ?? '').split('\n').find(line => line.includes('stations')) ?? '';
+    expect(row(0).indexOf('12 stations')).toBe(row(1).indexOf('34 stations'));
+    expect(row(1)).toContain("The Lao People's Democratic Republic (LA)");
   });
 });
 

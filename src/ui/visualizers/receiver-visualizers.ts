@@ -1,5 +1,6 @@
 import type {PlaybackState, ReceiverStyle, Station, ThemeName} from '../../types.js';
 import {themeAccent, themeContributionColors} from '../theme.js';
+import {retroReceiverBuilders} from './retro-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
 type VisualLine = {
@@ -30,6 +31,7 @@ type VisualizerBuilder = (
 ) => VisualLine[];
 
 const receiverStyleBuilders = {
+  ...retroReceiverBuilders,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
   leds: buildLeds,
@@ -139,6 +141,7 @@ function buildMicroVisualizer(
 // the circular braille rings) while fixed-size and minimum-size scenes use the
 // supersampled fit path below.
 const microNativeScaleStyles = new Set<ReceiverStyle>([
+  ...Object.keys(retroReceiverBuilders) as (keyof typeof retroReceiverBuilders)[],
   'pulse-grid',
   'hex-pulse',
   'galaxy',

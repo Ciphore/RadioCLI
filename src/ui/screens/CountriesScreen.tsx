@@ -5,7 +5,8 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {visibleWindow} from '../list-window.js';
-import {displayWidth, truncate} from '../format.js';
+import {displayWidth} from '../format.js';
+import {AdaptiveMarquee} from '../components/AdaptiveMarquee.js';
 
 type CountriesProps = {
   countries: Country[];
@@ -16,6 +17,7 @@ type CountriesProps = {
   theme: ThemeName;
   pageSize: number;
   width: number;
+  reduceMotion?: boolean;
 };
 
 export function CountriesScreen({
@@ -26,16 +28,16 @@ export function CountriesScreen({
   editingFilter,
   theme,
   pageSize,
-  width
+  width,
+  reduceMotion = false
 }: CountriesProps): React.ReactElement {
   const window = visibleWindow(countries, selected, pageSize);
   const rowWidth = Math.max(24, width - 2);
   const countWidth = Math.max(12, Math.min(22, Math.max(...countries.map(country => `${country.stationCount.toLocaleString()} stations`.length), 12)));
-  const visibleCountryWidth = Math.max(
-    8,
-    ...window.items.map(country => displayWidth(`${country.name} (${country.code})`))
-  );
-  const countryWidth = Math.min(42, visibleCountryWidth, Math.max(8, rowWidth - countWidth - 4));
+  // Keep the metadata column fixed while the viewport scrolls. Forty-two cells
+  // accommodates long directory names such as Lao People's Democratic Republic
+  // plus its country code, while narrow terminals still receive a bounded row.
+  const countryWidth = Math.min(42, Math.max(8, rowWidth - countWidth - 4));
 
   return (
     <Box flexDirection="column">
@@ -64,7 +66,7 @@ export function CountriesScreen({
                   <Pointer active={active} />
                   <Box width={countryWidth}>
                     <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                      {truncate(country.name, nameWidth)}
+                      <AdaptiveMarquee text={country.name} width={nameWidth} active={active} reduceMotion={reduceMotion} />
                     </Text>
                     <Text color={textMuted}>{code}</Text>
                   </Box>

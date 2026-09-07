@@ -34,6 +34,28 @@ export type ThemeName = (typeof themeNames)[number];
 
 export type ReceiverStyle = ReceiverStyleId;
 
+type AgentCompletionPreset = {
+  action: 'play' | 'pause' | 'resume' | 'stop';
+  source: 'recent' | 'favorite' | 'popular' | 'country';
+  countryCode?: string;
+  ifPlaying: 'keep' | 'replace';
+  openUi?: boolean;
+};
+
+export type AgentControlSettings = {
+  enabled: boolean;
+  openUiOnPlay: boolean;
+  focusNowPlaying: boolean;
+  completionPreset: AgentCompletionPreset;
+};
+
+export const defaultAgentControlSettings: AgentControlSettings = {
+  enabled: false,
+  openUiOnPlay: true,
+  focusNowPlaying: true,
+  completionPreset: {action: 'play', source: 'recent', ifPlaying: 'keep'}
+};
+
 export type Country = {
   name: string;
   code: string;
@@ -125,6 +147,8 @@ export type AppSettings = {
   asciiMode?: boolean;
   reduceMotion?: boolean;
   mouseSupport?: boolean;
+  automaticUpdateChecks?: boolean;
+  agentControl?: AgentControlSettings;
 };
 
 export type UpdateCheckState = {

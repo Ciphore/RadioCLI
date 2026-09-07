@@ -138,6 +138,11 @@ export class RadioBrowserProvider {
     return this.normalizeStations(rows);
   }
 
+  async byId(id: string): Promise<Station | null> {
+    const rows = await this.request<unknown[]>(`/json/stations/byuuid/${encodeURIComponent(id)}`, {}, {maxAgeMs: 10 * 60 * 1000});
+    return this.normalizeStations(rows)[0] ?? null;
+  }
+
   async search(query: string, options: SearchOptions = {}): Promise<Station[]> {
     const trimmed = query.trim();
     if (!trimmed) {

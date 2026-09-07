@@ -112,27 +112,28 @@ export function AlarmPickerScreen({choices, selected, fallback, theme, width, he
 
 export function AlarmRingingScreen({sessions, alarms = [], selected, snoozeMinutes, theme, width, height}: {sessions: TuiActiveAlarm[]; alarms?: Alarm[]; selected: number; snoozeMinutes: number; theme: ThemeName; width: number; height: number}): React.ReactElement {
   const accent = themeAccent(theme); const session = sessions[selected]; const label = session ? alarms.find(alarm => alarm.id === session.status.alarmId)?.label : undefined;
+  const starting = session?.status.state === 'starting';
   const {ascii} = useDisplay(); const a = (value:string) => ascii ? toAsciiSafe(value) : value;
   const roomy = width >= 42 && height >= 12;
   const clockText=session?formatClock(new Date(session.status.scheduledAt)):'';
   const displayClock=roomy&&!ascii?fullwidthClock(clockText):clockText;
   return <Box flexDirection="column" height={height} width={width} overflow="hidden">
-    <ScreenHeader title="Alarm ringing" subtitle={sessions.length > 1 ? `${selected + 1} of ${sessions.length} active alarms` : 'Wake radio · playing now'} theme={theme} width={width} />
+    <ScreenHeader title="Alarm ringing" subtitle={sessions.length > 1 ? `${selected + 1} of ${sessions.length} active alarms` : starting ? 'Wake radio · preparing station' : 'Wake radio · playing now'} theme={theme} width={width} />
     {session ? <Box flexDirection="column" alignItems="center" width={width}>
-      <Text backgroundColor={accent} color="black" bold>{a('  ALARM ACTIVE  ')}</Text>
+      <Text backgroundColor={accent} color="black" bold>{a(starting ? '  ALARM STARTING  ' : '  ALARM ACTIVE  ')}</Text>
       <Box marginTop={roomy ? 1 : 0}>
         <Text backgroundColor={roomy ? accent : undefined} color={roomy ? 'black' : accent} bold>{a(roomy ? `      ${displayClock}      ` : displayClock)}</Text>
       </Box>
       <Box flexDirection="column" alignItems="center" marginTop={roomy ? 1 : 0} width={width}>
         <Text color={accent} bold>{a(truncate(label ? `${session.status.stationName} · ${label}` : session.status.stationName, width))}</Text>
-        {height >= 12 ? <Text color={textMuted}>{a(truncate(`Started ${formatElapsed(session.status.startedAt)} ago · scheduled ${formatWhen(new Date(session.status.scheduledAt))}`, width))}</Text> : null}
+        {height >= 12 ? <Text color={textMuted}>{a(truncate(`${starting ? 'Preparing' : 'Started'} ${formatElapsed(session.status.startedAt)} ago · scheduled ${formatWhen(new Date(session.status.scheduledAt))}`, width))}</Text> : null}
       </Box>
       <Box marginTop={1} flexDirection={width >= 58 ? 'row' : 'column'} alignItems="center">
-        <Text backgroundColor={accent} color="black" bold>{a('  ENTER  KEEP PLAYING  ')}</Text>
+        <Text backgroundColor={accent} color="black" bold>{a(starting ? '  ENTER  WAIT FOR STATION  ' : '  ENTER  KEEP PLAYING  ')}</Text>
         {width >= 58 ? <Text>  </Text> : null}
         <Text backgroundColor={accent} color="black" bold>{a(`  SPACE  SNOOZE ${snoozeMinutes} MIN  `)}</Text>
       </Box>
-      {height >= 14 ? <Text color={textMuted}>{a('Enter opens Playing · Space stops the radio until snooze ends · b return')}</Text> : null}
+      {height >= 14 ? <Text color={textMuted}>{a(starting ? 'Space snoozes before playback · b return' : 'Enter opens Playing · Space stops the radio until snooze ends · b return')}</Text> : null}
       {sessions.length > 1 && height >= 15 ? <Text color={textMuted}>{a(`↑/↓ choose active alarm · ${selected + 1}/${sessions.length}`)}</Text> : null}
     </Box> : <Text color={textMuted}>The alarm session ended. Press b to return.</Text>}
   </Box>;

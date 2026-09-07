@@ -15,6 +15,7 @@ import {AlarmPowerGuardStore} from './power-guard-store.js';
 import {openAlarmControls} from './terminal-launcher.js';
 import {hasLiveTui} from './tui-presence.js';
 import {createSystemVolumeController} from './system-volume.js';
+import {connectRadioSession} from '../agent/session.js';
 
 type Options={values:Map<string,string|true>;positionals:string[]};
 export type AlarmCommandDependencies={store?:JsonLibraryStore;scheduler?:SchedulerService};
@@ -41,7 +42,7 @@ export async function runAlarmCommand(args:string[],dependencies:AlarmCommandDep
   throw new Error(alarmUsage());
 }
 
-function createRuntimeDeps(store:JsonLibraryStore,scheduler:SchedulerService,alarmId:string){const providers=new ProviderManager();const alarm=store.getAlarm(alarmId);const detected=detectPlaybackBackends();const settings=alarm?alarmRuntimeSettings(store.snapshot().settings,alarm,detected):{...store.snapshot().settings,preferredBackend:'auto' as const,preferredAirPlayDevice:undefined};const player=new PlayerController(()=>settings);player.refreshDetectedBackends();const cliPath=join(dirname(fileURLToPath(import.meta.url)),'..','cli.js');return{now:()=>new Date(),store,providers,player,scheduler,inhibitor:createPowerInhibitor(),systemVolume:createSystemVolumeController(),acquireLock:acquireOccurrenceLock,createSession:defaultRunnerUtilities.createSession,openControls:()=>openAlarmControls({nodePath:process.execPath,cliPath,hasLiveTui}),wait:defaultRunnerUtilities.wait,subscribeSignals:defaultRunnerUtilities.subscribeSignals,health:scheduler.health};}
+function createRuntimeDeps(store:JsonLibraryStore,scheduler:SchedulerService,alarmId:string){const providers=new ProviderManager();const alarm=store.getAlarm(alarmId);const detected=detectPlaybackBackends();const settings=alarm?alarmRuntimeSettings(store.snapshot().settings,alarm,detected):{...store.snapshot().settings,preferredBackend:'auto' as const,preferredAirPlayDevice:undefined};const player=new PlayerController(()=>settings);player.refreshDetectedBackends();const cliPath=join(dirname(fileURLToPath(import.meta.url)),'..','cli.js');return{now:()=>new Date(),store,providers,player,scheduler,inhibitor:createPowerInhibitor(),systemVolume:createSystemVolumeController(),preemptInteractivePlayback:async()=>{const client=await connectRadioSession();if(!client)return;const result=await client.call({type:'alarm-preempt'});if(!result.ok)throw new Error(result.message);},acquireLock:acquireOccurrenceLock,createSession:defaultRunnerUtilities.createSession,openControls:()=>openAlarmControls({nodePath:process.execPath,cliPath,hasLiveTui}),wait:defaultRunnerUtilities.wait,subscribeSignals:defaultRunnerUtilities.subscribeSignals,health:scheduler.health};}
 export function alarmRuntimeSettings(settings:AppSettings,alarm:Alarm,backends:readonly string[]):AppSettings{const mpvFade=alarm.playback.fadeSeconds>0&&backends.includes('mpv');return{...settings,volume:mpvFade?0:alarm.playback.volume,preferredBackend:mpvFade?'mpv':'auto',preferredAirPlayDevice:undefined};}
 async function testAlarm(alarm:Alarm,store:JsonLibraryStore){
   const scheduledAt=new Date(Math.floor(Date.now()/60_000)*60_000);const deadline=Date.now()+10_000;

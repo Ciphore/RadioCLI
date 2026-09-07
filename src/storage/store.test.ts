@@ -28,6 +28,7 @@ describe('JsonLibraryStore', () => {
     const settings = new JsonLibraryStore(file).snapshot().settings;
     expect(settings.enableNearbyLocation).toBe(true);
     expect(settings.mouseSupport).toBe(true);
+    expect(settings.agentControl?.openUiOnPlay).toBe(true);
     expect(new JsonLibraryStore(file).snapshot().alarms).toEqual([]);
   });
 
@@ -321,6 +322,18 @@ describe('JsonLibraryStore', () => {
     expect(reloaded.settings.preferredBackend).toBe('auto');
     expect(reloaded.settings.preferredAirPlayDevice).toBe('5CAAFD0046D4@Office');
     expect(reloaded.settings.mediaKeys.next).toEqual(['next']);
+    expect(reloaded.settings.automaticUpdateChecks).toBe(true);
+  });
+
+  it('persists the automatic update check preference', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({automaticUpdateChecks: false});
+
+    expect(new JsonLibraryStore(file).snapshot().settings.automaticUpdateChecks).toBe(false);
   });
 
   it('recovers interrupted listening at the last heartbeat instead of the next launch', () => {
@@ -412,6 +425,19 @@ describe('JsonLibraryStore', () => {
     expect(merged.favorites.map(station => station.id).sort()).toEqual(['jazz', 'news']);
     expect(merged.settings.theme).toBe('amber');
     expect(merged.settings.volume).toBe(35);
+  });
+
+  it('preserves saved alarms when agent-control settings are enabled or disabled', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file, {idGenerator: () => 'kept-alarm'});
+    store.addAlarm(exampleAlarm());
+
+    store.updateSettings({agentControl: {...store.snapshot().settings.agentControl!, enabled: true}});
+    store.updateSettings({agentControl: {...store.snapshot().settings.agentControl!, enabled: false}});
+
+    expect(new JsonLibraryStore(file).listAlarms().map(alarm => alarm.id)).toEqual(['kept-alarm']);
   });
 
   it('records track history per station, deduping consecutive repeats, and persists it', () => {

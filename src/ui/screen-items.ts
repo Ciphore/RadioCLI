@@ -12,7 +12,9 @@ export const homeItems = [
 
 export const settingsGroups = [
   {
-    label: 'Playback',
+    id: 'playback',
+    label: 'Playback & audio',
+    description: 'Output, volume, AirPlay, and startup behavior',
     items: [
       'Audio output',
       'AirPlay receiver',
@@ -24,7 +26,9 @@ export const settingsGroups = [
     ]
   },
   {
-    label: 'Display',
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Colors, receiver style, motion, and terminal display',
     items: [
       'Cycle display color',
       'Cycle receiver style',
@@ -35,22 +39,40 @@ export const settingsGroups = [
     ]
   },
   {
-    label: 'Discovery & privacy',
+    id: 'discovery',
+    label: 'Discovery & providers',
+    description: 'Location, station directories, privacy, and provider health',
     items: [
       'Toggle nearby location lookup',
       'Toggle Radio Garden experimental adapter',
-      'Share favorite votes with Radio Browser'
+      'Share favorite votes with Radio Browser',
+      'Refresh provider health'
     ]
   },
   {
-    label: 'Data',
+    id: 'data',
+    label: 'Data & library',
+    description: 'Back up or restore preferences and saved stations',
     items: [
       'Export preferences and library',
       'Import preferences and library'
     ]
   },
   {
+    id: 'agent',
+    label: 'Agent control & MCP',
+    description: 'Local agent access and MCP playback behavior',
+    items: [
+      'Allow local agent control',
+      'Install or repair MCP integrations',
+      'Open TUI for agent playback',
+      'Show Now Playing for agent playback'
+    ]
+  },
+  {
+    id: 'media-keys',
     label: 'Media keys',
+    description: 'Teach RadioCLI your keyboard playback controls',
     items: [
       'Learn previous media key',
       'Learn play/pause media key',
@@ -59,18 +81,31 @@ export const settingsGroups = [
     ]
   },
   {
-    label: 'Maintenance',
+    id: 'updates',
+    label: 'Updates',
+    description: 'Automatic launch checks, version status, and installation',
     items: [
-      'Refresh provider health',
+      'Automatically check for updates',
       'Check for updates'
     ]
   }
 ] as const;
 
+export type SettingsPage = 'root' | (typeof settingsGroups)[number]['id'];
 export type SettingsItem = (typeof settingsGroups)[number]['items'][number];
 
 export const settingsItems = settingsGroups.flatMap(group => group.items) as readonly SettingsItem[];
 
-export function settingsSectionFor(item: string | undefined): string {
-  return settingsGroups.find(group => group.items.some(candidate => candidate === item))?.label ?? 'Preferences';
+export const settingsRootItems = settingsGroups.map(group => group.label);
+
+export function settingsGroup(page: SettingsPage) {
+  return settingsGroups.find(group => group.id === page);
+}
+
+export function settingsItemsForPage(page: SettingsPage): readonly string[] {
+  return page === 'root' ? settingsRootItems : settingsGroup(page)?.items ?? [];
+}
+
+export function settingsPageForRootItem(item: string | undefined): SettingsPage | undefined {
+  return settingsGroups.find(group => group.label === item)?.id;
 }

@@ -16,7 +16,7 @@ import {computeListeningStats} from '../activity/stats.js';
 import {playbackBackendLabel} from '../player/backend-install.js';
 import {visibleWindow} from './list-window.js';
 import {displayWidth, padDisplayEnd, stationLocation, stationTags, stationTech, truncate} from './format.js';
-import {homeItems, settingsItems, settingsSectionFor} from './screen-items.js';
+import {homeItems, settingsGroup, settingsGroups, settingsItemsForPage, type SettingsPage} from './screen-items.js';
 import {screenTitle} from './screen-meta.js';
 import {keyHelpSections, commandHelp} from './help-content.js';
 import {settingLabel, settingValue} from './screens/SettingsScreen.js';
@@ -35,6 +35,7 @@ import {AdaptiveMarquee} from './components/AdaptiveMarquee.js';
 type AdaptiveContentProps = {
   mode: 'compact' | 'micro';
   screen: Screen;
+  settingsPage?: SettingsPage;
   selected: number;
   height: number;
   width: number;
@@ -57,6 +58,7 @@ type AdaptiveContentProps = {
   diagnostics: PlaybackDiagnostics;
   backends: string[];
   updateCheck?: UpdateCheckState;
+  appVersion?: string;
   favoriteKeys: Set<string>;
   stationTitle: string;
   stationError?: string;
@@ -83,6 +85,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
   const {
     mode,
     screen,
+    settingsPage = 'root',
     selected,
     height,
     width,
@@ -104,6 +107,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     diagnostics,
     backends,
     updateCheck,
+    appVersion,
     favoriteKeys,
     stationTitle,
   } = props;
@@ -165,6 +169,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
   if (screen === 'search') {
     const rows = adaptiveRows({
       screen,
+      settingsPage,
       stations,
       countries,
       airPlayDevices,
@@ -172,6 +177,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
       diagnostics,
       backends,
       updateCheck,
+      appVersion,
       favoriteKeys,
       selected,
       width,
@@ -238,6 +244,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
 
   const rows = adaptiveRows({
     screen,
+    settingsPage,
     stations,
     countries,
     airPlayDevices,
@@ -245,6 +252,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     diagnostics,
     backends,
     updateCheck,
+    appVersion,
     favoriteKeys,
     selected,
     width,
@@ -750,6 +758,7 @@ function AdaptiveSearch({
 
 function adaptiveRows(input: {
   screen: Screen;
+  settingsPage: SettingsPage;
   stations: Station[];
   countries: Country[];
   airPlayDevices: AirPlayDevice[];
@@ -757,6 +766,7 @@ function adaptiveRows(input: {
   diagnostics: PlaybackDiagnostics;
   backends: string[];
   updateCheck?: UpdateCheckState;
+  appVersion?: string;
   favoriteKeys: Set<string>;
   selected: number;
   width: number;
@@ -768,16 +778,20 @@ function adaptiveRows(input: {
     return homeItems.map(item => ({
       key: item.screen,
       label: item.label,
-      detail: mode === 'compact' && width >= 52 ? item.detail : undefined
+      detail: mode === 'compact' && width >= 52 ? item.detail : undefined,
+      separator: '   '
     }));
   }
   if (screen === 'settings') {
-    const labels = settingsItems.map(item => settingLabel(item, updateCheck));
+    const pageItems = settingsItemsForPage(input.settingsPage);
+    const labels = pageItems.map(item => settingLabel(item, updateCheck, input.appVersion));
     const labelWidth = pairedColumnWidth(labels, width, mode);
-    return settingsItems.map((item, index) => ({
+    return pageItems.map((item, index) => ({
       key: item,
-      label: padDisplayEnd(truncate(settingLabel(item, updateCheck), labelWidth), labelWidth),
-      detail: settingValue(item, library.settings, diagnostics, backends, airPlayDevices, updateCheck),
+      label: padDisplayEnd(truncate(settingLabel(item, updateCheck, input.appVersion), labelWidth), labelWidth),
+      detail: input.settingsPage === 'root'
+        ? adaptiveSettingsRootValue(item)
+        : settingValue(item, library.settings, diagnostics, backends, airPlayDevices, updateCheck, input.appVersion),
       separator: '   ',
       index
     }));
@@ -815,6 +829,11 @@ function adaptiveRows(input: {
     return rows;
   }
   return stationAdaptiveRows(stations, favoriteKeys, selected, width, ascii);
+}
+
+function adaptiveSettingsRootValue(item: string): string | undefined {
+  const group = settingsGroups.find(candidate => candidate.label === item);
+  return group ? `${group.items.length} settings ›` : undefined;
 }
 
 function stationAdaptiveRows(
@@ -906,8 +925,7 @@ function adaptiveStatus(props: AdaptiveContentProps): string {
     countryFilter,
     editingCountryFilter,
     library,
-    filterLabel,
-    selected
+    filterLabel
   } = props;
   if (screen === 'home') {
     return `${library.favorites.length} favorites · ${library.recent.length} recent · ${library.imported.length} imported`;
@@ -916,7 +934,10 @@ function adaptiveStatus(props: AdaptiveContentProps): string {
     return `${playbackBackendLabel(playback.backend)} · ${playback.state} · vol ${playback.volume}`;
   }
   if (screen === 'settings') {
-    return `${settingsSectionFor(settingsItems[selected])} · Enter changes the selected setting`;
+    const group = settingsGroup(props.settingsPage ?? 'root');
+    return group
+      ? `${group.label} · Enter changes setting · b categories`
+      : 'Choose a category · Updates are available here';
   }
   if (screen === 'search') {
     const query = searchQuery || (editingSearch ? 'type to search' : 'press / to search');

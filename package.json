@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",
@@ -61,13 +61,16 @@
     "prepublishOnly": "npm run check && npm run lint && npm run test && npm run smoke:data && npm run fresh:check && npm run check:package",
     "pack:check": "npm pack --dry-run",
     "smoke:data": "tsx src/smoke/data-smoke.ts",
+    "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "smoke:playback": "tsx src/smoke/playback-smoke.ts",
     "demo:script": "node scripts/demo-script.mjs",
     "demo:assets": "node scripts/capture-demo-assets.mjs",
     "fresh:check": "node scripts/fresh-check.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
     "ink": "^7.0.5",
+    "jsonc-parser": "^3.3.1",
     "react": "^19.2.6",
     "zod": "^4.4.3"
   },

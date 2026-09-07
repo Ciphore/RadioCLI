@@ -53,6 +53,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: MCP stdio smoke
+        run: npm run smoke:mcp
+
       - name: Package dry run
         run: npm run pack:check
 

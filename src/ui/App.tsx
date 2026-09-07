@@ -1,17 +1,18 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {fileURLToPath} from 'node:url';
 import {Box, Text, useApp, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import {type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
+import {defaultAgentControlSettings, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {nextReceiverStyle, nextTheme, textDim, textMuted, themeAccent} from './theme.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
-import {homeItems, settingsItems} from './screen-items.js';
+import {homeItems, settingsItemsForPage, type SettingsPage} from './screen-items.js';
 import {AppContent} from './AppContent.js';
 import {TopTabs} from './components/TopTabs.js';
 import {computeTerminalLayout, type TerminalLayout} from './layout.js';
-import {displayWidth, truncate} from './format.js';
+import {truncate} from './format.js';
 import {playbackFooterText, playbackStateForPendingStation} from './playback-footer.js';
 import {balancedFooterLegendRows, fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, microShortcutFooterText, pageFooterText} from './page-footer.js';
 import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell, shouldEnableMouseReporting} from './terminal-mouse.js';
@@ -22,13 +23,15 @@ import {isAirPlayBackendAvailable} from './airplay-settings.js';
 import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
 import {appVersion} from '../version.js';
-import {checkForUpdate, installUpdate, shouldCheckForUpdate, updateCommandForInstall} from '../update-check.js';
+import {automaticUpdateChecksAllowed, checkForUpdate, installUpdate, shouldCheckForUpdate, updateAvailableForVersion, updateCommandForInstall} from '../update-check.js';
 import {helpItemCount} from './help-content.js';
 import {EXIT_CONFIRMATION_MS, ctrlCExitDecision} from './exit-confirmation.js';
 import {createAlarmTuiService, serializeAlarmTuiService, type AlarmTuiService} from './alarm-tui-service.js';
 import {useAlarmTui} from './use-alarm-tui.js';
 import {toAsciiSafe} from './ascii.js';
 import {registerTuiPresence} from '../alarms/tui-presence.js';
+import {configureMcpIntegrations, type McpInstallResult} from '../agent/mcp-install.js';
+import {startRadioSession, type RadioSessionCommand, type RadioSessionResult, type RadioSessionStatus} from '../agent/session.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -59,12 +62,16 @@ import {
   type ExploreMoveDirection
 } from './app-state.js';
 import {ReceiverAnimationProvider} from './receiver-animation.js';
+import {VersionIndicator, versionIndicatorWidth} from './components/VersionIndicator.js';
 
 type AppProps = {
   store?: JsonLibraryStore;
   providers?: ProviderManager;
   alarmService?: AlarmTuiService;
   alarmPreview?: (station: Station) => Promise<void>;
+  initialAgentCommand?: RadioSessionCommand;
+  mcpConfigurator?: typeof configureMcpIntegrations;
+  updateChecker?: typeof checkForUpdate;
 };
 
 const LOADING_SPINNER_MS = 120;
@@ -76,17 +83,18 @@ const SEARCH_RESULTS_PAGE_SIZE = 90;
 const SEARCH_RESULTS_LOAD_AHEAD = 12;
 const BROKEN_STREAM_AUTO_SKIP_DELAY_MS = 1000;
 
-type BooleanSetting = 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport';
+type BooleanSetting = 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport' | 'automaticUpdateChecks';
 
 const settingToggleLabel: Record<BooleanSetting, string> = {
   resumeOnLaunch: 'Resume on launch',
   transparentBackground: 'Transparent background',
   asciiMode: 'ASCII-safe display',
   reduceMotion: 'Reduce motion',
-  mouseSupport: 'Mouse and trackpad scrolling'
+  mouseSupport: 'Mouse and trackpad scrolling',
+  automaticUpdateChecks: 'Automatic update checks'
 };
 
-export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview}: AppProps): React.ReactElement {
+export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
   const {stdout} = useStdout();
@@ -106,6 +114,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [availableAirPlayDevices, setAvailableAirPlayDevices] = useState<AirPlayDevice[]>(() => player.detectedAirPlayDevices());
   const [screen, setScreen] = useState<Screen>('home');
   const [selected, setSelected] = useState(0);
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>('root');
   const [message, setMessage] = useState<string | null>(null);
   const [footerMessage, setFooterMessage] = useState<string | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
@@ -131,7 +140,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [capturingTransportAction, setCapturingTransportAction] = useState<MediaTransportAction | null>(null);
   const announcedUpdateRef = useRef(false);
+  const automaticUpdateCheckStartedRef = useRef(false);
   const installingUpdateRef = useRef(false);
+  const configuringMcpRef = useRef(false);
   const displayStationsRef = useRef<Station[]>([]);
   const playbackQueueRef = useRef<PlaybackQueue | null>(null);
   const lastRawTransportAtRef = useRef(0);
@@ -141,6 +152,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const playStationRef = useRef<(station: Station, options?: PlayStationOptions) => void>(() => undefined);
   const screenRef = useRef<Screen>(screen);
   const selectedRef = useRef(selected);
+  const settingsPageRef = useRef<SettingsPage>(settingsPage);
+  const selectedBySettingsPageRef = useRef<Partial<Record<SettingsPage, number>>>({});
   const selectedByScreenRef = useRef<Partial<Record<Screen, number>>>({});
   const stationContextsRef = useRef(stationContexts);
   const lastStationContextKeyRef = useRef<StationContextKey>('explore');
@@ -160,6 +173,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const nearbyRequestRef = useRef(0);
   const skipBrokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volumeRequestRef = useRef(0);
+  const agentHandlerRef = useRef<(command: RadioSessionCommand) => Promise<RadioSessionResult>>(async () => {
+    throw new Error('RadioCLI is still starting.');
+  });
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
@@ -192,6 +208,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   screenRef.current = screen;
   selectedRef.current = selected;
+  settingsPageRef.current = settingsPage;
   loadingStationsRef.current = loadingStations;
   stationContextsRef.current = activeStationContexts;
   exploreCursorRef.current = exploreCursor;
@@ -226,7 +243,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     'alarm-ringing': 0,
     'airplay-settings': 0,
     'airplay-code': 1,
-    settings: settingsItems.length,
+    settings: settingsItemsForPage(settingsPage).length,
     help: helpItemCount
   });
   itemCountsRef.current = {
@@ -246,7 +263,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     'alarm-ringing': 0,
     'airplay-settings': availableAirPlayDevices.length,
     'airplay-code': 1,
-    settings: settingsItems.length,
+    settings: settingsItemsForPage(settingsPage).length,
     help: helpItemCount
   };
 
@@ -443,15 +460,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [refreshProviderHealth]);
 
   const refreshUpdateCheck = useCallback(async () => {
-    const updateCheck = await checkForUpdate({currentVersion: installedVersion});
+    const updateCheck = await updateChecker({currentVersion: installedVersion});
     setLibrary(store.updateCheckState(updateCheck));
     return updateCheck;
-  }, [installedVersion, store]);
+  }, [installedVersion, store, updateChecker]);
 
   useEffect(() => {
-    if (!shouldCheckForUpdate(library.updateCheck)) {
+    if (
+      automaticUpdateCheckStartedRef.current ||
+      !automaticUpdateChecksAllowed(library.settings.automaticUpdateChecks !== false)
+    ) {
       return;
     }
+    automaticUpdateCheckStartedRef.current = true;
 
     let cancelled = false;
     void refreshUpdateCheck().then(updateCheck => {
@@ -468,7 +489,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     return () => {
       cancelled = true;
     };
-  }, [library.updateCheck, refreshUpdateCheck]);
+  }, [library.settings.automaticUpdateChecks, refreshUpdateCheck]);
 
   const setStationContextFor = useCallback((key: StationContextKey, context: StationContext) => {
     setStationContexts(current => ({...current, [key]: context}));
@@ -540,6 +561,17 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const destination = screenRef.current === 'help' && next === 'home'
       ? helpReturnScreenRef.current
       : next;
+    if (
+      destination === 'settings' &&
+      screenRef.current !== 'settings' &&
+      screenRef.current !== 'airplay-settings' &&
+      screenRef.current !== 'airplay-code'
+    ) {
+      settingsPageRef.current = 'root';
+      setSettingsPage('root');
+      itemCountsRef.current.settings = settingsItemsForPage('root').length;
+      selectedByScreenRef.current.settings = selectedBySettingsPageRef.current.root ?? 0;
+    }
     selectedByScreenRef.current[screenRef.current] = selectedRef.current;
     const remembered = selectedByScreenRef.current[destination] ?? 0;
     const nextSelection = options.resetSelection ? 0 : remembered;
@@ -550,6 +582,27 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       setMessage(null);
     }
   }, []);
+
+  const openSettingsPage = useCallback((next: SettingsPage) => {
+    selectedBySettingsPageRef.current[settingsPageRef.current] = selectedRef.current;
+    settingsPageRef.current = next;
+    setSettingsPage(next);
+    const nextSelection = clamp(
+      selectedBySettingsPageRef.current[next] ?? 0,
+      settingsItemsForPage(next).length - 1
+    );
+    selectedRef.current = nextSelection;
+    setSelected(nextSelection);
+    setMessage(null);
+  }, []);
+
+  const closeSettingsPage = useCallback(() => {
+    if (settingsPageRef.current === 'root') {
+      go('home');
+      return;
+    }
+    openSettingsPage('root');
+  }, [go, openSettingsPage]);
 
   const openAirPlayCode = useCallback(() => {
     setAirPlayCode('');
@@ -1031,6 +1084,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         if (requestId !== tuneRequestRef.current) return;
         await player.play(station, resolved.url);
         if (requestId !== tuneRequestRef.current) return;
+        playingStationRef.current = station;
         setPlayingStation(station);
         setTuningStation(null);
         playbackQueueRef.current = queue;
@@ -1424,6 +1478,61 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     [updateSettings]
   );
 
+  const toggleAgentSetting = useCallback(
+    (key: 'openUiOnPlay' | 'focusNowPlaying') => {
+      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
+      const next = !agentControl[key];
+      updateSettings({agentControl: {...agentControl, [key]: next}});
+      setMessage(`Agent ${key === 'openUiOnPlay' ? 'TUI launch' : 'Now Playing focus'} ${next ? 'on' : 'off'}.`);
+    },
+    [updateSettings]
+  );
+
+  const setAgentIntegrationEnabled = useCallback(async () => {
+    if (configuringMcpRef.current) {
+      setMessage('Agent integration setup is already in progress.');
+      return;
+    }
+    configuringMcpRef.current = true;
+    const enabled = !(settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled;
+    setMessage(enabled ? 'Setting up agent and Codex Voice control...' : 'Disabling agent and voice control...');
+    try {
+      const results = await mcpConfigurator(enabled, mcpRuntime(), null);
+      const failed = results.filter(item => item.status === 'failed');
+      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
+      updateSettings({agentControl: {...agentControl, enabled}});
+      setMessage(integrationResultMessage(enabled, results, failed));
+    } catch (error) {
+      if (!enabled) {
+        const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
+        updateSettings({agentControl: {...agentControl, enabled: false}});
+      }
+      setMessage(`Agent integration ${enabled ? 'setup' : 'removal'} failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      configuringMcpRef.current = false;
+    }
+  }, [mcpConfigurator, updateSettings]);
+
+  const repairMcpIntegrations = useCallback(async () => {
+    if (configuringMcpRef.current) {
+      setMessage('Agent integration setup is already in progress.');
+      return;
+    }
+    configuringMcpRef.current = true;
+    setMessage('Checking and repairing agent integrations...');
+    try {
+      const results = await mcpConfigurator(true, mcpRuntime(), null);
+      const failed = results.filter(item => item.status === 'failed');
+      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
+      updateSettings({agentControl: {...agentControl, enabled: true}});
+      setMessage(integrationResultMessage(true, results, failed));
+    } catch (error) {
+      setMessage(`MCP repair failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      configuringMcpRef.current = false;
+    }
+  }, [mcpConfigurator, updateSettings]);
+
   const cycleSleepTimer = useCallback(() => {
     const currentMinutes = sleepUntil ? Math.round((sleepUntil - Date.now()) / 60000) : null;
     const next = nextSleepTimerMinutes(currentMinutes);
@@ -1524,7 +1633,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
 
     const currentUpdateCheck = store.snapshot().updateCheck ?? library.updateCheck;
-    if (!currentUpdateCheck?.updateAvailable) {
+    if (!updateAvailableForVersion(currentUpdateCheck, installedVersion)) {
       setMessage('Checking for updates...');
       const latest = await refreshUpdateCheck();
       if (latest.error) {
@@ -1547,13 +1656,24 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const result = await installUpdate(command.command);
     installingUpdateRef.current = false;
     if (result.ok) {
-      setMessage(`Update installed. Restart RadioCLI to use the new version.`);
+      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
+      if (agentControl.enabled) {
+        try {
+          const repaired = await mcpConfigurator(true, mcpRuntime(), null);
+          const suffix = repaired.some(item => item.status === 'failed') ? ' Some MCP clients need manual repair.' : ' MCP integrations repaired.';
+          setMessage(`Update installed.${suffix} Restart RadioCLI and open agent clients.`);
+        } catch {
+          setMessage('Update installed. MCP repair failed; run radiocli mcp repair, then restart RadioCLI and open agent clients.');
+        }
+      } else {
+        setMessage('Update installed. Restart RadioCLI to use the new version.');
+      }
       return;
     }
 
     const detail = result.output ? ` ${result.output.split('\n').at(-1)}` : '';
     setMessage(`Update install failed. Run manually: ${result.command}.${detail}`);
-  }, [installedVersion, library.updateCheck, refreshUpdateCheck, store]);
+  }, [installedVersion, library.updateCheck, mcpConfigurator, refreshUpdateCheck, store]);
 
   const executeCommand = useCommandExecutor({
     beginLearningTransportKey,
@@ -1614,6 +1734,140 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     [playStation, playingStation, queueContainsStation, queueFromCurrentList, rememberQueueSelection]
   );
 
+  agentHandlerRef.current = async (command: RadioSessionCommand): Promise<RadioSessionResult> => {
+    const sessionStatus = (): RadioSessionStatus => ({
+      owner: 'tui',
+      playback: player.getState(),
+      station: playingStationRef.current,
+      queue: playbackQueueRef.current?.stations ?? [],
+      output: {
+        preferredBackend: settingsRef.current.preferredBackend,
+        preferredAirPlayDevice: settingsRef.current.preferredAirPlayDevice
+      }
+    });
+    const respond = (message: string, ok = true, data?: RadioSessionResult['data']): RadioSessionResult => ({ok, message, status: sessionStatus(), ...(data ? {data} : {})});
+    if (command.type === 'status') return respond(playingStationRef.current ? `${player.getState().state}: ${playingStationRef.current.name}` : 'RadioCLI is idle.');
+    if (command.type === 'play') {
+      if (command.ifPlaying === 'keep' && ['playing', 'paused', 'loading'].includes(player.getState().state)) {
+        return respond(`Kept current station ${playingStationRef.current?.name ?? ''}.`);
+      }
+      const queue: PlaybackQueue = {title: 'Agent selection', sourceScreen: 'now-playing', sourceContextKey: null, stations: command.queue?.length ? command.queue : [command.station]};
+      await playStation(command.station, {queue, openNowPlaying: command.openNowPlaying});
+      const state = player.getState();
+      const playingRequestedStation = playingStationRef.current
+        && stationKey(playingStationRef.current) === stationKey(command.station)
+        && state.state === 'playing'
+        && state.ready;
+      return playingRequestedStation
+        ? respond(`Playing ${command.station.name}.`)
+        : respond(state.state === 'error' ? state.message ?? `Could not play ${command.station.name}.` : `Could not play ${command.station.name}.`, false);
+    }
+    if (command.type === 'pause') { const control = await player.pause(); return respond(control.message ?? 'Paused.', control.ok); }
+    if (command.type === 'resume') { const control = await player.resume(); return respond(control.message ?? 'Resumed.', control.ok); }
+    if (command.type === 'stop') {
+      tuneRequestRef.current += 1;
+      setLibrary(store.finishActiveListeningSession());
+      await player.stop();
+      playingStationRef.current = null;
+      setPlayingStation(null);
+      setTuningStation(null);
+      playbackQueueRef.current = null;
+      return respond('Stopped RadioCLI.');
+    }
+    if (command.type === 'alarm-preempt') {
+      tuneRequestRef.current += 1;
+      setLibrary(store.finishActiveListeningSession());
+      await player.stop();
+      playingStationRef.current = null;
+      setPlayingStation(null);
+      setTuningStation(null);
+      playbackQueueRef.current = null;
+      return respond('Interactive playback yielded to the alarm.');
+    }
+    if (command.type === 'set-volume') {
+      const control = await player.setVolume(clampVolume(command.volume));
+      if (control.ok) updateSettings({volume: player.getState().volume});
+      return respond(control.message ?? `Volume ${player.getState().volume}.`, control.ok);
+    }
+    if (command.type === 'set-muted') { const control = await player.setMuted(command.muted); return respond(control.message ?? (command.muted ? 'Muted.' : 'Unmuted.'), control.ok); }
+    if (command.type === 'set-favorite') {
+      const station = command.station ?? playingStationRef.current;
+      if (!station) return respond('No active station to favorite.', false);
+      const current = store.isFavorite(station);
+      if (current !== command.favorite) toggleFavorite(station);
+      return respond(`${command.favorite ? 'Favorited' : 'Removed favorite'}: ${station.name}.`);
+    }
+    if (command.type === 'airplay-list') {
+      const devices = await refreshAirPlayTargets(false);
+      return respond(devices.length ? `${devices.length} AirPlay receiver(s) found.` : 'No AirPlay receivers found.', true, devices);
+    }
+    if (command.type === 'airplay-select') {
+      const devices = await refreshAirPlayTargets(false);
+      const device = devices.find(item => item.id === command.deviceId);
+      if (!device) return respond('AirPlay receiver not found. Refresh and use an exact receiver ID.', false, devices);
+      if (device.local) {
+        const backend = preferredLocalPlaybackBackend(availableBackends);
+        if (!backend) return respond('No local playback backend is available. Run radiocli setup to install mpv.', false);
+        updateSettings({preferredBackend: backend});
+        if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
+          await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+        }
+        return respond(`Audio output set to this device (${backend}).`);
+      }
+      if (!isAirPlayBackendAvailable(availableBackends)) return respond('AirPlay playback is unavailable; run radiocli doctor.', false);
+      updateSettings({preferredAirPlayDevice: device.id});
+      updateSettings({preferredBackend: 'airplay'});
+      if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
+        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+      }
+      return respond(`Audio output set to AirPlay receiver ${device.name}.`);
+    }
+    if (command.type === 'airplay-local') {
+      const backend = preferredLocalPlaybackBackend(availableBackends);
+      if (!backend) return respond('No local playback backend is available. Run radiocli setup to install mpv.', false);
+      updateSettings({preferredBackend: backend});
+      if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
+        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+      }
+      return respond(`Audio output set to this device (${backend}).`);
+    }
+    if (command.type === 'airplay-passcode') {
+      const control = player.submitAirPlayPasscode(command.code);
+      return respond(control.message ?? 'AirPlay code sent.', control.ok);
+    }
+    if (command.type === 'update-settings') {
+      updateSettings(command.settings);
+      return respond('RadioCLI settings updated.');
+    }
+    const active = playingStationRef.current;
+    const queue = playbackQueueRef.current;
+    if (!active || !queue?.stations.length) return respond('No playback queue is available.', false);
+    const currentIndex = queue.stations.findIndex(item => stationKey(item) === stationKey(active));
+    const delta = command.type === 'next' ? 1 : -1;
+    const next = queue.stations[(Math.max(0, currentIndex) + delta + queue.stations.length) % queue.stations.length];
+    if (!next) return respond('No adjacent station is available.', false);
+    await playStation(next, {queue});
+    return respond(`Playing ${next.name}.`);
+  };
+
+  useEffect(() => {
+    if (!stdin.isTTY || !(settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled) return;
+    let disposed = false;
+    let close: (() => Promise<void>) | undefined;
+    void startRadioSession(command => agentHandlerRef.current(command)).then(async session => {
+      if (disposed) {
+        await session.close();
+        return;
+      }
+      close = session.close;
+      if (initialAgentCommand) await agentHandlerRef.current(initialAgentCommand);
+    }).catch(error => setMessage(error instanceof Error ? error.message : 'Agent controls could not start.'));
+    return () => {
+      disposed = true;
+      if (close) void close();
+    };
+  }, [initialAgentCommand, library.settings.agentControl?.enabled, stdin]);
+
   useAppInput({
     adjustVolume,
     airPlayCode,
@@ -1642,6 +1896,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     openAdjacentTab,
     openAirPlayCode,
     openAirPlaySettings,
+    openSettingsPage,
+    closeSettingsPage,
     openScreen,
     handleAlarmInput: alarmTui.handleInput,
     openAlarmForStation: alarmTui.openForStation,
@@ -1658,9 +1914,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       void refreshAirPlayTargets();
     },
     resetLearnedTransportKeys,
+    repairMcpIntegrations,
+    setAgentIntegrationEnabled,
     runSearch,
     saveLearnedTransportKey,
     screen,
+    settingsPage,
     searchQuery,
     selectedRef,
     selectedStationForInput,
@@ -1684,6 +1943,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     toggleMute,
     togglePause,
     toggleSetting,
+    toggleAgentSetting,
     toggleNearbyLocation,
     toggleDirectoryVoting,
     toggleRadioGarden,
@@ -1715,7 +1975,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     editingCountryFilter,
     editingSearch,
     playbackBackend: playback.backend,
-    screen
+    screen,
+    settingsPage
   });
   const pageFooter = alarmTui.activeAlarms.length > 0 && screen !== 'alarm-ringing'
     ? `ALARM PLAYING · ! controls · ${basePageFooter}`
@@ -1740,8 +2001,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           : pageFooter
   );
   const compactGlobalFooter = '←/→ tabs · ? help · q quit';
-  const versionLabel = `v${installedVersion}`;
-  const versionReserve = displayWidth(versionLabel) + 2;
+  const versionReserve = versionIndicatorWidth(installedVersion, library.updateCheck) + 2;
   const fullStatusRows = fullStatusFooterRows(screen, message, footerMessage, playbackFooter);
   const fullLegendRows = balancedFooterLegendRows(pageFooter, globalFooter, frameWidth, 2, versionReserve);
   const compactStatus = footerMessage ?? message ?? playbackFooter;
@@ -1805,6 +2065,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           providerHealth={providerHealth}
           searchQuery={searchQuery}
           screen={screen}
+          settingsPage={settingsPage}
           selected={selected}
           showDiagnostics={showDiagnostics}
           sleepLabel={sleepLabel}
@@ -1825,15 +2086,15 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
               <Text key={statusRow.key} color={themeAccent(theme)}>{footerText(truncate(statusRow.text, frameWidth))}</Text>
             ))}
             <Text color={commandMode || capturingTransportAction ? themeAccent(theme) : textMuted}>{footerText(fullLegendRows[0] ?? ' ')}</Text>
-            <Box><Text color={textDim}>{footerText(fullLegendRows[1] ?? ' ')}</Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box>
+            <Box><Text color={textDim}>{footerText(fullLegendRows[1] ?? ' ')}</Text><Box flexGrow={1}/><VersionIndicator currentVersion={installedVersion} updateCheck={library.updateCheck} theme={theme}/></Box>
           </>
         ) : (
           <>
             {layout.mode === 'micro' ? <Box><Text color={commandMode || capturingTransportAction || footerMessage || message ? themeAccent(theme) : textMuted}>
               {footerText(truncate(microLegend, microLegendWidth))}
-            </Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box> : <>
+            </Text><Box flexGrow={1}/><VersionIndicator currentVersion={installedVersion} updateCheck={library.updateCheck} theme={theme}/></Box> : <>
               {compactStatus ? <Text color={footerMessage || message ? themeAccent(theme) : textMuted}>{footerText(truncate(compactStatus, frameWidth))}</Text> : null}
-              {compactLegendRows.map((row, index) => index===compactLegendRows.length-1?<Box key={`legend-${index}`}><Text color={textDim}>{footerText(row)}</Text><Box flexGrow={1}/><Text color={textDim}>{versionLabel}</Text></Box>:<Text key={`legend-${index}`} color={index === 0 ? textMuted : textDim}>{footerText(row)}</Text>)}
+              {compactLegendRows.map((row, index) => index===compactLegendRows.length-1?<Box key={`legend-${index}`}><Text color={textDim}>{footerText(row)}</Text><Box flexGrow={1}/><VersionIndicator currentVersion={installedVersion} updateCheck={library.updateCheck} theme={theme}/></Box>:<Text key={`legend-${index}`} color={index === 0 ? textMuted : textDim}>{footerText(row)}</Text>)}
             </>}
           </>
         )}
@@ -1842,6 +2103,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     </DisplayContext.Provider>
     </ReceiverAnimationProvider>
   );
+}
+
+function mcpRuntime() {
+  return {nodePath: process.execPath, cliPath: fileURLToPath(new URL('../cli.js', import.meta.url))};
+}
+
+function integrationResultMessage(enabled: boolean, results: McpInstallResult[], failed: McpInstallResult[]): string {
+  if (failed.length > 0) {
+    return `${enabled ? 'Agent control enabled' : 'Agent control disabled'}, but ${failed.map(item => item.client).join(', ')} need attention. Run radiocli mcp status for details.`;
+  }
+  const configured = results.filter(item => item.status === (enabled ? 'configured' : 'removed')).map(item => item.client);
+  if (!enabled) return 'Agent and voice control disabled; detected MCP registrations were removed.';
+  return `Agent and voice control ready${configured.length ? ` for ${configured.join(', ')}` : ''}. Restart open Codex or agent clients, then ask them to control RadioCLI.`;
 }
 
 function buildLibraryStations(library: LibraryState): Station[] {

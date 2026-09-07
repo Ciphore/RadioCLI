@@ -85,6 +85,12 @@ describe('alarm TUI screens', () => {
     for(const frame of frames)expect(frame).not.toMatch(/[›●○·…↑↓–█]/);
   });
 
+  it('labels an alarm claim as preparing until playback is ready', () => {
+    const active={key:'starting',status:{alarmId:'morning',scheduledAt:new Date().toISOString(),stationName:'KEXP',startedAt:new Date().toISOString(),state:'starting' as const},dismiss:vi.fn(),snooze:vi.fn(),keepPlaying:vi.fn()};
+    const frame=render(<DisplayContext.Provider value={display}><AlarmRingingScreen sessions={[active]} alarms={[alarm]} selected={0} snoozeMinutes={10} theme="green" width={80} height={14}/></DisplayContext.Provider>).lastFrame()??'';
+    expect(frame).toContain('preparing station');expect(frame).toContain('ALARM STARTING');expect(frame).toContain('WAIT FOR STATION');expect(frame).not.toContain('playing now');
+  });
+
   it('renders progressive editor sections, truthful fade support, next run, and Guard limitations', () => {
     const frame = render(<DisplayContext.Provider value={display}><AlarmEditorScreen draft={defaultAlarmDraft(station)} field="fadeSeconds" editing={false} error={null} theme="green" width={100} height={30} /></DisplayContext.Provider>).lastFrame() ?? '';
     expect(frame).toContain('BASICS'); expect(frame).toContain('PLAYBACK'); expect(frame).toContain('RELIABILITY');

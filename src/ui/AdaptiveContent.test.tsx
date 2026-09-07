@@ -131,7 +131,7 @@ describe('AdaptiveContent', () => {
 
   it('keeps useful content instead of replacing constrained screens with warnings', () => {
     expect(renderAdaptive('stats', 'micro', 24, 7)).toContain('Listening');
-    expect(renderAdaptive('settings', 'compact', 42, 10)).toContain('Automatic');
+    expect(renderAdaptive('settings', 'compact', 42, 10)).toContain('Playback & audio');
     expect(renderAdaptive('now-playing', 'micro', 24, 7)).toContain('KEXP');
     expect(renderAdaptive('search', 'micro', 24, 7)).toContain('tokyo jazz');
   });

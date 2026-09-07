@@ -278,6 +278,7 @@ export function useAlarmTui(params: Params): AlarmTuiController {
       if (key.upArrow) { const index=clamp(activeSelectedRef.current - 1, activeAlarms.length - 1);activeSelectedRef.current=index;activeSelectedKeyRef.current=activeAlarms[index]?.key;setActiveSelected(index); return true; }
       const active = activeAlarms[activeSelectedRef.current]; if (!active) return false;
       if(key.return){
+        if(active.status.state==='starting'){setMessage(`Still preparing ${active.status.stationName}; handoff will be available once playback starts.`);return true;}
         if(pendingActiveActionsRef.current.has(active.key)){setMessage(`An alarm control request is already pending for ${active.status.stationName}.`);return true;}
         const station=active.status.station??store.getAlarm(active.status.alarmId)?.station;
         if(!station){setMessage('This older alarm session cannot transfer into interactive playback. Snooze it or return to the app.');return true;}

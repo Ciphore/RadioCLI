@@ -8,6 +8,7 @@ export const receiverStyleRegistry = [
   {id: 'cyclone', maxRows: 14, minRows: 7},
   {id: 'nebula', maxRows: 14, minRows: 7},
   {id: 'lava-lamp', maxRows: 14, minRows: 7},
+  {id: 'gallop-fine', maxRows: 18, minRows: 7},
   {id: 'motion-contour', maxRows: 14, minRows: 8},
   {id: 'ribbon', maxRows: 12, minRows: 7},
   {id: 'braille-wave', maxRows: 12, minRows: 7},
@@ -60,18 +61,27 @@ export const receiverStyleRegistry = [
   {id: 'skyline', maxRows: 14, minRows: 7},
   {id: 'golden-gate', maxRows: 14, minRows: 7},
   {id: 'manhattan', maxRows: 14, minRows: 7},
-  {id: 'alpine', maxRows: 14, minRows: 7}
+  {id: 'alpine', maxRows: 14, minRows: 7},
+  {id: 'crossfade', maxRows: 14, minRows: 7},
 ] as const;
 
 export type ReceiverStyleId = (typeof receiverStyleRegistry)[number]['id'];
 
 export const receiverStyleNames = receiverStyleRegistry.map(style => style.id) as readonly ReceiverStyleId[];
-export const defaultReceiverStyle = 'ultracode' as const satisfies ReceiverStyleId;
+export const defaultReceiverStyle = 'gallop-fine' as const satisfies ReceiverStyleId;
 export const receiverStyleMetadata = Object.fromEntries(
   receiverStyleRegistry.map(style => [style.id, style])
 ) as Readonly<Record<ReceiverStyleId, (typeof receiverStyleRegistry)[number]>>;
 
 const retiredReceiverStyleNames = [
+  'duplex-wave', 'color-drift', 'undertow', 'cube-tide', 'parallax-slabs', 'voxel-swell',
+  'dot-current', 'flip-matrix', 'raster-harp',
+  'spin-lattice', 'packet-storm', 'spark-chamber',
+  'magnetic-bloom', 'liquid-chrome', 'vector-braid', 'halftone-orbit',
+  'sonic-fan', 'raster-disc', 'diamond-current', 'velvet-vortex',
+  'din-stack', 'bass-shutters', 'velvet-dither', 'chrome-sweep', 'prism-steps', 'stereo-iris',
+  'phosphor-marquee', 'ascii-drive', 'prism-bank', 'gallop', 'gallop-ultrafine',
+  'gallop-solid', 'gallop-shaded', 'gallop-dither', 'gallop-hatch', 'gallop-scanline',
   'scope', 'spectrum', 'oscilloscope', 'sdr', 'signal', 'retro', 'neon', 'waterfall',
   'cassette', 'casette', 'stars', 'radio-waves', 'raindrops', 'vinyl', 'soundwave',
   'spectrum-3d', 'tuning-dial', 'rf-constellation', 'rf-constelation', 'sphere', 'mobius',

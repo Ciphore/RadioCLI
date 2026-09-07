@@ -1,9 +1,12 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
+  automaticUpdateChecksAllowed,
   checkForUpdate,
   compareSemver,
   shouldCheckForUpdate,
+  updateAvailableForVersion,
   updateCommandForInstall,
+  updateShellForPlatform,
   updateStatusText
 } from './update-check.js';
 
@@ -77,10 +80,28 @@ describe('update checks', () => {
     expect(shouldCheckForUpdate(undefined, Date.parse('2026-07-07T12:00:00.000Z'))).toBe(false);
   });
 
+  it('honors the persisted automatic update preference and environment overrides', () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
+
+    expect(automaticUpdateChecksAllowed(true)).toBe(true);
+    expect(automaticUpdateChecksAllowed(false)).toBe(false);
+
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '1');
+    expect(automaticUpdateChecksAllowed(true)).toBe(false);
+  });
+
   it('formats update status for settings', () => {
     expect(updateStatusText(undefined)).toBe('not checked yet');
     expect(updateStatusText({checkedAt: 'now', currentVersion: '0.1.9', latestVersion: '0.1.10', updateAvailable: true})).toBe('v0.1.10 available');
     expect(updateStatusText({checkedAt: 'now', currentVersion: '0.1.9', latestVersion: '0.1.9', updateAvailable: false})).toBe('current at v0.1.9');
+  });
+
+  it('ignores a persisted update notice after that version has been installed', () => {
+    const stale = {checkedAt: 'now', currentVersion: '0.1.9', latestVersion: '0.1.10', updateAvailable: true};
+
+    expect(updateAvailableForVersion(stale, '0.1.10')).toBe(false);
+    expect(updateStatusText(stale, '0.1.10')).toBe('current at v0.1.10');
   });
 
   it('detects likely install commands', () => {
@@ -92,9 +113,36 @@ describe('update checks', () => {
       method: 'npm',
       command: 'npm install -g @ciphore/radiocli@latest'
     });
+    expect(updateCommandForInstall('/Users/test/Library/pnpm/global/5/node_modules/@ciphore/radiocli/dist/cli.js')).toEqual({
+      method: 'pnpm',
+      command: 'pnpm add -g @ciphore/radiocli@latest'
+    });
+    expect(updateCommandForInstall('/Users/test/.bun/install/global/node_modules/@ciphore/radiocli/dist/cli.js')).toEqual({
+      method: 'bun',
+      command: 'bun add -g @ciphore/radiocli@latest'
+    });
+    expect(updateCommandForInstall('C:\\Users\\test\\AppData\\Local\\pnpm\\global\\5\\node_modules\\@ciphore\\radiocli\\dist\\cli.js')).toEqual({
+      method: 'pnpm',
+      command: 'pnpm add -g @ciphore/radiocli@latest'
+    });
     expect(updateCommandForInstall('/tmp/radiocli/dist/cli.js')).toEqual({
       method: 'unknown',
       command: 'npm install -g @ciphore/radiocli@latest'
+    });
+  });
+
+  it('uses the native command shell on Windows, macOS, and Linux', () => {
+    expect(updateShellForPlatform('win32', 'npm install -g pkg')).toEqual({
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npm install -g pkg']
+    });
+    expect(updateShellForPlatform('darwin', 'brew upgrade pkg')).toEqual({
+      command: 'sh',
+      args: ['-lc', 'brew upgrade pkg']
+    });
+    expect(updateShellForPlatform('linux', 'npm install -g pkg')).toEqual({
+      command: 'sh',
+      args: ['-lc', 'npm install -g pkg']
     });
   });
 });

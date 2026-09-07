@@ -16,7 +16,12 @@ type CheckForUpdateOptions = {
   timeoutMs?: number;
 };
 
-type InstallMethod = 'homebrew' | 'npm' | 'unknown';
+type InstallMethod = 'homebrew' | 'npm' | 'pnpm' | 'bun' | 'unknown';
+
+type UpdateShell = {
+  command: string;
+  args: string[];
+};
 
 export type UpdateCommand = {
   method: InstallMethod;
@@ -77,12 +82,28 @@ export function shouldCheckForUpdate(updateCheck: UpdateCheckState | undefined, 
   return !Number.isFinite(checkedAt) || now - checkedAt >= UPDATE_CHECK_INTERVAL_MS;
 }
 
-export function updateStatusText(updateCheck: UpdateCheckState | undefined): string {
+export function automaticUpdateChecksAllowed(enabled = true): boolean {
+  return enabled && process.env.RADIOCLI_DISABLE_UPDATE_CHECK !== '1' && process.env.CI !== 'true';
+}
+
+export function updateAvailableForVersion(
+  updateCheck: UpdateCheckState | undefined,
+  currentVersion = updateCheck?.currentVersion
+): boolean {
+  return Boolean(
+    updateCheck?.updateAvailable &&
+    updateCheck.latestVersion &&
+    currentVersion &&
+    compareSemver(updateCheck.latestVersion, currentVersion) > 0
+  );
+}
+
+export function updateStatusText(updateCheck: UpdateCheckState | undefined, currentVersion?: string): string {
   if (!updateCheck) {
     return 'not checked yet';
   }
 
-  if (updateCheck.updateAvailable && updateCheck.latestVersion) {
+  if (updateAvailableForVersion(updateCheck, currentVersion) && updateCheck.latestVersion) {
     return `v${updateCheck.latestVersion} available`;
   }
 
@@ -90,7 +111,7 @@ export function updateStatusText(updateCheck: UpdateCheckState | undefined): str
     return `check failed: ${updateCheck.error}`;
   }
 
-  return updateCheck.latestVersion ? `current at v${updateCheck.latestVersion}` : 'not checked yet';
+  return updateCheck.latestVersion ? `current at v${currentVersion ?? updateCheck.latestVersion}` : 'not checked yet';
 }
 
 export function updateCommandForInstall(entryPath = process.argv[1]): UpdateCommand {
@@ -101,7 +122,15 @@ export function updateCommandForInstall(entryPath = process.argv[1]): UpdateComm
     return {method: 'homebrew', command: 'brew update && brew upgrade radiocli'};
   }
 
-  if (/\/node_modules\/@ciphore\/radiocli\//.test(haystack)) {
+  if (/[\\/](?:pnpm|\.pnpm-global)[\\/]/.test(haystack)) {
+    return {method: 'pnpm', command: 'pnpm add -g @ciphore/radiocli@latest'};
+  }
+
+  if (/[\\/]\.bun[\\/]install[\\/]global[\\/]/.test(haystack)) {
+    return {method: 'bun', command: 'bun add -g @ciphore/radiocli@latest'};
+  }
+
+  if (/[\\/]node_modules[\\/]@ciphore[\\/]radiocli[\\/]/.test(haystack)) {
     return {method: 'npm', command: 'npm install -g @ciphore/radiocli@latest'};
   }
 
@@ -110,9 +139,8 @@ export function updateCommandForInstall(entryPath = process.argv[1]): UpdateComm
 
 export function installUpdate(command = updateCommandForInstall().command): Promise<UpdateInstallResult> {
   return new Promise(resolve => {
-    const shell = process.platform === 'win32' ? 'cmd.exe' : 'sh';
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command];
-    const child = spawn(shell, args, {stdio: ['ignore', 'pipe', 'pipe']});
+    const shell = updateShellForPlatform(process.platform, command);
+    const child = spawn(shell.command, shell.args, {stdio: ['ignore', 'pipe', 'pipe']});
     const chunks: Buffer[] = [];
 
     child.stdout.on('data', chunk => chunks.push(Buffer.from(chunk)));
@@ -125,6 +153,12 @@ export function installUpdate(command = updateCommandForInstall().command): Prom
       resolve({ok: code === 0, command, output});
     });
   });
+}
+
+export function updateShellForPlatform(platform: NodeJS.Platform, command: string): UpdateShell {
+  return platform === 'win32'
+    ? {command: 'cmd.exe', args: ['/d', '/s', '/c', command]}
+    : {command: 'sh', args: ['-lc', command]};
 }
 
 export function compareSemver(left: string, right: string): number {

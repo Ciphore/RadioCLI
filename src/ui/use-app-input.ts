@@ -3,7 +3,7 @@ import {useInput} from 'ink';
 import type {Dispatch, SetStateAction} from 'react';
 import type {Country, Screen, Station, AppSettings} from '../types.js';
 import type {PlayerController} from '../player/player-controller.js';
-import {homeItems, settingsItems} from './screen-items.js';
+import {homeItems, settingsItemsForPage, settingsPageForRootItem, type SettingsPage} from './screen-items.js';
 import {
   applyTextInput,
   favoriteTarget,
@@ -57,6 +57,8 @@ type AppInputOptions = {
   openAdjacentTab: (direction: 1 | -1) => void;
   openAirPlayCode: () => void;
   openAirPlaySettings: () => void;
+  openSettingsPage: (page: SettingsPage) => void;
+  closeSettingsPage: () => void;
   openScreen: (screen: Screen) => void;
   handleAlarmInput: (input: string, key: Record<string, unknown>) => boolean;
   openAlarmForStation: (station?: Station | null) => void;
@@ -71,9 +73,12 @@ type AppInputOptions = {
   refreshAirPlayTargets: () => void;
   refreshProviderHealth: () => void;
   resetLearnedTransportKeys: () => void;
+  repairMcpIntegrations: () => Promise<void>;
+  setAgentIntegrationEnabled: () => Promise<void>;
   runSearch: () => Promise<void>;
   saveLearnedTransportKey: (action: MediaTransportAction, input: string) => void;
   screen: Screen;
+  settingsPage: SettingsPage;
   searchQuery: string;
   selectedRef: CurrentRef<number>;
   selectedStationForInput: () => Station | null;
@@ -96,7 +101,8 @@ type AppInputOptions = {
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
   togglePause: () => void;
-  toggleSetting: (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport') => void;
+  toggleSetting: (key: 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport' | 'automaticUpdateChecks') => void;
+  toggleAgentSetting: (key: 'openUiOnPlay' | 'focusNowPlaying') => void;
   toggleNearbyLocation: () => void;
   toggleDirectoryVoting: () => void;
   toggleRadioGarden: () => void;
@@ -132,6 +138,8 @@ export function useAppInput({
   openAdjacentTab,
   openAirPlayCode,
   openAirPlaySettings,
+  openSettingsPage,
+  closeSettingsPage,
   openScreen,
   handleAlarmInput,
   openAlarmForStation,
@@ -146,9 +154,12 @@ export function useAppInput({
   refreshAirPlayTargets,
   refreshProviderHealth,
   resetLearnedTransportKeys,
+  repairMcpIntegrations,
+  setAgentIntegrationEnabled,
   runSearch,
   saveLearnedTransportKey,
   screen,
+  settingsPage,
   searchQuery,
   selectedRef,
   selectedStationForInput,
@@ -172,6 +183,7 @@ export function useAppInput({
   toggleMute,
   togglePause,
   toggleSetting,
+  toggleAgentSetting,
   toggleNearbyLocation,
   toggleDirectoryVoting,
   toggleRadioGarden,
@@ -565,6 +577,11 @@ export function useAppInput({
       return;
     }
 
+    if ((input === 'b' || key.escape) && screen === 'settings') {
+      closeSettingsPage();
+      return;
+    }
+
     if (input === 'b' || key.escape) {
       if (screen === 'stations') {
         go('countries');
@@ -663,7 +680,14 @@ export function useAppInput({
       }
 
       if (screen === 'settings') {
-        const item = settingsItems[selectedRef.current];
+        const item = settingsItemsForPage(settingsPage)[selectedRef.current];
+        if (settingsPage === 'root') {
+          const targetPage = settingsPageForRootItem(item);
+          if (targetPage) {
+            openSettingsPage(targetPage);
+          }
+          return;
+        }
         if (item === 'Cycle display color') {
           cycleDisplayColor();
         } else if (item === 'Toggle Radio Garden experimental adapter') {
@@ -696,6 +720,16 @@ export function useAppInput({
           toggleSetting('reduceMotion');
         } else if (item === 'Mouse and trackpad scrolling') {
           toggleSetting('mouseSupport');
+        } else if (item === 'Automatically check for updates') {
+          toggleSetting('automaticUpdateChecks');
+        } else if (item === 'Allow local agent control') {
+          void setAgentIntegrationEnabled();
+        } else if (item === 'Install or repair MCP integrations') {
+          void repairMcpIntegrations();
+        } else if (item === 'Open TUI for agent playback') {
+          toggleAgentSetting('openUiOnPlay');
+        } else if (item === 'Show Now Playing for agent playback') {
+          toggleAgentSetting('focusNowPlaying');
         } else if (item === 'Export preferences and library') {
           setCommandText('export ');
           setCommandMode(true);

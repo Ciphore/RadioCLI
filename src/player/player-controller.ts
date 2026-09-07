@@ -256,6 +256,18 @@ export class PlayerController {
     return {ok: true};
   }
 
+  async pause(): Promise<PlaybackControlResult> {
+    if (this.state.state === 'paused') return {ok: true};
+    if (this.state.state !== 'playing') return {ok: false, message: 'RadioCLI is not currently playing.'};
+    return this.togglePause();
+  }
+
+  async resume(): Promise<PlaybackControlResult> {
+    if (this.state.state === 'playing') return {ok: true};
+    if (this.state.state !== 'paused') return {ok: false, message: 'RadioCLI has no paused station to resume.'};
+    return this.togglePause();
+  }
+
   setVolume(volume: number): Promise<PlaybackControlResult> {
     const clamped = clampVolume(volume);
     const unsupported = this.unsupportedFfplayControl();
@@ -300,6 +312,11 @@ export class PlayerController {
 
     this.setState({...this.state, muted});
     return {ok: true};
+  }
+
+  async setMuted(muted: boolean): Promise<PlaybackControlResult> {
+    if (this.state.muted === muted) return {ok: true};
+    return this.toggleMute();
   }
 
   stop(): Promise<void> {

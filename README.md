@@ -94,6 +94,24 @@ covers filters, playback, media-key learning, AirPlay, and every command.
 
 ## CLI
 
+RadioCLI can also be controlled by local coding agents. Run `radiocli setup`
+and opt into MCP, or use `radiocli setup --mcp`, to configure detected Codex,
+Claude, OpenCode, Cursor, Gemini, VS Code/Copilot, and Orca-backed runtimes
+automatically. From the TUI, open **Settings → Agent control & MCP** and turn on
+**Allow local agent control** for the same one-step setup—no terminal command is
+required. The same actions are
+available to non-MCP harnesses through `radiocli agent` and `radiocli alarm`:
+search and play stations, browse recents/favorites/nearby stations, favorite the
+current station, inspect listening stats, create and control alarms, control
+macOS AirPlay, change the receiver look, or run a user-configured completion
+preset. Codex Voice can invoke those same typed MCP tools. Agent playback opens
+the normal RadioCLI TUI in a terminal window by default on macOS, Windows, and
+Linux. Interactive setup explains that macOS may require the agent host to approve
+a one-time Automation prompt; users can explicitly opt into headless playback.
+Scheduled alarms remain isolated and always use local output rather than
+unattended AirPlay. See the
+[CLI guide](apps/docs/content/docs/getting-started/cli.mdx#local-agent-and-mcp-control).
+
 ```bash
 radiocli                 # Start the TUI
 radiocli check           # Check providers, playback tools, and the local store
@@ -105,7 +123,19 @@ radiocli export favorites.m3u
 radiocli add-url <stream-url> [station name]
 radiocli alarm list
 radiocli alarm doctor
+radiocli update --install # Upgrade and repair enabled MCP registrations
 ```
+
+Existing installations keep their library and preferences when upgraded. Use
+`radiocli update` to inspect the detected Homebrew, npm, pnpm, or Bun command,
+or `radiocli update --install` to run it. MCP registrations use an
+upgrade-stable launcher so versioned package paths do not break them. On
+Windows this is a shell-free Node command; on Unix it uses the `radiocli` shim.
+Run `radiocli mcp status` to inspect registrations and `radiocli mcp repair`
+after moving an installation or when an agent client reports a stale server;
+fully quit and reopen agent clients after enabling, repairing, or upgrading.
+Until that restart, even a newly created task in an already-running client will
+not have RadioCLI's tools and may incorrectly fall back to browser playback.
 
 RadioCLI imports `.m3u`, `.pls`, and `.xspf` playlists. It exports favorites
 and imported streams as `.m3u`.

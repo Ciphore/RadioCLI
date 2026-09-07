@@ -16,6 +16,11 @@ radiocli doctor
 radiocli doctor --json
 radiocli setup
 radiocli setup --dry-run
+radiocli setup --mcp
+radiocli mcp status
+radiocli mcp repair
+radiocli update --install
+radiocli agent status
 radiocli check
 radiocli countries
 radiocli search "japan hits"
@@ -54,6 +59,88 @@ Use `--yes` for the recommended defaults, `--all --yes` for every supported
 player, `--only mpv,ffmpeg` for an explicit selection, or `--dry-run` to print
 the exact commands without running them. Linux elevation is limited to the
 native package-manager command; the RadioCLI process itself is not elevated.
+
+Interactive setup also asks whether to enable local agent control. Choose yes,
+or use `radiocli setup --mcp`, to register RadioCLI as a user-level stdio MCP
+server in every detected supported harness. Codex and Claude are configured
+through their own CLIs; OpenCode, Cursor, Gemini CLI, and VS Code/Copilot Agent
+Host use their documented user-level JSON/JSONC files without discarding
+comments; and Orca can use the integrations exposed through its configured
+agent runtimes. A portable configuration is also written for other MCP clients.
+Use `--no-mcp` or `radiocli mcp disable` to reverse those registrations;
+playback tools and alarms are unaffected.
+
+If you prefer not to run setup commands, open **Settings → Agent control & MCP**
+in the RadioCLI TUI and turn on **Allow local agent control**. That single control
+installs detected MCP integrations and also removes them when turned off. The
+repair row immediately below it refreshes registrations after an upgrade or move.
+
+On Windows, run MCP setup from native Windows RadioCLI to configure the Windows
+Codex/ChatGPT host. WSL is a separate Linux host with its own home directory and
+MCP configuration; run setup inside WSL as well only if you use agents there.
+
+`radiocli mcp status` reports the upgrade-safe launcher and whether file-based
+client registrations are configured, missing, or stale. `radiocli mcp repair`
+idempotently refreshes every detected registration and is safe to run after an
+upgrade or installation move. Restart open agent clients afterward. Agents can
+use the read-only `radio_update_status` tool to report installed/latest versions
+and the appropriate package-manager command, but RadioCLI never installs an
+update through MCP without the user running or approving an update path.
+
+## Local Agent And MCP Control
+
+The MCP server exposes typed tools for status, discovery, playback, favorites,
+listening stats, appearance, alarms, macOS AirPlay, and configurable completion
+actions. This includes creating, editing, enabling, disabling, listing,
+synchronizing, and explicitly confirmed alarm removal, plus dismiss, snooze,
+keep-playing, and interactive handoff for a ringing occurrence. It accepts only
+saved stations or opaque station IDs returned by RadioCLI discovery tools;
+agents cannot supply arbitrary stream URLs.
+
+Codex Voice uses the same MCP tools, so spoken requests such as “create a weekday
+alarm for 7:30 AM on this station,” “snooze that for ten minutes,” or “send this
+to the Office speaker” do not need a separate voice integration. Alarm times
+remain explicit typed schedules, and the agent must ask for a timezone or other
+materially missing detail instead of guessing. Alarm deletion requires an exact
+ID and explicit confirmation.
+
+The equivalent shell interface is useful for harnesses without MCP:
+
+```bash
+radiocli agent search "late night jazz"
+radiocli agent play radio-browser:STATION_ID
+radiocli agent favorite                 # favorites the active station
+radiocli agent browse favorites
+radiocli agent stats
+radiocli agent airplay list
+radiocli agent airplay select RECEIVER_ID
+radiocli agent airplay local
+radiocli agent done                     # runs the completion preset
+```
+
+Harnesses without MCP can use the existing complete `radiocli alarm` command
+set for alarm creation and control. AirPlay commands are available only on
+macOS, select receivers by opaque IDs returned from discovery, and never save a
+receiver passcode. Scheduled alarms continue to use local speakers; selecting
+AirPlay affects only interactive playback and cannot silently reroute an
+unattended alarm.
+
+When playback is closed, agent playback opens the normal RadioCLI TUI on Now
+Playing by default on macOS, Windows, and Linux. On macOS, Apple requires the
+agent host to approve its own one-time Automation request before it can control
+Terminal; RadioCLI cannot pre-grant that consent. Use
+`radiocli setup --mcp --headless-agent` or change the Agent control preference
+in Settings only when external terminal windows are not wanted.
+Commands from multiple agents are serialized. Explicit actions are idempotent, and a
+completion preset with `ifPlaying: keep` lets the first finishing agent start
+music while later completions leave it alone. There is deliberately no task
+registry, implicit goal, automation, reminder, or monitoring task: the agent
+calls the chosen action only when its current task is complete unless the user
+explicitly requests one of those separate mechanisms.
+
+`radiocli agent stop` controls only ordinary playback. It never dismisses,
+snoozes, edits, or stops an alarm; new interactive playback is refused while an
+alarm occurrence is active.
 
 ## Playlist Import And Export
 

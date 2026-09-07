@@ -1,9 +1,12 @@
 import {spawn, type SpawnOptions} from 'node:child_process';
-import {existsSync, readFileSync} from 'node:fs';
+import {existsSync, readFileSync, realpathSync} from 'node:fs';
 import {createInterface} from 'node:readline/promises';
 import type {Readable, Writable} from 'node:stream';
 import {clearCommandCache, commandExists} from './player/command.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
+import {configureMcpIntegrations} from './agent/mcp-install.js';
+import {JsonLibraryStore} from './storage/store.js';
+import {defaultAgentControlSettings} from './types.js';
 
 export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
 export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper';
@@ -41,6 +44,8 @@ type ParsedSetupArgs = {
   yes: boolean;
   only: SetupComponent[] | null;
   packageManager: SetupPackageManager | null;
+  mcp: boolean | null;
+  agentUi: boolean | null;
 };
 
 const components: SetupComponent[] = ['mpv', 'ffmpeg', 'vlc'];
@@ -64,6 +69,17 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   if (!parsed.yes && !parsed.only && isInteractive(input, output)) {
     selected = await promptForComponents({platform, installed, input, output});
   }
+  let mcp = parsed.mcp;
+  if (mcp === null && !parsed.yes && isInteractive(input, output)) {
+    mcp = await promptYesNo(input, output, '  Agent control via MCP (detected coding agents)', true);
+  }
+  let agentUi = parsed.agentUi;
+  if (mcp === true && agentUi === null && !parsed.yes && isInteractive(input, output)) {
+    const note = platform === 'darwin'
+      ? ' (macOS will ask the agent app to control Terminal on first use)'
+      : ' (opens a separate terminal window)';
+    agentUi = await promptYesNo(input, output, `  Open the RadioCLI TUI for agent playback${note}`, true);
+  }
 
   const plan = createSetupPlan({platform, osRelease, packageManager, installed, selected});
   printPlan(plan, output);
@@ -72,6 +88,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   if (missing.length === 0) {
     output.write(plan.selected.length === 0 ? '\nNo components selected.\n' : '\nEverything selected is already installed.\n');
+    await finishMcpSetup(mcp, agentUi, parsed.dryRun, output);
     printVerification(output);
     return;
   }
@@ -79,6 +96,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   if (!plan.packageManager) {
     if (parsed.dryRun) {
       output.write('\nDry run complete. Install the missing components manually; no system packages were changed.\n');
+      await finishMcpSetup(mcp, agentUi, true, output);
       return;
     }
     throw new Error('No supported system package manager was found. Install mpv manually, then run radiocli doctor.');
@@ -86,6 +104,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   if (parsed.dryRun) {
     output.write('\nDry run complete. No system packages were changed.\n');
+    await finishMcpSetup(mcp, agentUi, true, output);
     return;
   }
 
@@ -116,6 +135,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   clearCommandCache();
   output.write('\nSetup complete.\n');
+  await finishMcpSetup(mcp, agentUi, false, output);
   printVerification(output);
 }
 
@@ -185,12 +205,27 @@ export function parseSetupArgs(args: string[]): ParsedSetupArgs {
   let yes = false;
   let only: SetupComponent[] | null = null;
   let packageManager: SetupPackageManager | null = null;
+  let mcp: boolean | null = null;
+  let agentUi: boolean | null = null;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === '--all') all = true;
     else if (arg === '--dry-run') dryRun = true;
     else if (arg === '--yes' || arg === '-y') yes = true;
+    else if (arg === '--mcp') {
+      if (mcp === false) throw new Error('Use either --mcp or --no-mcp, not both.');
+      mcp = true;
+    } else if (arg === '--no-mcp') {
+      if (mcp === true) throw new Error('Use either --mcp or --no-mcp, not both.');
+      mcp = false;
+    } else if (arg === '--agent-ui') {
+      if (agentUi === false) throw new Error('Use either --agent-ui or --headless-agent, not both.');
+      agentUi = true;
+    } else if (arg === '--headless-agent') {
+      if (agentUi === true) throw new Error('Use either --agent-ui or --headless-agent, not both.');
+      agentUi = false;
+    }
     else if (arg === '--only') only = parseComponents(args[++index]);
     else if (arg.startsWith('--only=')) only = parseComponents(arg.slice('--only='.length));
     else if (arg === '--package-manager') packageManager = parsePackageManager(args[++index]);
@@ -199,7 +234,34 @@ export function parseSetupArgs(args: string[]): ParsedSetupArgs {
   }
 
   if (all && only) throw new Error('Use either --all or --only, not both.');
-  return {all, dryRun, yes, only, packageManager};
+  if (agentUi !== null && mcp !== true) throw new Error('--agent-ui and --headless-agent require --mcp.');
+  return {all, dryRun, yes, only, packageManager, mcp, agentUi};
+}
+
+async function finishMcpSetup(enabled: boolean | null, agentUi: boolean | null, dryRun: boolean, output: Writable): Promise<void> {
+  if (enabled === null) return;
+  if (dryRun) {
+    output.write(`\nAgent integration: would be ${enabled ? 'enabled and installed for detected MCP clients' : 'disabled and removed from detected MCP clients'}.\n`);
+    return;
+  }
+  const entry = process.argv[1];
+  if (!entry) throw new Error('Could not locate the RadioCLI executable for MCP setup.');
+  const results = await configureMcpIntegrations(enabled, {nodePath: process.execPath, cliPath: realpathSync(entry)}, output);
+  const failed = results.filter(result => result.status === 'failed');
+  if (failed.length > 0) {
+    throw new Error(`Playback setup finished, but ${failed.length} agent integration${failed.length === 1 ? '' : 's'} failed: ${failed.map(result => result.client).join(', ')}. Run radiocli mcp status for details.`);
+  }
+  if (enabled) {
+    const store = new JsonLibraryStore();
+    const current = store.snapshot().settings.agentControl ?? defaultAgentControlSettings;
+    const openUiOnPlay = agentUi ?? current.openUiOnPlay;
+    if (openUiOnPlay !== current.openUiOnPlay) {
+      store.updateSettings({agentControl: {...current, openUiOnPlay}});
+    }
+    output.write(openUiOnPlay
+      ? '\nAgent playback: terminal TUI enabled (default). The host OS may request app-control permission on first use.\n'
+      : '\nAgent playback: headless; no separate terminal window or app-control permission is needed.\n');
+  }
 }
 
 function parseComponents(value: string | undefined): SetupComponent[] {

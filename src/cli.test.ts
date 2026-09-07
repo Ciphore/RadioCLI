@@ -5,6 +5,8 @@ import {pathToFileURL} from 'node:url';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {isDirectRun, runCommand} from './cli.js';
 import {detectPlaybackBackends} from './player/backend-install.js';
+import {JsonLibraryStore} from './storage/store.js';
+import {defaultAgentControlSettings} from './types.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -129,6 +131,21 @@ describe('CLI command dispatch', () => {
     symlinkSync(moduleFile, linkedFile);
 
     expect(isDirectRun(linkedFile, pathToFileURL(moduleFile).href)).toBe(true);
+  });
+
+  it('rejects malformed agent values without corrupting persisted settings', async () => {
+    const store = new JsonLibraryStore();
+    store.updateSettings({agentControl: {...defaultAgentControlSettings, enabled: true}});
+
+    await expect(runCommand(['agent', 'volume', 'banana'])).rejects.toThrow('Volume must be a number from 0 through 100');
+    await expect(runCommand(['agent', 'volume', '101'])).rejects.toThrow('Volume must be a number from 0 through 100');
+    await expect(runCommand(['agent', 'preset', '--action', 'explode'])).rejects.toThrow('Action must be play, pause, resume, or stop');
+    await expect(runCommand(['agent', 'preset', '--source', 'internet'])).rejects.toThrow('Source must be recent, favorite, popular, or country');
+
+    const reloaded = new JsonLibraryStore().snapshot();
+    expect(reloaded.settings.volume).toBe(70);
+    expect(reloaded.settings.agentControl?.enabled).toBe(true);
+    expect(reloaded.settings.agentControl?.completionPreset).toEqual(defaultAgentControlSettings.completionPreset);
   });
 });
 

@@ -2,6 +2,7 @@ import type {Screen} from '../types.js';
 import {mediaActionLabel, type MediaTransportAction} from './app-state.js';
 import {playbackBackendCapabilities} from '../player/backend-install.js';
 import {displayWidth} from './format.js';
+import type {SettingsPage} from './screen-items.js';
 
 type PageFooterInput = {
   capturingTransportAction: MediaTransportAction | null;
@@ -12,6 +13,7 @@ type PageFooterInput = {
   canEnterAirPlayCode?: boolean;
   playbackBackend?: string;
   screen: Screen;
+  settingsPage?: SettingsPage;
 };
 
 export function fullFooterRowCount(screen: Screen): 3 | 4 {
@@ -42,7 +44,8 @@ export function pageFooterText({
   editingSearch,
   canEnterAirPlayCode,
   playbackBackend,
-  screen
+  screen,
+  settingsPage = 'root'
 }: PageFooterInput): string {
   if (capturingTransportAction) {
     return `Learn ${mediaActionLabel(capturingTransportAction)} key: press key · Esc cancel`;
@@ -102,7 +105,9 @@ export function pageFooterText({
   }
 
   if (screen === 'settings') {
-    return 'Enter change selected · g Radio Garden · l location · x skip · o output · a AirPlay · r health · b Overview';
+    return settingsPage === 'root'
+      ? '↑/↓ choose · Enter open · o output · a AirPlay · b Overview'
+      : '↑/↓ choose · Enter change · b Settings · shortcuts still work';
   }
 
   if (screen === 'airplay-settings') {

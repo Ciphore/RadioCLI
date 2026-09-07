@@ -28,6 +28,7 @@ export type AlarmRunnerDeps={
   acquireLock(alarmId:string,scheduledAt:string):(()=>void)|null;
   createSession(status:ActiveAlarmStatus,handlers:ActiveAlarmHandlers):Promise<ActiveAlarmServer>;
   openControls?(status:ActiveAlarmStatus):Promise<unknown>;
+  preemptInteractivePlayback?():Promise<void>;
   wait(milliseconds:number):Promise<void>;
   subscribeSignals?(handler:()=>void):()=>void;
   health?:AlarmRuntimeHealthStore;
@@ -45,6 +46,8 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
   let validTerminalOccurrence=false;
   let signalReceived=false;let resolveEarlySignal:()=>void=()=>{};let onPlaybackSignal:()=>void=()=>{};const earlySignal=new Promise<void>(resolve=>{resolveEarlySignal=resolve;});const unsubscribeSignals=deps.subscribeSignals?.(()=>{signalReceived=true;resolveEarlySignal();onPlaybackSignal();void deps.player.stop().catch(()=>undefined);});
   const finish=(status:AlarmRunRecord['status'],message?:string):AlarmRunRecord=>({status,scheduledAt:scheduledAt.toISOString(),...(firedAt?{firedAt:firedAt.toISOString()}:{}),finishedAt:deps.now().toISOString(),...(message?{message}:{})});
+  let action:'dismissed'|'snoozed'|'handoff'|'timeout'|'signal'|undefined;let keepPlaying=false;let resolveAction:(value:'dismissed'|'snoozed'|'handoff'|'signal')=>void=()=>{};
+  const actionPromise=new Promise<'dismissed'|'snoozed'|'handoff'|'signal'>(resolve=>{resolveAction=resolve;});
   try{
     if(!alarm||!alarm.enabled)return{message:'Alarm is missing or disabled.'};
     const expected=nextExpectedOccurrence(alarm,scheduledAt);if(!expected||Math.abs(expected.getTime()-scheduledAt.getTime())>1000){outcome=finish('missed','Ignored a stale native task whose occurrence no longer matches this alarm.');return{status:'missed',message:outcome.message};}
@@ -52,27 +55,27 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     if(assessment==='pending'){outcome=finish('failed','Scheduler launched the alarm before its occurrence.');return{status:outcome.status,message:outcome.message};}
     validTerminalOccurrence=true;
     if(assessment==='missed'){outcome=finish('missed','Alarm was outside its missed-run grace window.');return{status:outcome.status,message:outcome.message};}
+    const claimingStatus:ActiveAlarmStatus={alarmId,scheduledAt:scheduledAt.toISOString(),stationName:alarm.station.name,station:alarm.station,startedAt:deps.now().toISOString(),state:'starting'};
+    const creatingSession=deps.createSession(claimingStatus, {
+      onDismiss:()=>{action='dismissed';resolveAction('dismissed');resolveEarlySignal();},
+      onSnooze:minutes=>{deps.store.snoozeAlarm(alarmId,new Date(deps.now().getTime()+minutes*60_000));preserveNextOverride=true;action='snoozed';resolveAction('snoozed');resolveEarlySignal();},
+      onKeepPlaying:()=>{keepPlaying=true;session?.update({keepPlaying:true});},
+      onHandoff:()=>{if(!listening)throw new Error('Alarm playback is still starting.');preserveSystemVolume=true;action='handoff';resolveAction('handoff');}
+    });void creatingSession.then(created=>{if(signalReceived)void created.close().catch(()=>undefined);}).catch(()=>{});const created=await Promise.race([creatingSession.then(value=>({value})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in created){outcome=finish('dismissed','Alarm interrupted while local controls were starting.');return{status:'dismissed',message:outcome.message};}session=created.value;
     const claimed=deps.store.getAlarm(alarmId);if(claimed?.enabled&&claimed.schedule.type==='recurring'){if(deps.scheduler.syncClaimed)await deps.scheduler.syncClaimed(claimed,scheduledAt);else await deps.scheduler.sync(claimed);}
-    if(deps.systemVolume)try{systemVolumeLease=await deps.systemVolume.acquireMinimum(alarm.playback.volume);deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:true,active:true,message:systemVolumeLease.message});}catch(error){deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Alarm will use player volume, but system output could not be raised: ${errorMessage(error)}`});}
     let resolvedStation=alarm.station;let lastError:unknown;
+    let interactivePreempted=false;let outputPrepared=false;
     const candidates=[alarm.station,alarm.station,alarm.playback.fallbackStation].filter((item):item is Station=>Boolean(item));
     for(const [candidateIndex,candidate] of candidates.entries()){
-      try{const resolved=await Promise.race([deps.providers.resolve(candidate).then(stream=>({stream})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in resolved){outcome=finish('dismissed','Alarm interrupted before playback started.');return{status:'dismissed',message:outcome.message};}const playPromise=deps.player.play(candidate,resolved.stream.url);const tuned=await Promise.race([playPromise.then(()=>({played:true as const})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in tuned||signalReceived){void playPromise.then(()=>deps.player.stop()).catch(()=>undefined);outcome=finish('dismissed','Alarm interrupted while playback was starting.');return{status:'dismissed',message:outcome.message};}resolvedStation=candidate;lastError=undefined;break;}catch(error){lastError=error;}
+      try{const resolved=await Promise.race([deps.providers.resolve(candidate).then(stream=>({stream})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in resolved){outcome=finish('dismissed','Alarm interrupted before playback started.');return{status:'dismissed',message:outcome.message};}if(!interactivePreempted){interactivePreempted=true;try{await deps.preemptInteractivePlayback?.();}catch(error){deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:true,message:`Alarm continued after interactive playback could not be stopped cleanly: ${errorMessage(error)}`});}}if(!outputPrepared){outputPrepared=true;if(deps.systemVolume)try{systemVolumeLease=await deps.systemVolume.acquireMinimum(alarm.playback.volume);deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:true,active:true,message:systemVolumeLease.message});}catch(error){deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Alarm will use player volume, but system output could not be raised: ${errorMessage(error)}`});}}const playPromise=deps.player.play(candidate,resolved.stream.url);const tuned=await Promise.race([playPromise.then(()=>({played:true as const})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in tuned||signalReceived){void playPromise.then(()=>deps.player.stop()).catch(()=>undefined);outcome=finish('dismissed','Alarm interrupted while playback was starting.');return{status:'dismissed',message:outcome.message};}resolvedStation=candidate;lastError=undefined;break;}catch(error){lastError=error;}
       if(candidateIndex<candidates.length-1){const remaining=scheduledAt.getTime()+Math.max(NATIVE_DISPATCH_TOLERANCE_MS,alarm.reliability.missedRunGraceMinutes*60_000)-deps.now().getTime();if(remaining<=0)break;const backoff=await Promise.race([deps.wait(Math.min(remaining,1_000,500*(candidateIndex+1))).then(()=>({waited:true as const})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in backoff){outcome=finish('dismissed','Alarm interrupted during station retry backoff.');return{status:'dismissed',message:outcome.message};}}
     }
     if(lastError)throw lastError;
     firedAt=deps.now();
     try{const acquiring=deps.inhibitor.acquire('RadioCLI alarm playback');void acquiring.then(acquired=>{if(signalReceived)void acquired.release().catch(()=>undefined);}).catch(()=>{});const acquired=await Promise.race([acquiring.then(value=>({value})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in acquired){outcome=finish('dismissed','Alarm interrupted while sleep protection was starting.');return{status:'dismissed',message:outcome.message};}lease=acquired.value;deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:true,active:true,message:'Sleep inhibition active while playing.'});void lease.unexpectedExit?.then(error=>{try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:false,message:`Playback continues after sleep protection exited: ${error.message}`});}catch{}}).catch(()=>{});}catch(error){deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:false,message:`Playback continues without sleep protection: ${errorMessage(error)}`});}
     const startedAt=deps.now();deps.store.addRecent(resolvedStation);deps.store.startListeningSession(resolvedStation,startedAt);listening=true;
-    let action:'dismissed'|'snoozed'|'handoff'|'timeout'|'signal'|undefined;let keepPlaying=false;let resolveAction:(value:'dismissed'|'snoozed'|'handoff'|'signal')=>void=()=>{};
-    const actionPromise=new Promise<'dismissed'|'snoozed'|'handoff'|'signal'>(resolve=>{resolveAction=resolve;});
     const activeStatus:ActiveAlarmStatus={alarmId,scheduledAt:scheduledAt.toISOString(),stationName:resolvedStation.name,station:resolvedStation,startedAt:startedAt.toISOString(),state:'playing'};
-    const creatingSession=deps.createSession(activeStatus, {
-      onDismiss:()=>{action='dismissed';resolveAction('dismissed');},
-      onSnooze:minutes=>{deps.store.snoozeAlarm(alarmId,new Date(deps.now().getTime()+minutes*60_000));preserveNextOverride=true;action='snoozed';resolveAction('snoozed');},
-      onKeepPlaying:()=>{keepPlaying=true;session?.update({keepPlaying:true});},
-      onHandoff:()=>{preserveSystemVolume=true;action='handoff';resolveAction('handoff');}
-    });void creatingSession.then(created=>{if(signalReceived)void created.close().catch(()=>undefined);}).catch(()=>{});const created=await Promise.race([creatingSession.then(value=>({value})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in created){outcome=finish('dismissed','Alarm interrupted while local controls were starting.');return{status:'dismissed',message:outcome.message};}session=created.value;
+    session.update(activeStatus);
     void deps.openControls?.(activeStatus).catch(error=>{try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:true,message:`Alarm is playing, but RadioCLI controls could not open automatically: ${errorMessage(error)}`});}catch{}});
     onPlaybackSignal=()=>{action='signal';resolveAction('signal');};if(signalReceived)onPlaybackSignal();
     {

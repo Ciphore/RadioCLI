@@ -5,6 +5,7 @@ import {Menu, Pointer} from '../components/Menu.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {homeItems} from '../screen-items.js';
 import type {LibraryState, ThemeName} from '../../types.js';
+import {displayWidth} from '../format.js';
 
 type HomeProps = {
   selected: number;
@@ -13,6 +14,7 @@ type HomeProps = {
 };
 
 export function HomeScreen({selected, theme, library}: HomeProps): React.ReactElement {
+  const titleWidth = Math.max(...homeItems.map(item => displayWidth(item.label))) + 2;
   return (
     <Box flexDirection="column">
       <Logo />
@@ -25,10 +27,12 @@ export function HomeScreen({selected, theme, library}: HomeProps): React.ReactEl
             <Box>
               <Pointer active={active} />
               <Text color={textMuted}>{index + 1} </Text>
-              <Text color={active ? themeAccent(theme) : undefined} bold={active}>
-                {item.label}
-              </Text>
-              <Text color={textMuted}> · {item.detail}</Text>
+              <Box width={titleWidth}>
+                <Text color={active ? themeAccent(theme) : undefined} bold={active}>
+                  {item.label}
+                </Text>
+              </Box>
+              <Text color={textMuted}>  {item.detail}</Text>
             </Box>
           )}
         />

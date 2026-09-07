@@ -5,6 +5,26 @@ description: Local-first data behavior, approximate location lookup, and vulnera
 
 RadioCLI does not require secrets or accounts.
 
+## Local Agent Control
+
+Agent control is opt-in. Its MCP transport is stdio, and active playback uses a
+short-lived authenticated HTTP endpoint bound only to `127.0.0.1`. The random
+bearer token and port are stored in a user-private runtime file. Requests are
+serialized, stale discovery records are removed, and a single-owner lock keeps
+two local agents from starting competing players. The endpoint is not exposed
+to the LAN or internet.
+
+MCP and `radiocli agent` can play only stations saved by RadioCLI or opaque IDs
+returned by its search and browse operations. The agent interface does not
+accept arbitrary stream URLs. Alarm controls use a separate authenticated
+session namespace and are never called by ordinary agent playback tools.
+
+Agent-started playback opens a separate RadioCLI terminal TUI by default on
+macOS, Windows, and Linux. On macOS, this can make the agent host request Apple's
+one-time Automation permission for Terminal; RadioCLI cannot grant another app's
+OS permission. Headless playback is an explicit opt-out for users who do not want
+external terminal windows or app-control prompts.
+
 ## Privacy Notes
 
 - Nearby location is enabled by default for new libraries, but no location

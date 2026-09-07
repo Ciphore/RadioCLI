@@ -9,7 +9,10 @@ import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
 import {App} from './App.js';
 
 const directories: string[] = [];
-afterEach(() => { for (const path of directories.splice(0)) rmSync(path, {recursive: true, force: true}); });
+afterEach(() => {
+  vi.unstubAllEnvs();
+  for (const path of directories.splice(0)) rmSync(path, {recursive: true, force: true});
+});
 const station: Station = {id: 'kexp', provider: 'radio-browser', name: 'KEXP', tags: ['indie'], streamUrl: 'https://example.test/live'};
 const runtime = {capabilities: {supported: true, exactWake: false, catchUpAfterWake: true, message: 'ready'}, degradedAlarmIds: new Set<string>(), message: 'Native scheduler ready.'};
 
@@ -36,6 +39,126 @@ function callsFor() { return {
 function addAlarm(store: JsonLibraryStore): Alarm { return store.addAlarm({label: 'Morning', enabled: true, station, schedule: {type: 'recurring', time: '06:30', weekdays: [1,2,3,4,5], timezone: 'America/Los_Angeles'}, playback: {volume: 70, fadeSeconds: 30, stopAfterMinutes: 60}, reliability: {missedRunGraceMinutes: 15, wakeIfSupported: true, keepAwakeUntilAlarm: false}}); }
 async function settle(): Promise<void> { await new Promise(resolve => setTimeout(resolve, 25)); }
 async function moveDown(app: ReturnType<typeof render>, count: number): Promise<void> { for (let index = 0; index < count; index += 1) app.stdin.write('\u001B[B'); await settle(); }
+
+describe('Settings TUI integration', () => {
+  it('checks once at launch and shows the available version beside the installed version', async () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
+    const {store, service} = fixture();
+    const updateChecker = vi.fn(async () => ({
+      checkedAt: '2026-09-07T12:00:00.000Z',
+      currentVersion: '0.2.3',
+      latestVersion: '0.3.0',
+      updateAvailable: true
+    }));
+
+    const app = render(<App store={store} alarmService={service} updateChecker={updateChecker} />);
+    await settle();
+
+    expect(updateChecker).toHaveBeenCalledOnce();
+    expect(app.lastFrame()).toContain('v0.3.0 available  v0.2.3');
+    app.unmount();
+  });
+
+  it('does not check at launch when automatic checks are disabled', async () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
+    const {store, service} = fixture();
+    store.updateSettings({automaticUpdateChecks: false});
+    const updateChecker = vi.fn();
+
+    const app = render(<App store={store} alarmService={service} updateChecker={updateChecker} />);
+    await settle();
+
+    expect(updateChecker).not.toHaveBeenCalled();
+    app.unmount();
+  });
+
+  it('navigates Settings categories and returns through the nested hierarchy', async () => {
+    const {store, service} = fixture();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+
+    app.stdin.write('9');
+    await settle();
+    expect(app.lastFrame()).toContain('Choose a category');
+    expect(app.lastFrame()).toContain('Updates');
+    expect(app.lastFrame()).toContain('Agent control & MCP');
+
+    app.stdin.write('\r');
+    await settle();
+    expect(app.lastFrame()).toContain('Settings › Playback & audio');
+    expect(app.lastFrame()).toContain('Audio output');
+
+    app.stdin.write('b');
+    await settle();
+    expect(app.lastFrame()).toContain('Choose a category');
+    expect(app.lastFrame()).not.toContain('Settings › Playback & audio');
+
+    await moveDown(app, 4);
+    app.stdin.write('\r');
+    await settle();
+    expect(app.lastFrame()).toContain('Settings › Agent control & MCP');
+    expect(app.lastFrame()).toContain('Allow local agent control');
+
+    app.stdin.write('b');
+    await settle();
+    expect(app.lastFrame()).toContain('Choose a category');
+    expect(app.lastFrame()).toContain('> Agent control & MCP');
+    app.stdin.write('b');
+    await settle();
+    expect(app.lastFrame()).toContain('Overview');
+    app.unmount();
+  });
+
+  it('sets up and removes agent integrations from the same TUI control', async () => {
+    const {store, service} = fixture();
+    const configure = vi.fn(async (enabled: boolean) => [{
+      client: 'Codex', status: enabled ? 'configured' as const : 'removed' as const, detail: 'shared user configuration'
+    }]);
+    const app = render(<App store={store} alarmService={service} mcpConfigurator={configure} />);
+    await settle();
+    app.stdin.write('9');
+    await settle();
+    await moveDown(app, 4);
+    app.stdin.write('\r');
+    await settle();
+    app.stdin.write('\r');
+    await settle();
+    expect(configure).toHaveBeenLastCalledWith(true, expect.any(Object), null);
+    expect(store.snapshot().settings.agentControl?.enabled).toBe(true);
+    expect(app.lastFrame()).toContain('Agent and voice control ready');
+
+    app.stdin.write('\r');
+    await settle();
+    expect(configure).toHaveBeenLastCalledWith(false, expect.any(Object), null);
+    expect(store.snapshot().settings.agentControl?.enabled).toBe(false);
+    app.unmount();
+  });
+
+  it('does not run overlapping MCP setup operations after repeated Enter presses', async () => {
+    const {store, service} = fixture();
+    let finish!: (value: Awaited<ReturnType<NonNullable<React.ComponentProps<typeof App>['mcpConfigurator']>>>) => void;
+    const configure = vi.fn(() => new Promise<Awaited<ReturnType<NonNullable<React.ComponentProps<typeof App>['mcpConfigurator']>>>>(resolve => {
+      finish = resolve;
+    }));
+    const app = render(<App store={store} alarmService={service} mcpConfigurator={configure} />);
+    await settle();
+    app.stdin.write('9');
+    await settle();
+    await moveDown(app, 4);
+    app.stdin.write('\r');
+    await settle();
+    app.stdin.write('\r');
+    app.stdin.write('\r');
+    await settle();
+    expect(configure).toHaveBeenCalledOnce();
+    finish([{client: 'Codex', status: 'configured', detail: 'shared user configuration'}]);
+    await settle();
+    expect(store.snapshot().settings.agentControl?.enabled).toBe(true);
+    app.unmount();
+  });
+});
 
 describe('alarm TUI integration', () => {
   it('keeps ordinary query text in Search instead of treating "a" as New alarm', async () => {

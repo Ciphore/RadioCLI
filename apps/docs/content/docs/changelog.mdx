@@ -6,7 +6,52 @@ description: Release history for RadioCLI.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.2.3 - 2026-09-07
+
+### Added
+
+- Added opt-in local coding-agent control through both a typed stdio MCP server
+  and `radiocli agent` shell commands, covering discovery, playback, favorites,
+  listening stats, appearance, and configurable task-completion actions.
+- Added automatic MCP setup for detected Codex, Claude Code, OpenCode, Cursor,
+  Gemini CLI, VS Code/Copilot Agent Host, and Orca-backed runtimes, plus a
+  portable configuration for other MCP clients.
+- Added typed MCP and voice-accessible alarm management, active ringing
+  controls, and macOS AirPlay discovery, receiver selection, local-output
+  switching, and ephemeral passcode submission.
+- Added `radiocli update --install`, package-manager-aware upgrade commands,
+  an in-app update indicator, read-only MCP update status, and
+  `radiocli mcp repair`.
+- Added Agent settings for installing or repairing MCP integrations and choosing
+  between a visible terminal player and headless playback.
+- Added the animated Gallop receiver as the new default and a color-field
+  Crossfade receiver.
+
+### Fixed
+
+- Agent playback continues to open the terminal TUI by default on every platform,
+  while interactive setup now explains the macOS Automation prompt and offers an
+  explicit headless opt-out. MCP guidance prevents ordinary task-completion radio
+  actions from creating implicit goals or monitors.
+- MCP registrations now use upgrade-stable, directly executable launchers,
+  including a shell-free Node command on Windows, and enabled registrations are
+  repaired after an in-app or CLI update.
+- Active interactive or agent playback now yields cleanly when an alarm begins,
+  preventing overlapping streams while preserving the alarm if TUI handoff fails.
+- Kept the Countries station-count column fixed while scrolling, added focused
+  marquee reading for overlong country and station names across Explore,
+  Library, and Nearby, and aligned Overview descriptions behind a compact
+  separator-free title column.
+
+### Security
+
+- Agent playback uses a single-owner, authenticated loopback session with
+  serialized commands, private discovery files, and strict isolation from
+  active alarm sessions. Agent tools accept saved or RadioCLI-discovered station
+  IDs rather than arbitrary stream URLs.
+- Alarm removal requires an exact ID and explicit confirmation. AirPlay receiver
+  IDs must come from local discovery, and receiver passcodes are never persisted
+  or echoed by agent responses.
 
 ## 0.2.2 - 2026-09-04
 

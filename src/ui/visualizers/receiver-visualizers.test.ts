@@ -230,8 +230,8 @@ describe('receiver visualizers', () => {
     expect(receiverStyleNames).toEqual(expect.arrayContaining([...immersiveReceiverStyles]));
   });
 
-  it('cycles receiver styles by visual family and defaults to ultracode', () => {
-    expect(defaultReceiverStyle).toBe('ultracode');
+  it('cycles receiver styles by visual family and defaults to gallop fine', () => {
+    expect(defaultReceiverStyle).toBe('gallop-fine');
     expect(receiverStyleNames.slice(0, 8)).toEqual([
       'ultracode',
       'pulse-grid',
@@ -242,6 +242,7 @@ describe('receiver visualizers', () => {
       'nebula',
       'lava-lamp'
     ]);
+    expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
     expect(receiverStyleNames.indexOf('braille-wave')).toBe(receiverStyleNames.indexOf('ribbon') + 1);

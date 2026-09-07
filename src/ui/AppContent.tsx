@@ -30,6 +30,7 @@ import type {TerminalLayout} from './layout.js';
 import {AdaptiveContent} from './AdaptiveContent.js';
 import {AlarmsScreen, AlarmEditorScreen, AlarmPickerScreen, AlarmRingingScreen} from './screens/AlarmsScreen.js';
 import type {AlarmTuiController} from './use-alarm-tui.js';
+import type {SettingsPage} from './screen-items.js';
 
 type AppContentProps = {
   airPlayDevices: AirPlayDevice[];
@@ -56,6 +57,7 @@ type AppContentProps = {
   providerHealth: Record<string, string>;
   searchQuery: string;
   screen: Screen;
+  settingsPage: SettingsPage;
   selected: number;
   showDiagnostics: boolean;
   sleepLabel: string;
@@ -93,6 +95,7 @@ export function AppContent({
   providerHealth,
   searchQuery,
   screen,
+  settingsPage,
   selected,
   showDiagnostics,
   sleepLabel,
@@ -113,6 +116,7 @@ export function AppContent({
       <AdaptiveContent
         mode={layout.mode === 'micro' ? 'micro' : 'compact'}
         screen={screen}
+        settingsPage={settingsPage}
         selected={selected}
         height={layout.contentRows}
         width={frameWidth}
@@ -135,6 +139,7 @@ export function AppContent({
         diagnostics={diagnostics}
         backends={backends}
         updateCheck={updateCheck}
+        appVersion={appVersion}
         favoriteKeys={favoriteKeys}
         stationTitle={stationContext.title}
         stationError={stationContext.error}
@@ -164,6 +169,7 @@ export function AppContent({
         theme={theme}
         pageSize={layout.countryRows}
         width={frameWidth}
+        reduceMotion={Boolean(library.settings.reduceMotion)}
       />
     );
   }
@@ -266,6 +272,7 @@ export function AppContent({
   if (screen === 'settings') {
     return (
       <SettingsScreen
+        page={settingsPage}
         selected={selected}
         settings={library.settings}
         appVersion={appVersion}

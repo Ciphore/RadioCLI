@@ -20,6 +20,11 @@ export class ProviderManager {
     return this.radioBrowser.byCountry(countryCode, limit, offset);
   }
 
+  byId(provider: Station['provider'], id: string): Promise<Station | null> {
+    if (provider !== 'radio-browser') return Promise.resolve(null);
+    return this.radioBrowser.byId(id);
+  }
+
   nearby(location: LocationGuess, limit?: number): Promise<Station[]> {
     return this.radioBrowser.nearby(location, limit);
   }

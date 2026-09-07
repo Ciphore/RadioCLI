@@ -28,6 +28,23 @@ The CLI has two modes:
 - Command mode: `radiocli search "tokyo jazz"`, `radiocli check`,
   `radiocli import stations.m3u`, `radiocli alarm doctor`
 
+Local agent control adds two adapters over one command model: `radiocli agent`
+for shell-capable harnesses and a stdio MCP server for MCP-capable harnesses.
+Both route mutations to the currently owning TUI or headless playback process
+through an authenticated loopback session. That owner serializes commands, so
+concurrent completions have deterministic arrival-order behavior. Discovery
+queries and listening-stat reads do not start a player or open a terminal.
+
+Agent playback and scheduled alarms intentionally have separate discovery
+files, tokens, and owners. Explicit alarm MCP tools reuse the alarm scheduler
+and authenticated active-occurrence controls; ordinary agent stop/pause tools
+still cannot mutate alarm state. A due alarm publishes its starting state before
+resolving audio, blocks new agent playback, and asks the current interactive or
+headless owner to yield immediately before it tunes. This also stops an active
+AirPlay stream before the alarm switches to local output. If that owner cannot
+be reached, alarm delivery continues and runtime health records the degraded
+takeover instead of suppressing the alarm.
+
 ## Alarm Runtime
 
 Alarm definitions are portable library data, while delivery is rebuilt from

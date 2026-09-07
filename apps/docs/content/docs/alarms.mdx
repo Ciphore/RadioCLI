@@ -47,10 +47,13 @@ now; it cannot guarantee future hardware wake, network access, or stream health.
 
 RadioCLI starts the configured station through a detached runner. If necessary,
 it opens the terminal captured during setup and shows the ringing screen.
+If normal TUI or agent-controlled playback is already active, it yields before
+the alarm tunes, so the alarm station replaces it instead of mixing two streams.
 
 - `Enter` transfers the station into the interactive RadioCLI player and opens
   the normal Playing screen. The visualizer and ordinary playback controls then
-  own the stream, and the alarm session ends.
+  own the stream, and the alarm session ends. The detached alarm remains audible
+  if the interactive player cannot complete that transfer.
 - `Space` stops the station and snoozes the alarm for 10 minutes.
 - `Up` and `Down` choose an exact occurrence when multiple alarms overlap.
 - `b` returns to the app while the detached alarm continues playing. Press `!`
