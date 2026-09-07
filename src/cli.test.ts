@@ -104,12 +104,25 @@ describe('CLI command dispatch', () => {
     expect(report.guidance).toContain('playback=missing');
     expect(report.host).toMatchObject({id: expect.any(String), arch: process.arch});
     expect(report.capabilities.playback?.status).toBe('unavailable');
-    expect(report.capabilities.storage?.status).toBe('unverified');
+    expect(report.capabilities.storage?.status).toBe('available');
     expect(report.capabilities).toHaveProperty('backgroundScheduling');
     expect(report.capabilities).toHaveProperty('terminalReopening');
     expect(report.capabilities).toHaveProperty('screenReader');
     expect(JSON.stringify(report)).not.toContain(radioCliHome);
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('diagnoses an inaccessible data destination without creating or replacing it', async () => {
+    const blockedHome = join(radioCliHome, 'not-a-directory');
+    writeFileSync(blockedHome, 'preserve me');
+    process.env.RADIOCLI_HOME = blockedHome;
+    await runCommand(['doctor', '--json']);
+    const report = JSON.parse(logs.join('\n'));
+    expect(report.capabilities.storage.status).toBe('unavailable');
+    expect(report.capabilities.atomicWrites.status).toBe('unavailable');
+    expect(report.capabilities.storage.message).toContain('RADIOCLI_HOME');
+    expect(JSON.stringify(report)).not.toContain(blockedHome);
+    expect(readFileSync(blockedHome, 'utf8')).toBe('preserve me');
   });
 
   it('rejects unknown commands with the help hint', async () => {

@@ -134,7 +134,7 @@ function writeJsonAtomically(filePath: string, value: unknown): void {
   }
 }
 
-export function backupBadFile(filePath: string): void {
+function backupBadFile(filePath: string): void {
   if (!existsSync(filePath)) {
     return;
   }

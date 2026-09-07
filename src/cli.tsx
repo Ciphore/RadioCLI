@@ -23,6 +23,8 @@ import {identifyPlatform} from './platform/runtime.js';
 import {platformCapabilities} from './platform/capabilities.js';
 import {hasGraphicalSession} from './platform/desktop.js';
 import {detectPackageManager} from './platform/packages.js';
+import {platformPaths} from './platform/paths.js';
+import {storageReadiness} from './platform/storage.js';
 
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
@@ -300,7 +302,8 @@ function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
     backends,
     commands: integrationCommands,
     graphicalSession: hasGraphicalSession(host),
-    packageManager: detectPackageManager(process.platform, host.osRelease)
+    packageManager: detectPackageManager(process.platform, host.osRelease),
+    storageWritable: storageReadiness(platformPaths().library).status === 'available'
   });
   return {
     radioCliVersion: appVersion(),
