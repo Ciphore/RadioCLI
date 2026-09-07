@@ -1,5 +1,6 @@
 import {spawn} from 'node:child_process';
 import {resolveCommand} from '../player/command.js';
+import {identifyPlatform,nativeAdapters} from '../platform/runtime.js';
 
 type Snapshot={volume:number;muted:boolean};
 type Result={code:number;stdout:string;stderr:string};
@@ -8,8 +9,25 @@ export type SystemVolumeLease={release():Promise<void>;message:string};
 export type SystemVolumeController={acquireMinimum(volume:number):Promise<SystemVolumeLease>};
 
 export function createSystemVolumeController(platform:NodeJS.Platform=process.platform,run:Run=runCommand,resolve:(command:string)=>string|null=resolveCommand):SystemVolumeController{
-  const backend=platform==='darwin'?macBackend(run):platform==='linux'?linuxBackend(run,resolve):platform==='win32'?windowsBackend(run,resolve):undefined;
-  return{async acquireMinimum(volume){if(!backend)throw new Error(`System output volume control is unavailable on ${platform}.`);const target=clamp(volume);const before=await backend.read();const applied=Math.max(before.volume,target);if(before.muted||before.volume<target)await backend.write({volume:applied,muted:false});let released=false;return{message:before.muted||before.volume<target?`Local output raised to at least ${target}% and unmuted for the alarm.`:`Local output was already at least ${target}% and unmuted.`,async release(){if(released)return;released=true;if(before.muted||before.volume<target)await backend.write(before);}};}};
+  const host=identifyPlatform({platform});const adapter=nativeAdapters(host).volume;
+  const backend=adapter==='macos'?macBackend(run):adapter==='unix-audio'?linuxBackend(run,resolve):adapter==='windows'?windowsBackend(run,resolve):undefined;
+  return{async acquireMinimum(volume){
+    if(!backend)throw new Error(`System output volume control is unavailable on ${host.id==='unknown'?platform:host.id}.`);
+    const target=clamp(volume);const before=await backend.read();const changed=before.muted||before.volume<target;
+    if(changed){
+      try{await backend.write({volume:Math.max(before.volume,target),muted:false});}
+      catch(error){
+        try{await backend.write(before);}
+        catch(restoreError){throw new Error(`${messageOf(error)}; restoring the previous output state also failed: ${messageOf(restoreError)}`);}
+        throw error;
+      }
+    }
+    let released=false;
+    return{
+      message:changed?`Local output raised to at least ${target}% and unmuted for the alarm.`:`Local output was already at least ${target}% and unmuted.`,
+      async release(){if(released)return;if(changed)await backend.write(before);released=true;}
+    };
+  }};
 }
 
 type Backend={read():Promise<Snapshot>;write(value:Snapshot):Promise<void>};
@@ -34,5 +52,6 @@ public enum EDataFlow { eRender, eCapture, eAll } public enum ERole { eConsole, 
 public static class RadioCliVolume { static IAudioEndpointVolume Endpoint(){IMMDevice d;((IMMDeviceEnumerator)new MMDeviceEnumerator()).GetDefaultAudioEndpoint(EDataFlow.eRender,ERole.eMultimedia,out d);object o;Guid id=typeof(IAudioEndpointVolume).GUID;d.Activate(ref id,23,IntPtr.Zero,out o);return(IAudioEndpointVolume)o;} public static string Get(){float v;bool m;var e=Endpoint();e.GetMasterVolumeLevelScalar(out v);e.GetMute(out m);return Math.Round(v*100)+","+m.ToString().ToLower();} public static void Set(int v,bool m){var e=Endpoint();e.SetMasterVolumeLevelScalar(Math.Max(0,Math.Min(100,v))/100f,Guid.Empty);e.SetMute(m,Guid.Empty);} }
 '@`;
 function clamp(value:number){return Math.max(0,Math.min(100,Math.round(Number.isFinite(value)?value:0)));}
+function messageOf(error:unknown){return error instanceof Error?error.message:String(error);}
 async function checked(promise:Promise<Result>,label:string){const result=await promise;if(result.code!==0)throw new Error(`${label} failed: ${(result.stderr||result.stdout||`exit ${result.code}`).trim()}`);return result;}
 function runCommand(command:string,args:string[]):Promise<Result>{return new Promise(resolve=>{const child=spawn(command,args,{stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='';let stderr='';child.stdout.on('data',value=>stdout+=String(value));child.stderr.on('data',value=>stderr+=String(value));child.on('error',error=>resolve({code:127,stdout,stderr:error.message}));child.on('close',code=>resolve({code:code??1,stdout,stderr}));});}

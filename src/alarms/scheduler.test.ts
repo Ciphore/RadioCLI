@@ -113,4 +113,107 @@ describe('native alarm schedulers', () => {
   it('fails disable/removal when an active Guard cannot be verified stopped',async()=>{const adapter:SchedulerAdapter={capabilities:()=>({supported:true,exactWake:false,catchUpAfterWake:true,message:'ok'}),install:vi.fn(),remove:vi.fn(),status:vi.fn()};const record=vi.fn();const guard={start:vi.fn(),stop:vi.fn(async()=>false),status:vi.fn(async()=>({guards:[{alarmId:alarm.id}]}))};const service=new SchedulerService(adapter,()=>new Date('2029-01-01T00:00:00Z'),{record,list:vi.fn(()=>[]),get:vi.fn(()=>[]),remove:vi.fn()} as never,guard);await expect(service.sync({...alarm,enabled:false})).rejects.toThrow(/teardown|verified/i);expect(record).toHaveBeenCalledWith(expect.objectContaining({component:'power',healthy:false}));await expect(service.remove(alarm.id)).rejects.toThrow(/retained/i);expect(adapter.remove).toHaveBeenCalledTimes(1);});
   it('accepts false Guard stop only when status verifies no matching Guard exists',async()=>{const adapter:SchedulerAdapter={capabilities:()=>({supported:true,exactWake:false,catchUpAfterWake:true,message:'ok'}),install:vi.fn(),remove:vi.fn(),status:vi.fn()};const guard={start:vi.fn(),stop:vi.fn(async()=>false),status:vi.fn(async()=>({guards:[]}))};const service=new SchedulerService(adapter,()=>new Date('2029-01-01T00:00:00Z'),{record:vi.fn(),list:vi.fn(()=>[]),get:vi.fn(()=>[]),remove:vi.fn()} as never,guard);await expect(service.sync({...alarm,enabled:false})).resolves.toBeNull();await expect(service.remove(alarm.id)).resolves.toBeUndefined();});
   it('accepts a successful authenticated Guard teardown',async()=>{const adapter:SchedulerAdapter={capabilities:()=>({supported:true,exactWake:false,catchUpAfterWake:true,message:'ok'}),install:vi.fn(),remove:vi.fn(),status:vi.fn()};const guard={start:vi.fn(),stop:vi.fn(async()=>true),status:vi.fn()};const service=new SchedulerService(adapter,()=>new Date('2029-01-01T00:00:00Z'),{record:vi.fn(),list:vi.fn(()=>[]),get:vi.fn(()=>[]),remove:vi.fn()} as never,guard);await expect(service.sync({...alarm,enabled:false})).resolves.toBeNull();expect(guard.status).not.toHaveBeenCalled();});
+
+  it.each(['darwin', 'linux', 'win32'] as const)('retains %s repair artifacts when native removal fails and absence is uncertain', async platform => {
+    const removeFile = vi.fn();
+    const run = vi.fn(async () => ({code: 1, stdout: '', stderr: 'Permission denied'}));
+    const adapter = createSchedulerAdapter({platform, home: '/missing-radiocli-test-home', env: {}, commandExists: () => true, writeFile: vi.fn(), removeFile, run});
+    await expect(adapter.remove(alarm.id)).rejects.toThrow(/remov|absen|disable|bootout|delete/i);
+    expect(removeFile).not.toHaveBeenCalled();
+  });
+
+  it.each(['darwin', 'linux', 'win32'] as const)('retains %s repair artifacts when the targeted native job is still registered', async platform => {
+    const removeFile = vi.fn();
+    const run = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === 'print' || args[0] === '/Query') return {code: 0, stdout: 'registered', stderr: ''};
+      if (args.includes('show')) return {code: 0, stdout: 'LoadState=loaded\nActiveState=active\n', stderr: ''};
+      return {code: 1, stdout: '', stderr: 'busy'};
+    });
+    const adapter = createSchedulerAdapter({platform, home: '/missing-radiocli-test-home', env: {}, commandExists: () => true, writeFile: vi.fn(), removeFile, run});
+    await expect(adapter.remove(alarm.id)).rejects.toThrow();
+    expect(removeFile).not.toHaveBeenCalled();
+  });
+
+  it.each(['darwin', 'linux', 'win32'] as const)('accepts failed %s removal only after a targeted absence response', async platform => {
+    const removeFile = vi.fn();
+    const run = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] === 'print') return {code: 113, stdout: '', stderr: `Could not find service "${args[1]!.split('/').at(-1)}" in domain for user gui: 501`};
+      if (args.includes('show')) return {code: 1, stdout: 'LoadState=not-found\nActiveState=inactive\n', stderr: ''};
+      if (args[0] === '/Query') return {code: 1, stdout: '', stderr: 'ERROR: The system cannot find the file specified.'};
+      if (args.includes('daemon-reload')) return {code: 0, stdout: '', stderr: ''};
+      return {code: 1, stdout: '', stderr: 'already gone'};
+    });
+    const adapter = createSchedulerAdapter({platform, home: '/missing-radiocli-test-home', env: {}, commandExists: () => true, writeFile: vi.fn(), removeFile, run});
+    await expect(adapter.remove(alarm.id)).resolves.toBeUndefined();
+    expect(removeFile).toHaveBeenCalled();
+  });
+
+  it('reports an unreachable systemd user manager without writing native jobs', async () => {
+    const writeFile = vi.fn();
+    const run = vi.fn(async (_command: string, _args: string[]) => ({code: 1, stdout: '', stderr: 'Failed to connect to user bus'}));
+    const adapter = createSchedulerAdapter({platform: 'linux', env: {}, commandExists: () => true, writeFile, removeFile: vi.fn(), run});
+    const service = new SchedulerService(adapter, () => new Date(), {record: vi.fn(), list: () => [], get: () => []} as never);
+    expect(adapter.capabilities().message).toMatch(/detect|verif|check/i);
+    const report = await service.runtimeStatus();
+    expect(report.capabilities).toMatchObject({supported: false, catchUpAfterWake: false});
+    expect(report.capabilities.message).toMatch(/user.*manager|user bus/i);
+    await expect(adapter.install(alarm, new Date(alarm.schedule.type === 'once' ? alarm.schedule.at : ''))).rejects.toThrow(/user.*manager|user bus/i);
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(run.mock.calls.every(call => call[1].includes('show'))).toBe(true);
+  });
+
+  it('bounds a stalled systemd user-manager probe', async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = createSchedulerAdapter({platform: 'linux', env: {}, commandExists: () => true, writeFile: vi.fn(), removeFile: vi.fn(), run: () => new Promise(() => {})});
+      const service = new SchedulerService(adapter, () => new Date(), {record: vi.fn(), list: () => [], get: () => []} as never);
+      const pending = service.runtimeStatus();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect((await pending).capabilities).toMatchObject({supported: false});
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('uses the injected executable environment for scheduler discovery', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-scheduler-path-'));
+    vi.stubEnv('PATH', '/missing-radiocli-executables');
+    try {
+      writeFileSync(join(root, 'systemctl'), '#!/bin/sh\nexit 0\n', {mode: 0o755});
+      const adapter = createSchedulerAdapter({platform: 'linux', env: {PATH: root}, home: root, writeFile: vi.fn(), removeFile: vi.fn(), run: vi.fn()});
+      expect(adapter.capabilities().supported).toBe(true);
+    } finally { vi.unstubAllEnvs(); rmSync(root, {recursive: true, force: true}); }
+  });
+
+  it('does not select Linux scheduling for a Termux environment', async () => {
+    const writeFile = vi.fn(); const run = vi.fn();
+    const adapter = createSchedulerAdapter({platform: 'linux', env: {TERMUX_VERSION: 'test'}, commandExists: () => true, writeFile, removeFile: vi.fn(), run});
+    expect(adapter.capabilities()).toMatchObject({supported: false, catchUpAfterWake: false});
+    await expect(adapter.install(alarm, new Date('2030-02-03T14:05:00Z'))).rejects.toThrow(/termux/i);
+    expect(writeFile).not.toHaveBeenCalled(); expect(run).not.toHaveBeenCalled();
+  });
+
+  it('retains an alarm when Guard ownership remains unresolved', async () => {
+    const adapter: SchedulerAdapter = {capabilities: () => ({supported: true, exactWake: false, catchUpAfterWake: true, message: 'ok'}), install: vi.fn(), remove: vi.fn(), status: vi.fn()};
+    const guard = {start: vi.fn(), stop: vi.fn(async () => false), status: vi.fn(async () => ({guards: [], unresolvedGuards: [{alarmId: alarm.id}]}))};
+    const service = new SchedulerService(adapter, () => new Date(), {record: vi.fn(), list: () => [], get: () => [], remove: vi.fn()} as never, guard);
+    await expect(service.remove(alarm.id)).rejects.toThrow(/verified|retained/i);
+    expect(adapter.remove).not.toHaveBeenCalled();
+  });
+
+  it('does not accept an absence response for another launchd service sharing the target prefix',async()=>{const removeFile=vi.fn();const run=vi.fn(async(_command:string,args:string[])=>({code:113,stdout:'',stderr:args[0]==='print'?`Could not find service "${args[1]!.split('/').at(-1)}.other" in domain for user gui: 501`:'busy'}));const adapter=createSchedulerAdapter({platform:'darwin',home:'/missing-radiocli-test-home',env:{},writeFile:vi.fn(),removeFile,run});await expect(adapter.remove(alarm.id)).rejects.toThrow(/verify.*absence/i);expect(removeFile).not.toHaveBeenCalled();});
+
+  it('keeps a registered but inactive systemd timer unhealthy without mutating its registration',async()=>{
+    const root=mkdtempSync(join(tmpdir(),'radiocli-systemd-inactive-'));try{
+      const cliPath=join(root,'cli.js');writeFileSync(cliPath,'');const run=vi.fn(async(_command:string,args:string[])=>({code:args.includes('is-active')?3:0,stdout:args.includes('is-active')?'inactive':'',stderr:''}));
+      const writeFile=vi.fn((path:string,body:string)=>{mkdirSync(dirname(path),{recursive:true});writeFileSync(path,body);});
+      const adapter=createSchedulerAdapter({platform:'linux',home:root,nodePath:process.execPath,cliPath,env:{},commandExists:()=>true,writeFile,run});
+      await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));writeFile.mockClear();run.mockClear();
+      expect(await adapter.status(alarm.id)).toMatchObject({installed:true,healthy:false,message:expect.stringMatching(/not active/i)});expect(writeFile).not.toHaveBeenCalled();expect(run.mock.calls.map(call=>call[1][1])).toEqual(['show','is-enabled','is-active']);
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
+
+  it.each(['darwin','linux','win32'] as const)('retains %s repair artifacts when native commands reject instead of returning status',async platform=>{const removeFile=vi.fn();const adapter=createSchedulerAdapter({platform,env:{},home:'/missing-radiocli-test-home',writeFile:vi.fn(),removeFile,commandExists:()=>true,run:async()=>{throw new Error('native transport failed');}});await expect(adapter.remove(alarm.id)).rejects.toThrow(/verify.*removal/i);expect(removeFile).not.toHaveBeenCalled();});
+
+  it('retains Windows repair metadata when a localized absence message cannot be verified',async()=>{const removeFile=vi.fn();const adapter=createSchedulerAdapter({platform:'win32',env:{},home:'/missing-radiocli-test-home',writeFile:vi.fn(),removeFile,run:async()=>({code:1,stdout:'',stderr:'ERROR: El sistema no puede encontrar el archivo especificado.'})});await expect(adapter.remove(alarm.id)).rejects.toThrow(/verify.*absence/i);expect(removeFile).not.toHaveBeenCalled();});
+
+  it.each(['freebsd','openbsd','netbsd','android','haiku','sunos','aix'] as const)('does not create or claim native alarm registration on %s',async platform=>{const writeFile=vi.fn();const run=vi.fn();const commandExists=vi.fn(()=>true);const adapter=createSchedulerAdapter({platform,env:{},writeFile,run,commandExists});expect(adapter.capabilities()).toMatchObject({supported:false,exactWake:false,catchUpAfterWake:false});await expect(adapter.install(alarm,new Date('2030-02-03T14:05:00Z'))).rejects.toThrow(/not supported/i);expect(writeFile).not.toHaveBeenCalled();expect(run).not.toHaveBeenCalled();expect(commandExists).not.toHaveBeenCalled();});
 });

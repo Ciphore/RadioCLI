@@ -76,6 +76,25 @@ describe('alarm runner',()=>{
 
   it('does not disable a valid one-time alarm when launched early',async()=>{const d=deps({now:()=>new Date('2030-01-01T07:59:00Z')});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('failed');expect(d.store.toggleAlarm).not.toHaveBeenCalled();});
 
+  it('does not complete a future native occurrence after an early invocation',async()=>{const completeOccurrence=vi.fn(async()=>{});const d=deps({now:()=>new Date('2030-01-01T07:59:00Z'),scheduler:{sync:vi.fn(async()=>null),completeOccurrence}});await runAlarm('a',scheduledAt,d);expect(completeOccurrence).not.toHaveBeenCalled();});
+
+  it.each([['early','2030-01-01T08:10:00Z'],['stale','2030-01-01T08:00:00Z']] as const)('preserves a future snooze override after an ignored %s invocation',async(_kind,invocation)=>{const snoozed={...alarm,nextOverride:{at:'2030-01-01T08:10:00Z',reason:'snooze' as const,createdAt:'2030-01-01T08:00:00Z'}};const d=deps({now:()=>new Date('2030-01-01T08:05:00Z'),store:{...deps().store,getAlarm:vi.fn(()=>snoozed)}});await runAlarm('a',invocation,d);expect(d.store.recordAlarmOutcome).toHaveBeenCalledWith('a',expect.any(Object),{clearNextOverride:false});expect(d.player.play).not.toHaveBeenCalled();});
+
+  it('allows the real occurrence to run after an early native dispatch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-early-occurrence-'));
+    try {
+      let current = new Date('2030-01-01T07:59:00Z');
+      const d = deps({now: () => current, acquireLock: (id, at) => acquireOccurrenceLock(id, at, root)});
+      expect((await runAlarm('a', scheduledAt, d)).status).toBe('failed');
+      expect(d.player.play).not.toHaveBeenCalled();
+      current = new Date('2030-01-01T08:00:00Z');
+      expect((await runAlarm('a', scheduledAt, d)).duplicate).not.toBe(true);
+      expect(d.player.play).toHaveBeenCalledOnce();
+      expect((await runAlarm('a', scheduledAt, d)).duplicate).toBe(true);
+      expect(d.player.play).toHaveBeenCalledOnce();
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
+
   it('records a valid but overdue occurrence as missed and disables one-time alarms',async()=>{const d=deps({now:()=>new Date('2030-01-01T08:20:00Z')});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('missed');expect(d.store.toggleAlarm).toHaveBeenCalledWith('a',false);});
 
   it('records normal stop-after completion as played',async()=>{const d=deps({createSession:vi.fn(async()=>({update:vi.fn(),close:vi.fn(async()=>{})}))});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(d.store.toggleAlarm).toHaveBeenCalledWith('a',false);});

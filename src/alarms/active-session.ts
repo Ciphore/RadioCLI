@@ -1,9 +1,10 @@
 import {randomBytes} from 'node:crypto';
 import {chmodSync, existsSync, mkdirSync, readFileSync,readdirSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {createServer, request} from 'node:http';
-import {homedir} from 'node:os';
+import {platformPaths} from '../platform/paths.js';
 import {dirname, join} from 'node:path';
 import type {Station} from '../types.js';
+import {isLoopbackHost, listenLoopback, type LoopbackHost} from '../platform/loopback.js';
 
 export type ActiveAlarmStatus = {
   alarmId: string;
@@ -14,7 +15,7 @@ export type ActiveAlarmStatus = {
   state?: 'starting'|'playing'|'stopping'|'failed';
   keepPlaying?: boolean;
 };
-type Discovery={version:1;host:'127.0.0.1';port:number;token:string;pid:number;alarmId:string;createdAt?:string};
+type Discovery={version:1;host:LoopbackHost;port:number;token:string;pid:number;alarmId:string;createdAt?:string};
 export type ActiveAlarmHandlers={filePath?:string;onDismiss():void|Promise<void>;onSnooze(minutes:number):void|Promise<void>;onKeepPlaying():void|Promise<void>;onHandoff?():void|Promise<void>};
 export type ActiveAlarmServer={update(status:Partial<ActiveAlarmStatus>):void;close():Promise<void>};
 export type ActiveAlarmClient={status():Promise<ActiveAlarmStatus>;dismiss():Promise<void>;snooze(minutes:number):Promise<void>;keepPlaying():Promise<void>;handoff():Promise<void>};
@@ -33,25 +34,25 @@ export async function startActiveAlarmSession(initial:ActiveAlarmStatus,handlers
       res.statusCode=404;res.end('{}');
     }catch(error){res.statusCode=400;res.end(JSON.stringify({error:error instanceof Error?error.message:'request failed'}));}
   });
-  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve());});
-  const address=server.address();if(!address||typeof address==='string')throw new Error('Unable to create alarm control endpoint.');
-  const discovery={version:1,host:'127.0.0.1',port:address.port,token,pid:process.pid,alarmId:initial.alarmId,createdAt:new Date().toISOString()} satisfies Discovery;const temp=`${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;try{mkdirSync(dirname(filePath),{recursive:true,mode:0o700});writeFileSync(temp,`${JSON.stringify(discovery)}\n`,{mode:0o600});renameSync(temp,filePath);if(process.platform!=='win32')chmodSync(filePath,0o600);}catch(error){rmSync(temp,{force:true});removeDiscoveryIfOwned(filePath,discovery);await new Promise<void>(resolve=>server.close(()=>resolve()));throw error;}
+  const address=await listenLoopback(server);
+  const discovery={version:1,host:address.host,port:address.port,token,pid:process.pid,alarmId:initial.alarmId,createdAt:new Date().toISOString()} satisfies Discovery;const temp=`${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;try{mkdirSync(dirname(filePath),{recursive:true,mode:0o700});writeFileSync(temp,`${JSON.stringify(discovery)}\n`,{mode:0o600});renameSync(temp,filePath);if(process.platform!=='win32')chmodSync(filePath,0o600);}catch(error){rmSync(temp,{force:true});removeDiscoveryIfOwned(filePath,discovery);await new Promise<void>(resolve=>server.close(()=>resolve()));throw error;}
   return {update(change){status={...status,...change};},async close(){await new Promise<void>(resolve=>server.close(()=>resolve()));removeDiscoveryIfOwned(filePath,discovery);}};
 }
 
 export async function connectActiveAlarm(filePath?:string):Promise<ActiveAlarmClient|null>{
   if(!filePath){const clients=await connectActiveAlarms();return clients[0]??null;}
   if(!existsSync(filePath))return null;let discovery:Discovery;
-  try{discovery=JSON.parse(readFileSync(filePath,'utf8')) as Discovery;if(discovery.version!==1||discovery.host!=='127.0.0.1'||!Number.isInteger(discovery.port)||!discovery.token)throw new Error('invalid');}
+  try{discovery=JSON.parse(readFileSync(filePath,'utf8')) as Discovery;if(discovery.version!==1||!isLoopbackHost(discovery.host)||!Number.isInteger(discovery.port)||!discovery.token)throw new Error('invalid');}
   catch{return null;}
-  const call=async(method:string,path:string,body?:unknown)=>{const payload=body===undefined?'':JSON.stringify(body);return new Promise<unknown>((resolve,reject)=>{const req=request({host:'127.0.0.1',port:discovery.port,path,method,headers:{authorization:`Bearer ${discovery.token}`,'content-type':'application/json','content-length':Buffer.byteLength(payload)}},res=>{let text='';res.on('data',value=>text+=String(value));res.on('end',()=>res.statusCode&&res.statusCode<300?resolve(text?JSON.parse(text):{}):reject(new Error('Alarm control request failed.')));});req.once('error',reject);req.setTimeout(1000,()=>req.destroy(new Error('Alarm control request timed out.')));req.end(payload);});};
+  // A fresh direct agent keeps local control tokens out of environment proxies.
+  const call=async(method:string,path:string,body?:unknown)=>{const payload=body===undefined?'':JSON.stringify(body);return new Promise<unknown>((resolve,reject)=>{const req=request({host:discovery.host,agent:false,port:discovery.port,path,method,headers:{authorization:`Bearer ${discovery.token}`,'content-type':'application/json','content-length':Buffer.byteLength(payload)}},res=>{let text='';res.on('data',value=>text+=String(value));res.on('end',()=>res.statusCode&&res.statusCode<300?resolve(text?JSON.parse(text):{}):reject(new Error('Alarm control request failed.')));});req.once('error',reject);req.setTimeout(1000,()=>req.destroy(new Error('Alarm control request timed out.')));req.end(payload);});};
   try{await call('GET','/status');}catch{if(!processAlive(discovery.pid)||discoveryAgeMs(filePath,discovery)>5*60_000)removeDiscoveryIfOwned(filePath,discovery);return null;}
   return {status:async()=>await call('GET','/status') as ActiveAlarmStatus,dismiss:async()=>{await call('POST','/dismiss');},snooze:async minutes=>{await call('POST','/snooze',{minutes});},keepPlaying:async()=>{await call('POST','/keep-playing');},handoff:async()=>{await call('POST','/handoff');}};
 }
 
 export async function connectActiveAlarms(directory=defaultActiveAlarmDirectory()):Promise<ActiveAlarmClient[]>{if(!existsSync(directory))return[];const paths=readdirSync(directory).filter(name=>name.endsWith('.json')).map(name=>join(directory,name));const clients=await Promise.all(paths.map(path=>connectActiveAlarm(path)));return clients.filter((client):client is ActiveAlarmClient=>Boolean(client));}
 
-function defaultActiveAlarmDirectory():string{if(process.env.RADIOCLI_HOME)return join(process.env.RADIOCLI_HOME,'runtime','active-alarms');if(process.platform==='darwin')return join(homedir(),'Library','Application Support','radiocli','runtime','active-alarms');if(process.platform==='win32')return join(process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'),'RadioCLI','runtime','active-alarms');return join(process.env.XDG_RUNTIME_DIR??join(homedir(),'.local','state'),'radiocli','active-alarms');}
+function defaultActiveAlarmDirectory():string{return join(platformPaths().alarmRuntime,'active-alarms');}
 function defaultActiveAlarmPath(alarmId='active',occurrenceAt='current'):string{return join(defaultActiveAlarmDirectory(),`${Buffer.from(`${alarmId}\0${occurrenceAt}`).toString('base64url')}.json`);}
 function readBody(req:import('node:http').IncomingMessage):Promise<string>{return new Promise((resolve,reject)=>{let body='';req.on('data',value=>{body+=String(value);if(body.length>4096)req.destroy(new Error('Request too large.'));});req.on('end',()=>resolve(body));req.on('error',reject);});}
 function removeDiscoveryIfOwned(filePath:string,owner:Discovery){let current:Partial<Discovery>;try{current=JSON.parse(readFileSync(filePath,'utf8')) as Partial<Discovery>;}catch{return;}if(!sameDiscovery(current,owner))return;const quarantine=`${filePath}.closing-${process.pid}-${randomBytes(6).toString('hex')}`;try{renameSync(filePath,quarantine);const moved=JSON.parse(readFileSync(quarantine,'utf8')) as Partial<Discovery>;if(sameDiscovery(moved,owner)){rmSync(quarantine,{force:true});return;}if(!existsSync(filePath))renameSync(quarantine,filePath);}catch{if(existsSync(quarantine)&&!existsSync(filePath))try{renameSync(quarantine,filePath);}catch{}} }

@@ -1,8 +1,9 @@
 import {spawn, type ChildProcess} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {createServer} from 'node:net';
+import {createServer, type Socket} from 'node:net';
 import {randomBytes} from 'node:crypto';
 import {basename, delimiter, join} from 'node:path';
+import {listenLoopback} from '../platform/loopback.js';
 
 export type AlarmTerminalLaunchResult = {opened: boolean; terminal: string; message: string};
 type Spawn = (command: string, args: readonly string[]) => ChildProcess;
@@ -83,13 +84,16 @@ export async function verifyAlarmTerminalLaunch(options:ProbeOptions={}):Promise
   await prepareAlarmTerminalAccess(options);
   const terminal=detectAlarmTerminal(platform,env);if(terminal.endsWith(':unsupported'))throw new Error('No supported graphical terminal was found for automatic alarm controls.');
   const token=randomBytes(24).toString('base64url');const server=createServer();
-  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>resolve());});
-  const address=server.address();if(!address||typeof address==='string'){server.close();throw new Error('Unable to create the terminal verification channel.');}
-  const script="const n=require('node:net');const s=n.connect(Number(process.argv[1]),'127.0.0.1',()=>s.end(process.argv[2]));s.on('error',()=>process.exit(2));";
-  const direct=[options.nodePath??process.execPath,'-e',script,String(address.port),token];
+  const address=await listenLoopback(server);
+  const script="const n=require('node:net');const s=n.connect(Number(process.argv[1]),process.argv[3],()=>s.end(process.argv[2]));s.on('error',()=>process.exit(2));";
+  const direct=[options.nodePath??process.execPath,'-e',script,String(address.port),token,address.host];
   const command=`${direct.map(shellQuote).join(' ')}; exit`;
   const launch=options.spawn??spawnDetached;
-  const received=new Promise<void>((resolve,reject)=>{server.once('connection',socket=>{let value='';socket.setEncoding('utf8');socket.on('data',chunk=>value+=chunk);socket.on('end',()=>value===token?resolve():reject(new Error('The terminal verification response was not authentic.')));socket.on('error',reject);});});
+  const sockets=new Set<Socket>();
+  const received=new Promise<void>((resolve,reject)=>{server.on('connection',socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));let value='';socket.setEncoding('utf8');socket.on('data',chunk=>{value+=chunk;if(value.length>token.length){socket.destroy();reject(new Error('The terminal verification response was not authentic.'));}});socket.on('end',()=>value===token?resolve():reject(new Error('The terminal verification response was not authentic.')));socket.on('error',reject);});});
+  // A callback can fail while the launcher is still reporting its own result.
+  // Keep the rejection observed until it is awaited below.
+  void received.catch(()=>undefined);
   try{
     if(terminal==='darwin:apple-terminal')await launched(launch('/usr/bin/osascript',appleTerminalScript(command)));
     else if(terminal==='darwin:iterm')await launched(launch('/usr/bin/osascript',iTermScript(command)));
@@ -102,7 +106,7 @@ export async function verifyAlarmTerminalLaunch(options:ProbeOptions={}):Promise
     else throw new Error('The saved terminal is not supported for alarm controls.');
     await withTimeout(received,options.timeoutMs??8_000,'The terminal opened but did not connect back to RadioCLI.');
     return terminal;
-  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+  }finally{for(const socket of sockets)socket.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 }
 
 function validDescriptor(value:string,platform:NodeJS.Platform):boolean {

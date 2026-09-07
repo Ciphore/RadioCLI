@@ -58,7 +58,7 @@ export async function verifyAlarmSetup(scheduler:SchedulerService,alarm:Alarm|un
       temporary=temporaryAlarm(alarm,now(),deps.id?.()??randomUUID());
       const occurrence=await scheduler.sync(temporary);if(!occurrence)throw new Error('The disposable alarm did not receive a future occurrence.');schedulerInstalled=true;
       const [status]=await scheduler.statusAll([temporary]);if(!status?.native.installed||!status.native.healthy)throw new Error(status?.native.message??'The native job could not be verified.');
-      set('scheduler','passed',`Registered and queried a disposable ${platformSchedulerName()} job.`);
+      set('scheduler','passed',`Registered and queried a disposable ${capability.name??'native scheduler'} job.`);
       if(alarm?.reliability.wakeIfSupported)set('wake',capability.exactWake?'passed':'warning',capability.exactWake?'This scheduler reports exact wake support.':`The OS accepted the job, but wake remains hardware and policy dependent. ${capability.message}`);
       else set('wake','passed',capability.catchUpAfterWake?'Wake was not requested; the native scheduler supports catch-up after the machine wakes.':'Wake was not requested for this alarm.');
     }catch(error){set('scheduler','failed',messageOf(error));set('wake','warning','Wake behavior could not be assessed because native scheduler verification failed.');}
@@ -98,7 +98,6 @@ export async function verifyAlarmSetup(scheduler:SchedulerService,alarm:Alarm|un
 
 function temporaryAlarm(source:Alarm|undefined,now:Date,id:string):Alarm{const at=new Date(Math.ceil((now.getTime()+10*60_000)/60_000)*60_000);return{id:`setup-verification-${id}`,label:'RadioCLI setup verification',enabled:true,station:source?.station??{id:'verification',provider:'playlist',name:'RadioCLI verification',tags:[],streamUrl:'https://127.0.0.1/'},schedule:{type:'once',at:at.toISOString()},playback:{volume:source?.playback.volume??40,fadeSeconds:0,stopAfterMinutes:1},reliability:{missedRunGraceMinutes:1,wakeIfSupported:false},createdAt:now.toISOString(),updatedAt:now.toISOString()};}
 async function probeControlChannel():Promise<void>{const root=mkdtempSync(join(tmpdir(),'radiocli-alarm-verify-'));const file=join(root,'probe.json');const server=await startActiveAlarmSession({alarmId:'setup-verification',scheduledAt:new Date().toISOString(),stationName:'RadioCLI verification',startedAt:new Date().toISOString()},{filePath:file,onDismiss:()=>{},onSnooze:()=>{},onKeepPlaying:()=>{}});try{const client=await connectActiveAlarm(file);if(!client)throw new Error('The ringing control channel was not discoverable.');const status=await client.status();if(status.alarmId!=='setup-verification')throw new Error('The ringing control channel returned the wrong alarm identity.');}finally{await server.close();rmSync(root,{recursive:true,force:true});}}
-function platformSchedulerName(){return process.platform==='darwin'?'launchd':process.platform==='win32'?'Task Scheduler':'systemd';}
 function friendlyTerminal(value:string){return value.replace(/^darwin:/,'').replace(/^win32:/,'').replace(/^linux:/,'');}
 function messageOf(error:unknown){return error instanceof Error?error.message:String(error);}
 function wait(milliseconds:number){return new Promise<void>(resolve=>setTimeout(resolve,milliseconds));}

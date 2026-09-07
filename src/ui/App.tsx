@@ -1208,16 +1208,16 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
   }, []);
 
-  const openStationHomepage = useCallback((station: Station | null) => {
+  const openStationHomepage = useCallback(async (station: Station | null) => {
     if (!station?.homepage) {
       setMessage('This station has no homepage.');
       return;
     }
 
     setMessage(
-      openExternal(station.homepage)
+      await openExternal(station.homepage)
         ? `Opening homepage: ${station.name}`
-        : 'That station homepage is not a valid HTTP(S) URL.'
+        : `Could not open a browser in this session. Homepage: ${station.homepage}`
     );
   }, []);
 
@@ -1238,7 +1238,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         return;
       }
 
-      const copied = copyToClipboard(url);
+      const copied = await copyToClipboard(url);
       setMessage(copied ? `Copied stream URL: ${station.name}` : `Stream URL: ${url}`);
     },
     [providers]
@@ -1619,7 +1619,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
 
     const command = updateCommandForInstall();
-    const copied = copyToClipboard(command.command);
+    const copied = await copyToClipboard(command.command);
     const latestVersion = store.snapshot().updateCheck?.latestVersion ?? updateCheck?.latestVersion;
     const prefix = latestVersion ? `Latest v${latestVersion}. ` : '';
     const method = command.method === 'homebrew' ? 'Homebrew' : command.method === 'npm' ? 'npm' : 'your install method';

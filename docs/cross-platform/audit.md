@@ -39,6 +39,12 @@ were inspected before implementation. No repository-specific `AGENTS.md` or shar
 repository memory was present. The initial local-only editor configuration was
 removed at the owner's subsequent request for a clean checkout.
 
+The initial local test counts also included 216 duplicate tests from an ignored
+legacy security-audit scratch copy. It was discovered during comparison with
+the isolated staged tree and removed under the owner's clean-checkout request.
+The actual original repository contains 690 tests; the committed baseline tree
+passes all 1,268 tests (690 original plus 578 captures) on Node 22.23.2.
+
 The original CI runs Node 22 and 24 on Ubuntu, macOS, and Windows. Live data,
 playback, and fresh packed-install checks are skipped on pull requests. Therefore
 an ordinary successful PR check does not establish packed-install or playback

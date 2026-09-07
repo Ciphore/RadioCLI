@@ -1,5 +1,6 @@
 import {EventEmitter} from 'node:events';
 import {spawn as nodeSpawn,type ChildProcess} from 'node:child_process';
+import {connect, type Socket} from 'node:net';
 import {describe,expect,it,vi} from 'vitest';
 import {detectAlarmTerminal,openAlarmControls,prepareAlarmTerminalAccess,verifyAlarmTerminalLaunch} from './terminal-launcher.js';
 
@@ -46,4 +47,21 @@ describe('alarm terminal launcher',()=>{
   it('rejects setup verification when no graphical terminal can expose ringing controls',async()=>{await expect(verifyAlarmTerminalLaunch({platform:'freebsd',timeoutMs:10})).rejects.toThrow(/no supported graphical terminal/i);});
 
   it('requires the launched terminal process to complete an authenticated callback',async()=>{const launch=vi.fn((_command:string,args:readonly string[])=>{const index=args.indexOf(process.execPath);expect(index).toBeGreaterThanOrEqual(0);return nodeSpawn(process.execPath,args.slice(index+1),{stdio:'ignore'});});await expect(verifyAlarmTerminalLaunch({platform:'win32',env:{WT_SESSION:'test'},nodePath:process.execPath,spawn:launch,timeoutMs:2_000})).resolves.toBe('win32:windows-terminal');expect(launch).toHaveBeenCalledOnce();});
+
+  it('bounds and closes a callback connection that never sends its token', async () => {
+    let socket: Socket | undefined;
+    const launch = vi.fn((_command: string, args: readonly string[]) => {
+      const child = new EventEmitter() as ChildProcess;
+      child.unref = vi.fn();
+      const port = Number(args.at(-3));
+      const host = args.at(-1)!;
+      socket = connect(port, host);
+      socket.on('error', () => undefined);
+      queueMicrotask(() => child.emit('spawn'));
+      return child;
+    });
+    try {
+      await expect(verifyAlarmTerminalLaunch({platform: 'win32', env: {WT_SESSION: 'test'}, spawn: launch, timeoutMs: 30})).rejects.toThrow(/did not connect back/i);
+    } finally { socket?.destroy(); }
+  });
 });

@@ -1,5 +1,5 @@
 import {existsSync,mkdirSync,readFileSync,readdirSync,rmSync,statSync,writeFileSync} from 'node:fs';
-import {homedir} from 'node:os';
+import {platformPaths} from '../platform/paths.js';
 import {dirname, join} from 'node:path';
 import type {Alarm,AlarmRunRecord,PlaybackState,ResolvedStream,Station} from '../types.js';
 import type {PlaybackControlResult} from '../player/player-controller.js';
@@ -25,7 +25,7 @@ type RunnerProvider={resolve(station:Station):Promise<ResolvedStream>};
 type RunnerScheduler=Pick<SchedulerService,'sync'> & Partial<Pick<SchedulerService,'syncClaimed'|'completeOccurrence'>>;
 export type AlarmRunnerDeps={
   now():Date; store:RunnerStore; providers:RunnerProvider; player:RunnerPlayer; scheduler:RunnerScheduler; inhibitor:PowerInhibitor;
-  acquireLock(alarmId:string,scheduledAt:string):(()=>void)|null;
+  acquireLock(alarmId:string,scheduledAt:string):((completed?:boolean)=>void)|null;
   createSession(status:ActiveAlarmStatus,handlers:ActiveAlarmHandlers):Promise<ActiveAlarmServer>;
   openControls?(status:ActiveAlarmStatus):Promise<unknown>;
   preemptInteractivePlayback?():Promise<void>;
@@ -44,6 +44,7 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
   let preserveNextOverride=false;
   let preserveSystemVolume=false;
   let validTerminalOccurrence=false;
+  let completeLock=true;
   let signalReceived=false;let resolveEarlySignal:()=>void=()=>{};let onPlaybackSignal:()=>void=()=>{};const earlySignal=new Promise<void>(resolve=>{resolveEarlySignal=resolve;});const unsubscribeSignals=deps.subscribeSignals?.(()=>{signalReceived=true;resolveEarlySignal();onPlaybackSignal();void deps.player.stop().catch(()=>undefined);});
   const finish=(status:AlarmRunRecord['status'],message?:string):AlarmRunRecord=>({status,scheduledAt:scheduledAt.toISOString(),...(firedAt?{firedAt:firedAt.toISOString()}:{}),finishedAt:deps.now().toISOString(),...(message?{message}:{})});
   let action:'dismissed'|'snoozed'|'handoff'|'timeout'|'signal'|undefined;let keepPlaying=false;let resolveAction:(value:'dismissed'|'snoozed'|'handoff'|'signal')=>void=()=>{};
@@ -52,7 +53,7 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     if(!alarm||!alarm.enabled)return{message:'Alarm is missing or disabled.'};
     const expected=nextExpectedOccurrence(alarm,scheduledAt);if(!expected||Math.abs(expected.getTime()-scheduledAt.getTime())>1000){outcome=finish('missed','Ignored a stale native task whose occurrence no longer matches this alarm.');return{status:'missed',message:outcome.message};}
     const assessment=assessScheduledOccurrence(scheduledAt,deps.now(),alarm.reliability.missedRunGraceMinutes);
-    if(assessment==='pending'){outcome=finish('failed','Scheduler launched the alarm before its occurrence.');return{status:outcome.status,message:outcome.message};}
+    if(assessment==='pending'){completeLock=false;outcome=finish('failed','Scheduler launched the alarm before its occurrence.');return{status:outcome.status,message:outcome.message};}
     validTerminalOccurrence=true;
     if(assessment==='missed'){outcome=finish('missed','Alarm was outside its missed-run grace window.');return{status:outcome.status,message:outcome.message};}
     const claimingStatus:ActiveAlarmStatus={alarmId,scheduledAt:scheduledAt.toISOString(),stationName:alarm.station.name,station:alarm.station,startedAt:deps.now().toISOString(),state:'starting'};
@@ -94,21 +95,21 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     if(listening){try{deps.store.checkpointActiveListeningSession(deps.now());deps.store.finishActiveListeningSession(deps.now());}catch{}}
     try{await lease?.release();if(lease)deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:true,active:false,message:'Playback sleep inhibition released.'});}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:true,message:`Unable to verify inhibitor release: ${errorMessage(error)}`});}catch{}}
     try{await session?.close();}catch{}
-    if(alarm&&outcome){try{deps.store.recordAlarmOutcome(alarmId,outcome,{clearNextOverride:!preserveNextOverride});const latest=deps.store.getAlarm(alarmId);if(alarm.schedule.type==='once'&&latest?.schedule.type==='once'&&latest.schedule.at===alarm.schedule.at&&validTerminalOccurrence&&!preserveNextOverride)deps.store.toggleAlarm(alarmId,false);}catch{}}
+    if(alarm&&outcome){try{deps.store.recordAlarmOutcome(alarmId,outcome,{clearNextOverride:validTerminalOccurrence&&!preserveNextOverride});const latest=deps.store.getAlarm(alarmId);if(alarm.schedule.type==='once'&&latest?.schedule.type==='once'&&latest.schedule.at===alarm.schedule.at&&validTerminalOccurrence&&!preserveNextOverride)deps.store.toggleAlarm(alarmId,false);}catch{}}
     alarm=deps.store.getAlarm(alarmId);if(alarm)try{if(deps.scheduler.syncClaimed)await deps.scheduler.syncClaimed(alarm,scheduledAt);else await deps.scheduler.sync(alarm);}catch{}
-    try{releaseLock();}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Occurrence lock cleanup failed: ${errorMessage(error)}`});}catch{}}
-    try{await deps.scheduler.completeOccurrence?.(alarmId,scheduledAt);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'scheduler',healthy:false,message:`Completed launch job cleanup failed: ${errorMessage(error)}`});}catch{}}
+    try{releaseLock(completeLock);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Occurrence lock cleanup failed: ${errorMessage(error)}`});}catch{}}
+    if(completeLock)try{await deps.scheduler.completeOccurrence?.(alarmId,scheduledAt);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'scheduler',healthy:false,message:`Completed launch job cleanup failed: ${errorMessage(error)}`});}catch{}}
   }
 }
 
-export function acquireOccurrenceLock(alarmId:string,scheduledAt:string,root=defaultAlarmRuntimeDirectory()):(()=>void)|null{
+export function acquireOccurrenceLock(alarmId:string,scheduledAt:string,root=defaultAlarmRuntimeDirectory()):((completed?:boolean)=>void)|null{
   const safe=`${alarmId.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)}-${Buffer.from(scheduledAt).toString('base64url')}`;const path=join(root,'locks',safe);mkdirSync(dirname(path),{recursive:true,mode:0o700});pruneCompletedOccurrenceLocks(root);
   try{mkdirSync(path,{mode:0o700});}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;try{if(existsSync(join(path,'completed')))return null;const pid=Number(readFileSync(join(path,'running'),'utf8'));if(Number.isInteger(pid)&&processAlive(pid))return null;rmSync(path,{recursive:true,force:true});mkdirSync(path,{mode:0o700});}catch{return null;}}
   writeFileSync(join(path,'running'),String(process.pid),{mode:0o600});
-  return()=>{rmSync(join(path,'running'),{force:true});writeFileSync(join(path,'completed'),new Date().toISOString(),{mode:0o600});};
+  return(completed=true)=>{if(!completed){rmSync(path,{recursive:true,force:true});return;}rmSync(join(path,'running'),{force:true});writeFileSync(join(path,'completed'),new Date().toISOString(),{mode:0o600});};
 }
 export function pruneCompletedOccurrenceLocks(root=defaultAlarmRuntimeDirectory(),olderThanMs=30*24*60*60_000,now=Date.now()){const directory=join(root,'locks');if(!existsSync(directory))return 0;let removed=0;for(const name of readdirSync(directory)){const completed=join(directory,name,'completed');try{if(existsSync(completed)&&now-statSync(completed).mtimeMs>olderThanMs){rmSync(join(directory,name),{recursive:true,force:true});removed+=1;}}catch{}}return removed;}
-export function defaultAlarmRuntimeDirectory():string{if(process.env.RADIOCLI_HOME)return join(process.env.RADIOCLI_HOME,'runtime');if(process.platform==='win32')return join(process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'),'RadioCLI','runtime');return join(process.env.XDG_RUNTIME_DIR??join(homedir(),'.local','state'),'radiocli');}
+export function defaultAlarmRuntimeDirectory():string{return platformPaths().runtime;}
 export const defaultRunnerUtilities={acquireLock:acquireOccurrenceLock,createSession:startActiveAlarmSession,wait:(milliseconds:number)=>new Promise<void>(resolve=>setTimeout(resolve,milliseconds)),subscribeSignals:(handler:()=>void)=>{process.once('SIGTERM',handler);process.once('SIGHUP',handler);process.once('SIGINT',handler);return()=>{process.off('SIGTERM',handler);process.off('SIGHUP',handler);process.off('SIGINT',handler);};}};
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function processAlive(pid:number){try{process.kill(pid,0);return true;}catch{return false;}}
