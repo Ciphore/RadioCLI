@@ -23,7 +23,7 @@ type CommandExecutor = (
 export function diagnoseCommand(command: string, overrides: Partial<DiagnosticOptions> = {}): CommandDiagnostic {
   const resolution = (overrides.resolve ?? resolveCommandDetails)(command);
   if (!resolution.path) {
-    return {...resolution, launchable: false, version: null, error: 'not found'};
+    return {...resolution, launchable: false, version: null, error: resolution.error ?? 'not found'};
   }
 
   const execute: CommandExecutor = overrides.execute ?? ((path, args, options) => spawnSync(path, args, options));

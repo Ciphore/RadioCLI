@@ -1,13 +1,14 @@
 import {spawnSync} from 'node:child_process';
-import {accessSync, constants, existsSync} from 'node:fs';
+import {accessSync, constants, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {posix, win32} from 'node:path';
 
-export type CommandDiscovery = 'path' | 'package-manager-shim' | 'application-directory' | 'windows-registry' | 'missing';
+export type CommandDiscovery = 'path' | 'configured-path' | 'package-manager-shim' | 'application-directory' | 'windows-registry' | 'missing';
 
 export type CommandResolution = {
   path: string | null;
   discovery: CommandDiscovery;
+  error?: string;
 };
 
 type CommandResolutionOptions = {
@@ -33,8 +34,10 @@ export function resolveCommandDetails(
   command: string,
   overrides?: Partial<CommandResolutionOptions>
 ): CommandResolution {
+  const variable = overrideVariable(command);
+  const cacheKey = [command, process.env.PATH, process.env.PATHEXT, variable ? process.env[variable] : undefined].join('\0');
   if (!overrides) {
-    const cached = commandCache.get(command);
+    const cached = commandCache.get(cacheKey);
     if (cached && Date.now() - cached.checkedAt < commandCacheTtlMs) return cached.resolution;
   }
 
@@ -48,11 +51,24 @@ export function resolveCommandDetails(
   };
   const resolution = resolveUncached(command, options);
 
-  if (!overrides) commandCache.set(command, {resolution, checkedAt: Date.now()});
+  if (!overrides) {
+    if (commandCache.size >= 256) commandCache.clear();
+    commandCache.set(cacheKey, {resolution, checkedAt: Date.now()});
+  }
   return resolution;
 }
 
 function resolveUncached(command: string, options: CommandResolutionOptions): CommandResolution {
+  const variable = overrideVariable(command);
+  const configured = variable ? options.env[variable] : undefined;
+  if (configured !== undefined) {
+    const pathApi = options.platform === 'win32' ? win32 : posix;
+    if (!configured || /[\0\r\n]/.test(configured) || !pathApi.isAbsolute(configured) || (options.platform === 'win32' && !/\.(exe|com)$/i.test(configured))) {
+      return {path: null, discovery: 'configured-path', error: `${variable} must be an absolute native executable path, without shell arguments.`};
+    }
+    return options.isRunnable(configured) ? {path: configured, discovery: 'configured-path'}
+      : {path: null, discovery: 'configured-path', error: `${variable} does not name a runnable file.`};
+  }
   const pathMatch = lookupOnPath(command, options);
   if (pathMatch) return {path: pathMatch, discovery: 'path'};
 
@@ -68,6 +84,10 @@ function resolveUncached(command: string, options: CommandResolutionOptions): Co
   }
 
   return {path: null, discovery: 'missing'};
+}
+
+function overrideVariable(command: string): string | undefined {
+  return ({mpv: 'RADIOCLI_MPV_PATH', ffplay: 'RADIOCLI_FFPLAY_PATH', vlc: 'RADIOCLI_VLC_PATH', cvlc: 'RADIOCLI_VLC_PATH', ffmpeg: 'RADIOCLI_FFMPEG_PATH'} as Record<string, string>)[command];
 }
 
 function lookupOnPath(command: string, options: CommandResolutionOptions): string | null {
@@ -112,10 +132,9 @@ export function clearCommandCache(): void {
 }
 
 function isRunnable(path: string, platform: NodeJS.Platform): boolean {
-  if (!existsSync(path)) return false;
-  if (platform === 'win32') return true;
   try {
-    accessSync(path, constants.X_OK);
+    if (!statSync(path).isFile()) return false;
+    if (platform !== 'win32') accessSync(path, constants.X_OK);
     return true;
   } catch {
     return false;
