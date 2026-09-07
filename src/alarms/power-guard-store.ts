@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync
 } from 'node:fs';
-import {homedir} from 'node:os';
+import {platformPaths} from '../platform/paths.js';
 import {dirname, join} from 'node:path';
 import {z} from 'zod';
 import type {AlarmPowerGuardState} from '../types.js';
@@ -149,14 +149,7 @@ export class AlarmPowerGuardStore {
 }
 
 function defaultAlarmPowerGuardPath(): string {
-  if (process.env.RADIOCLI_HOME) return join(process.env.RADIOCLI_HOME, 'runtime', 'alarm-power-guards.json');
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radiocli', 'runtime', 'alarm-power-guards.json');
-  }
-  if (process.platform === 'win32') {
-    return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'RadioCLI', 'runtime', 'alarm-power-guards.json');
-  }
-  return join(process.env.XDG_RUNTIME_DIR ?? join(homedir(), '.local', 'state'), 'radiocli', 'alarm-power-guards.json');
+  return join(platformPaths().alarmRuntime, 'alarm-power-guards.json');
 }
 
 function validDate(date: Date, label: string): Date {

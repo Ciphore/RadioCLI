@@ -1,5 +1,8 @@
+import {componentLabel, detectPackageManager, packageInstallCommand, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
+export {detectPackageManager};
+export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
-import {existsSync, readFileSync, realpathSync} from 'node:fs';
+import {realpathSync} from 'node:fs';
 import {createInterface} from 'node:readline/promises';
 import type {Readable, Writable} from 'node:stream';
 import {clearCommandCache, commandExists} from './player/command.js';
@@ -7,17 +10,6 @@ import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backe
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
-
-export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
-export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper';
-
-type SetupCommand = {
-  component: SetupComponent | null;
-  label: string;
-  program: string;
-  args: string[];
-  display: string;
-};
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -49,7 +41,6 @@ type ParsedSetupArgs = {
 };
 
 const components: SetupComponent[] = ['mpv', 'ffmpeg', 'vlc'];
-const packageManagers: SetupPackageManager[] = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper'];
 
 export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const platform = options.platform ?? process.platform;
@@ -175,30 +166,6 @@ export function createSetupPlan({
   };
 }
 
-export function detectPackageManager(
-  platform: NodeJS.Platform,
-  osRelease: string,
-  hasCommand: (command: string) => boolean = commandExists
-): SetupPackageManager | null {
-  if (platform === 'darwin') return hasCommand('brew') ? 'brew' : null;
-  if (platform === 'win32') return firstAvailable(['winget', 'scoop', 'choco'], hasCommand);
-  if (platform !== 'linux') return null;
-
-  const ids = linuxReleaseIds(osRelease);
-  const preferred: SetupPackageManager[] = hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])
-    ? ['apt']
-    : hasAny(ids, ['fedora', 'rhel', 'centos'])
-      ? ['dnf']
-      : hasAny(ids, ['arch', 'manjaro'])
-        ? ['pacman']
-        : hasAny(ids, ['alpine'])
-          ? ['apk']
-          : hasAny(ids, ['opensuse', 'suse'])
-            ? ['zypper']
-            : ['apt', 'dnf', 'pacman', 'apk', 'zypper'];
-  return firstAvailable(preferred, hasCommand);
-}
-
 export function parseSetupArgs(args: string[]): ParsedSetupArgs {
   let all = false;
   let dryRun = false;
@@ -277,46 +244,6 @@ function parsePackageManager(value: string | undefined): SetupPackageManager {
     throw new Error(`--package-manager accepts: ${packageManagers.join(', ')}.`);
   }
   return value as SetupPackageManager;
-}
-
-function packageInstallCommand(manager: SetupPackageManager, component: SetupComponent): SetupCommand {
-  const packages: Record<SetupPackageManager, Record<SetupComponent, string>> = {
-    brew: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    winget: {mpv: 'shinchiro.mpv', ffmpeg: 'Gyan.FFmpeg', vlc: 'VideoLAN.VLC'},
-    scoop: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    choco: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apt: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    dnf: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    pacman: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apk: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    zypper: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'}
-  };
-  const packageName = packages[manager][component];
-  let program: string = manager;
-  let args: string[];
-
-  if (manager === 'brew') args = ['install', component === 'vlc' ? '--cask' : packageName, ...(component === 'vlc' ? [packageName] : [])];
-  else if (manager === 'winget') args = ['install', '--id', packageName, '-e', '--accept-package-agreements', '--accept-source-agreements'];
-  else if (manager === 'scoop') args = ['install', packageName];
-  else if (manager === 'choco') args = ['install', packageName, '-y'];
-  else if (manager === 'apt') {
-    program = 'sudo';
-    args = ['apt-get', 'install', '-y', packageName];
-  } else if (manager === 'dnf') {
-    program = 'sudo';
-    args = ['dnf', 'install', '-y', packageName];
-  } else if (manager === 'pacman') {
-    program = 'sudo';
-    args = ['pacman', '-S', '--needed', '--noconfirm', packageName];
-  } else if (manager === 'apk') {
-    program = 'sudo';
-    args = ['apk', 'add', packageName];
-  } else {
-    program = 'sudo';
-    args = ['zypper', '--non-interactive', 'install', packageName];
-  }
-
-  return {component, label: componentLabel(component), program, args, display: [program, ...args].join(' ')};
 }
 
 function defaultComponents(platform: NodeJS.Platform, all: boolean): SetupComponent[] {
@@ -433,19 +360,6 @@ function writeHeader(output: Writable): void {
   output.write(`${accent(output, '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')}\n`);
 }
 
-function platformLabel(platform: NodeJS.Platform, osRelease: string): string {
-  if (platform === 'darwin') return `${process.arch === 'arm64' ? 'macOS Apple Silicon' : 'macOS'}`;
-  if (platform === 'win32') return 'Windows';
-  if (platform === 'linux') return osReleaseValue(osRelease, 'PRETTY_NAME') || 'Linux';
-  return platform;
-}
-
-function componentLabel(component: SetupComponent): string {
-  if (component === 'ffmpeg') return 'FFmpeg / ffplay';
-  if (component === 'vlc') return 'VLC fallback';
-  return 'mpv';
-}
-
 function isInteractive(input: Readable, output: Writable): boolean {
   return Boolean((input as NodeJS.ReadStream).isTTY && (output as NodeJS.WriteStream).isTTY);
 }
@@ -493,36 +407,4 @@ async function runVisibleCommand(program: string, args: string[]): Promise<void>
     child.once('error', reject);
     child.once('close', code => code === 0 ? resolve() : reject(new Error(`${program} ${args.join(' ')} exited with code ${code}.`)));
   });
-}
-
-function firstAvailable<T extends string>(values: T[], hasCommand: (command: string) => boolean): T | null {
-  return values.find(hasCommand) ?? null;
-}
-
-function readLinuxOsRelease(platform: NodeJS.Platform): string {
-  if (platform !== 'linux' || !existsSync('/etc/os-release')) return '';
-  try {
-    return readFileSync('/etc/os-release', 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function linuxReleaseIds(osRelease: string): Set<string> {
-  const ids = new Set<string>();
-  for (const line of osRelease.split('\n')) {
-    const match = /^(ID|ID_LIKE)=(.*)$/.exec(line);
-    if (!match) continue;
-    for (const value of match[2]!.replaceAll('"', '').split(/\s+/)) if (value.trim()) ids.add(value.trim().toLowerCase());
-  }
-  return ids;
-}
-
-function osReleaseValue(osRelease: string, key: string): string {
-  const line = osRelease.split('\n').find(candidate => candidate.startsWith(`${key}=`));
-  return line?.slice(key.length + 1).replace(/^"|"$/g, '') ?? '';
-}
-
-function hasAny(values: Set<string>, candidates: string[]): boolean {
-  return candidates.some(candidate => values.has(candidate));
 }

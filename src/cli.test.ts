@@ -92,6 +92,8 @@ describe('CLI command dispatch', () => {
       backends: string[];
       commands: Record<string, string | null>;
       mpv: {path: string | null; discovery: string; launchable: boolean};
+      host: {id: string; arch: string};
+      capabilities: Record<string, {status: string; message: string}>;
       guidance: string[];
     };
     expect(report.radioCliVersion).toMatch(/^\d+\.\d+\.\d+/);
@@ -100,6 +102,13 @@ describe('CLI command dispatch', () => {
     expect(report.commands).toHaveProperty('mpv');
     expect(report.mpv).toMatchObject({discovery: expect.any(String), launchable: expect.any(Boolean)});
     expect(report.guidance).toContain('playback=missing');
+    expect(report.host).toMatchObject({id: expect.any(String), arch: process.arch});
+    expect(report.capabilities.playback?.status).toBe('unavailable');
+    expect(report.capabilities.storage?.status).toBe('unverified');
+    expect(report.capabilities).toHaveProperty('backgroundScheduling');
+    expect(report.capabilities).toHaveProperty('terminalReopening');
+    expect(report.capabilities).toHaveProperty('screenReader');
+    expect(JSON.stringify(report)).not.toContain(radioCliHome);
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 

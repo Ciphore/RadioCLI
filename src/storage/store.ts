@@ -1,3 +1,4 @@
+import {platformPaths} from '../platform/paths.js';
 import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
@@ -698,37 +699,8 @@ function recoverActiveListeningSessionInState(state: LibraryState): LibraryState
 }
 
 function defaultStorePath(): string {
-  if (process.env.RADIOCLI_HOME) {
-    return join(process.env.RADIOCLI_HOME, 'radiocli.json');
-  }
-
-  if (process.env.RADIO_ATLAS_HOME) {
-    return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas.json');
-  }
-
-  const currentPath = currentDefaultStorePath();
-  const legacyPath = legacyDefaultStorePath();
-  return existsSync(currentPath) || !existsSync(legacyPath) ? currentPath : legacyPath;
-}
-
-function currentDefaultStorePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radiocli', 'radiocli.json');
-  }
-
-  if (process.platform === 'win32') {
-    return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'RadioCLI', 'radiocli.json');
-  }
-
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'radiocli', 'radiocli.json');
-}
-
-function legacyDefaultStorePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radio-atlas', 'radio-atlas.json');
-  }
-
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'radio-atlas', 'radio-atlas.json');
+  const {library, legacyLibrary} = platformPaths();
+  return existsSync(library) || !existsSync(legacyLibrary) ? library : legacyLibrary;
 }
 
 function resolveUserPath(requestedPath: string): string {

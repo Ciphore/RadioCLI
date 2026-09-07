@@ -19,6 +19,10 @@ import {decodeAgentCommand} from './agent/service.js';
 import {runHeadlessAgentHost} from './agent/headless-host.js';
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {defaultAgentControlSettings} from './types.js';
+import {identifyPlatform} from './platform/runtime.js';
+import {platformCapabilities} from './platform/capabilities.js';
+import {hasGraphicalSession} from './platform/desktop.js';
+import {detectPackageManager} from './platform/packages.js';
 
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
@@ -97,13 +101,17 @@ export async function runCommand(args: string[]): Promise<void> {
   if (command === 'doctor') {
     const backends = detectPlaybackBackends();
     const mpvDiagnostic = diagnoseCommand('mpv');
+    const report = doctorReport(backends, mpvDiagnostic);
     if (rest.includes('--json')) {
-      console.log(JSON.stringify(doctorReport(backends, mpvDiagnostic), null, 2));
+      console.log(JSON.stringify(report, null, 2));
       return;
     }
     console.log(`backends=${backends.join(',') || 'none'}`);
     printMpvDiagnostic(mpvDiagnostic);
     printPlaybackBackendStatus(backends);
+    for (const [name, capability] of Object.entries(report.capabilities)) {
+      console.log(`capability_${name}=${capability.status} ${capability.message}`);
+    }
     return;
   }
 
@@ -277,16 +285,30 @@ function printPlaybackBackendStatus(backends: string[]): void {
   }
 }
 
-function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic): Record<string, unknown> {
+function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
   const commands = Object.fromEntries(
     ['mpv', 'ffplay', 'vlc', 'cvlc', 'ffmpeg', 'dns-sd'].map(command => [command, redactHome(resolveCommand(command))])
   );
   const airPlay = airPlaySenderHealth();
+  const host = identifyPlatform();
+  const integrationCommands = [
+    'launchctl', 'schtasks.exe', 'systemctl', 'caffeinate', 'systemd-inhibit',
+    'powershell.exe', 'pwsh.exe', 'osascript', 'wpctl', 'pactl', 'amixer',
+    'open', 'explorer', 'xdg-open', 'pbcopy', 'clip', 'wl-copy', 'xclip', 'xsel'
+  ].filter(command => resolveCommand(command) !== null);
+  const capabilities = platformCapabilities(host, {
+    backends,
+    commands: integrationCommands,
+    graphicalSession: hasGraphicalSession(host),
+    packageManager: detectPackageManager(process.platform, host.osRelease)
+  });
   return {
     radioCliVersion: appVersion(),
     nodeVersion: process.version,
     platform: process.platform,
     architecture: process.arch,
+    host: {id: host.id, arch: host.arch, endianness: host.endianness, release: host.release, libc: host.libc, isWsl: host.isWsl},
+    capabilities,
     backends,
     commands,
     mpv: redactDiagnostic(mpvDiagnostic),

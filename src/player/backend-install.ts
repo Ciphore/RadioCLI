@@ -1,4 +1,5 @@
-import {existsSync, readFileSync} from 'node:fs';
+import {hasAny, linuxReleaseIds, readLinuxOsRelease} from '../platform/packages.js';
+import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 import {commandExists} from './command.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 
@@ -30,7 +31,7 @@ export function detectPlaybackBackends({
     backends.push('vlc');
   }
 
-  if (platform === 'darwin' && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
+  if (nativeAdapters(identifyPlatform({platform})).airPlay && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
     backends.push('airplay');
   }
 
@@ -240,39 +241,4 @@ function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRe
   }
 
   return 'install FFmpeg with your system package manager';
-}
-
-function readLinuxOsRelease(): string {
-  if (process.platform !== 'linux' || !existsSync('/etc/os-release')) {
-    return '';
-  }
-
-  try {
-    return readFileSync('/etc/os-release', 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function linuxReleaseIds(osRelease: string): Set<string> {
-  const ids = new Set<string>();
-  for (const line of osRelease.split('\n')) {
-    const match = /^(ID|ID_LIKE)=(.*)$/.exec(line);
-    if (!match) {
-      continue;
-    }
-
-    for (const value of match[2]!.replaceAll('"', '').split(/\s+/)) {
-      const normalized = value.trim().toLowerCase();
-      if (normalized) {
-        ids.add(normalized);
-      }
-    }
-  }
-
-  return ids;
-}
-
-function hasAny(values: Set<string>, candidates: string[]): boolean {
-  return candidates.some(candidate => values.has(candidate));
 }

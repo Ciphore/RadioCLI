@@ -1,42 +1,19 @@
 import {spawn} from 'node:child_process';
 import {resolveCommand} from '../player/command.js';
 import {safeExternalHttpUrl} from '../safety.js';
-
-type SystemCommand = {
-  command: string;
-  args: string[];
-};
+import {browserCommands, clipboardCandidates, type SystemCommand} from '../platform/desktop.js';
+import {identifyPlatform} from '../platform/runtime.js';
 
 // The command used to open a URL in the platform's default handler.
 export function openExternalCommand(platform: NodeJS.Platform = process.platform): SystemCommand {
-  if (platform === 'darwin') {
-    return {command: 'open', args: []};
-  }
-
-  if (platform === 'win32') {
-    // Direct invocation avoids cmd.exe interpreting URL query characters.
-    return {command: 'explorer', args: []};
-  }
-
-  return {command: 'xdg-open', args: []};
+  return browserCommands(identifyPlatform({platform}))[0] ?? {command: 'xdg-open', args: []};
 }
 
 // Candidate clipboard tools per platform, in priority order. pbcopy/clip ship
 // with macOS/Windows; Linux/BSD rely on whichever of these is installed.
 export function clipboardCommands(platform: NodeJS.Platform = process.platform): SystemCommand[] {
-  if (platform === 'darwin') {
-    return [{command: 'pbcopy', args: []}];
-  }
-
-  if (platform === 'win32') {
-    return [{command: 'clip', args: []}];
-  }
-
-  return [
-    {command: 'wl-copy', args: []},
-    {command: 'xclip', args: ['-selection', 'clipboard']},
-    {command: 'xsel', args: ['--clipboard', '--input']}
-  ];
+  const commands = clipboardCandidates(identifyPlatform({platform}));
+  return commands.length ? commands : clipboardCandidates(identifyPlatform({platform: 'linux', env: {}}));
 }
 
 export function openExternal(url: string, platform: NodeJS.Platform = process.platform): boolean {
