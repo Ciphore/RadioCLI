@@ -1,15 +1,46 @@
+import {act} from 'react';
 import {mkdtempSync, rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {afterEach, describe, expect, it, vi} from 'vitest';
-import {render} from 'ink-testing-library';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, render as inkRender} from 'ink-testing-library';
+import {ProviderManager} from '../providers/provider-manager.js';
+import * as backendInstall from '../player/backend-install.js';
+import * as airplayDiscovery from '../player/airplay-discovery.js';
+import * as updates from '../update-check.js';
+import * as session from '../agent/session.js';
+import * as presence from '../alarms/tui-presence.js';
 import {JsonLibraryStore} from '../storage/store.js';
 import type {Alarm, Station} from '../types.js';
 import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
 import {App} from './App.js';
 
 const directories: string[] = [];
+const pendingInputs: Array<() => void> = [];
+// Exercise App and its alarm controller without host discovery or network races.
+// Individual tests can still override the injected alarm/update/MCP services.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const testHome = mkdtempSync(join(tmpdir(), 'radiocli-alarm-tui-home-'));
+  directories.push(testHome);
+  vi.stubEnv('RADIOCLI_HOME', testHome);
+  vi.spyOn(backendInstall, 'detectPlaybackBackends').mockReturnValue(['mpv']);
+  vi.spyOn(airplayDiscovery, 'discoverAirPlayDevices').mockResolvedValue([]);
+  vi.spyOn(ProviderManager.prototype, 'health').mockResolvedValue({});
+  vi.spyOn(updates, 'checkForUpdate').mockImplementation(async ({currentVersion = '0.2.3'} = {}) => ({
+    checkedAt: new Date().toISOString(), currentVersion, updateAvailable: false
+  }));
+  vi.spyOn(session, 'startRadioSession').mockResolvedValue({close: async () => undefined});
+  vi.spyOn(presence, 'registerTuiPresence').mockReturnValue(() => undefined);
+});
 afterEach(() => {
+  pendingInputs.length = 0;
+  act(() => cleanup());
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   for (const path of directories.splice(0)) rmSync(path, {recursive: true, force: true});
 });
@@ -37,7 +68,23 @@ function callsFor() { return {
   verifySetup:vi.fn(async (alarm:Alarm|undefined,_settings:unknown,onUpdate:(report:unknown)=>void)=>{const report={state:'passed' as const,alarmLabel:alarm?.label,startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),steps:[{id:'scheduler',label:'Native scheduler',state:'passed' as const,detail:'Disposable job registered and removed.',critical:true}]};onUpdate(report);return report;})
 }; }
 function addAlarm(store: JsonLibraryStore): Alarm { return store.addAlarm({label: 'Morning', enabled: true, station, schedule: {type: 'recurring', time: '06:30', weekdays: [1,2,3,4,5], timezone: 'America/Los_Angeles'}, playback: {volume: 70, fadeSeconds: 30, stopAfterMinutes: 60}, reliability: {missedRunGraceMinutes: 15, wakeIfSupported: true, keepAwakeUntilAlarm: false}}); }
-async function settle(): Promise<void> { await new Promise(resolve => setTimeout(resolve, 25)); }
+// Preserve rapid duplicate keys and multi-character input as one React batch,
+// matching the existing tests' write/write/settle boundaries.
+function render(tree: Parameters<typeof inkRender>[0]): ReturnType<typeof inkRender> {
+  let app!: ReturnType<typeof inkRender>;
+  act(() => { app = inkRender(tree); });
+  const write = app.stdin.write;
+  app.stdin.write = input => { pendingInputs.push(() => write(input)); };
+  const unmount = app.unmount;
+  app.unmount = () => { act(() => unmount()); };
+  return app;
+}
+async function settle(elapsed = 0): Promise<void> {
+  await act(async () => {
+    for (const write of pendingInputs.splice(0)) write();
+    if (elapsed > 0) await vi.advanceTimersByTimeAsync(elapsed);
+  });
+}
 async function moveDown(app: ReturnType<typeof render>, count: number): Promise<void> { for (let index = 0; index < count; index += 1) app.stdin.write('\u001B[B'); await settle(); }
 
 describe('Settings TUI integration', () => {
@@ -223,7 +270,7 @@ describe('alarm TUI integration', () => {
   });
 
   it('does not let background active polling move a non-alarm screen cursor', async () => {
-    const {store,service}=fixture();const app=render(<App store={store} alarmService={service}/>);await settle();app.stdin.write('9');await settle();await moveDown(app,4);const selectedLine=app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '));expect(selectedLine).toBeTruthy();vi.useFakeTimers();try{await vi.advanceTimersByTimeAsync(1_600);expect(app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '))).toBe(selectedLine);}finally{app.unmount();vi.useRealTimers();}
+    const {store,service}=fixture();const app=render(<App store={store} alarmService={service}/>);await settle();app.stdin.write('9');await settle();await moveDown(app,4);const selectedLine=app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '));expect(selectedLine).toBeTruthy();vi.useFakeTimers();try{await act(async () => vi.advanceTimersByTimeAsync(1_600));expect(app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '))).toBe(selectedLine);}finally{app.unmount();vi.useRealTimers();}
   });
 
   it('toggles, confirms deletion with a second x, and cleans the native job through the injected service', async () => {
@@ -283,7 +330,8 @@ describe('alarm TUI integration', () => {
     expect(app.lastFrame()).toContain('Primary station'); app.stdin.write('\r'); await settle(); expect(app.lastFrame()).toContain('Station: KEXP');
     app.stdin.write('\u0013'); await settle(); expect(store.listAlarms()).toHaveLength(1);
     const original = store.listAlarms()[0]!; app.stdin.write('\r'); await settle(); expect(app.lastFrame()).toContain('Edit alarm');
-    app.stdin.write('\u001B'); await settle(); expect(store.getAlarm(original.id)?.label).toBe(original.label);
+    // Ink waits 20ms to distinguish a lone Escape from a split escape sequence.
+    app.stdin.write('\u001B'); await settle(20); expect(store.getAlarm(original.id)?.label).toBe(original.label);
     app.stdin.write('r'); await settle(); expect(calls.syncAll.mock.calls.length).toBeGreaterThanOrEqual(2); expect(app.lastFrame()).toContain('synchronized'); app.unmount();
   });
 
