@@ -1,24 +1,13 @@
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
+import {once} from 'node:events';
 import type {ChildProcess} from 'node:child_process';
 import {describe, expect, it, vi} from 'vitest';
-import {clipboardCommands, copyToClipboard, openExternal, openExternalCommand} from './system-actions.js';
+import {copyToClipboard, openExternal} from './system-actions.js';
 
 vi.mock('node:child_process', () => ({spawn: vi.fn(() => { throw new Error('Desktop tests must inject their launcher.'); })}));
 
 describe('system actions', () => {
-  it('opens URLs with the platform default handler', () => {
-    expect(openExternalCommand('darwin')).toEqual({command: 'open', args: []});
-    expect(openExternalCommand('win32')).toEqual({command: 'explorer', args: []});
-    expect(openExternalCommand('linux')).toEqual({command: 'xdg-open', args: []});
-  });
-
-  it('lists platform clipboard tools in priority order', () => {
-    expect(clipboardCommands('darwin').map(entry => entry.command)).toEqual(['pbcopy']);
-    expect(clipboardCommands('win32').map(entry => entry.command)).toEqual(['clip']);
-    expect(clipboardCommands('linux').map(entry => entry.command)).toEqual(['wl-copy', 'xclip', 'xsel']);
-  });
-
   it('does not report an asynchronous browser launch failure as success', async () => {
     const launch = fakeLauncher('error');
     await expect(openExternal('https://example.test/?x=1&y=2', 'win32', {spawn: launch, env: {}, resolve: name => name})).resolves.toBe(false);
@@ -54,7 +43,54 @@ describe('system actions', () => {
     await expect(copyToClipboard('text', 'darwin', {spawn: broken, env: {}, resolve: name => name})).resolves.toBe(false);
     const hung = fakeLauncher('hang');
     await expect(copyToClipboard('text', 'darwin', {spawn: hung, env: {}, resolve: name => name, timeoutMs: 10})).resolves.toBe(false);
-    expect(hung.kills).toHaveBeenCalledOnce();
+    expect(hung.kills.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']]);
+  });
+
+  it('terminates an actual helper that ignores graceful shutdown before reporting timeout', async () => {
+    const {spawn} = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    let child: ChildProcess | undefined;
+    let closed = false;
+    try {
+      child = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});process.stdin.resume();setInterval(()=>{},1000);process.send('ready');"], {stdio: ['pipe', 'ignore', 'ignore', 'ipc']});
+      await once(child, 'message');
+      child.once('close', () => { closed = true; });
+      const result = await copyToClipboard('literal text', 'darwin', {
+        env: {}, resolve: () => process.execPath, timeoutMs: 50,
+        spawn: () => child!
+      });
+      expect(result).toBe(false);
+      expect(closed).toBe(true);
+      expect(child!.exitCode !== null || child!.signalCode !== null).toBe(true);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, 'close');
+        child.kill('SIGKILL');
+        await closed;
+      }
+    }
+  });
+
+  it('accepts a long-lived browser opener without terminating its application', async () => {
+    const {spawn} = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    let child: ChildProcess | undefined;
+    try {
+      const result = await openExternal('https://example.test/?x=1&y=%22', 'linux', {
+        env: {DISPLAY: ':0'}, resolve: () => process.execPath, timeoutMs: 500,
+        spawn: (_command, _args, options) => {
+          child = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});setInterval(()=>{},1000);"], options);
+          return child;
+        }
+      });
+      expect(result).toBe(true);
+      expect(child!.exitCode).toBeNull();
+      expect(child!.signalCode).toBeNull();
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, 'close');
+        child.kill('SIGKILL');
+        await closed;
+      }
+    }
   });
 });
 

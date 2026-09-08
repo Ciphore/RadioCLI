@@ -1,10 +1,56 @@
 import {PassThrough} from 'node:stream';
 import {describe, expect, it, vi} from 'vitest';
-import {createSetupPlan, detectPackageManager, parseSetupArgs, runSetup, type SetupComponent} from './setup.js';
+import {createSetupPlan, parseSetupArgs, runSetup, type SetupComponent} from './setup.js';
+import {detectPackageManager, ffplayInstallCommand, mpvInstallCommand, type SetupPackageManager} from './platform/packages.js';
 
 const nothingInstalled: Record<SetupComponent, boolean> = {mpv: false, ffmpeg: false, vlc: false};
 
 describe('RadioCLI setup', () => {
+  it.each([
+    ['darwin', '', 'brew', 'brew', {}],
+    ['win32', '', 'winget', 'winget', {}],
+    ['win32', '', 'scoop', 'scoop', {}],
+    ['win32', '', 'choco', 'choco', {}],
+    ['linux', 'ID=ubuntu\nID_LIKE=debian', 'apt', 'apt', {}],
+    ['linux', 'ID=fedora', 'dnf', 'dnf', {}],
+    ['linux', 'ID=arch', 'pacman', 'pacman', {}],
+    ['linux', 'ID=alpine', 'apk', 'apk', {}],
+    ['linux', 'ID=opensuse', 'zypper', 'zypper', {}],
+    ['linux', 'ID=unknown', 'dnf', 'dnf', {}],
+    ['freebsd', '', 'pkg', 'pkg', {}],
+    ['openbsd', '', 'pkg_add', 'pkg_add', {}],
+    ['netbsd', '', 'pkgin', 'pkgin', {}],
+    ['sunos', '', 'pkgin', 'pkgin', {}],
+    ['haiku', '', 'pkgman', 'pkgman', {}],
+    ['android', '', 'termux-pkg', 'pkg', {TERMUX_VERSION: '0.118.3'}],
+    ['linux', 'ID=debian', 'termux-pkg', 'pkg', {TERMUX_VERSION: '0.118.3'}]
+  ] satisfies [NodeJS.Platform, string, SetupPackageManager, string, NodeJS.ProcessEnv][])('uses the selected %s/%s/%s setup recipes in playback hints', (platform, osRelease, manager, executable, env) => {
+    const hasCommand = (command: string): boolean => [executable, 'doas'].includes(command);
+    expect(detectPackageManager(platform, osRelease, hasCommand, env)).toBe(manager);
+    const plan = createSetupPlan({platform, osRelease, env, packageManager: manager, installed: nothingInstalled,
+      selected: ['mpv', 'ffmpeg'], elevation: 'doas'});
+    const options = {hasCommand, getUid: () => 1000};
+    const hints = {mpv: mpvInstallCommand(platform, osRelease, env, options), ffmpeg: ffplayInstallCommand(platform, osRelease, env, options)};
+    for (const command of plan.commands) {
+      if (command.component === 'mpv' || command.component === 'ffmpeg') expect(hints[command.component]).toContain(command.display);
+    }
+    if (manager === 'termux-pkg') expect(hints.ffmpeg).toContain('x11-repo');
+    if (manager === 'pkgin') expect(hints.ffmpeg).toContain('matching pkgsrc');
+    if (manager === 'pkg') expect(hints.ffmpeg).toContain('SDL');
+    if (manager === 'scoop') expect(hints.mpv).toContain('scoop bucket add extras');
+  });
+
+  it('shows every Scoop prerequisite in the reviewed dry-run plan', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    await runSetup({platform: 'win32', env: {}, args: ['--dry-run', '--only=mpv'], input: new PassThrough(), output,
+      hasCommand: command => command === 'scoop'});
+    expect(text).toContain('scoop bucket add extras');
+    expect(text).toContain('scoop install mpv');
+    expect(text).not.toContain('winget');
+  });
+
   it('prints an ASCII-safe setup plan in a dumb terminal without control sequences', async () => {
     vi.stubEnv('TERM', 'dumb');
     const output = Object.assign(new PassThrough(), {isTTY: true});
@@ -170,6 +216,17 @@ describe('RadioCLI setup', () => {
       input: new PassThrough(), output: new PassThrough(), hasCommand: command => command === 'pkg', runCommand: execute
     })).rejects.toThrow('requires root, sudo, or doas');
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('labels the root requirement when previewing commands without an available privilege helper', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    await runSetup({platform: 'freebsd', env: {}, args: ['--dry-run', '--only=mpv'], getUid: () => 1000,
+      input: new PassThrough(), output, hasCommand: command => command === 'pkg'});
+    expect(text).toContain('pkg install -y mpv');
+    expect(text).toContain('Run package commands as root; sudo/doas unavailable.');
+    expect(text).not.toContain('sudo pkg');
   });
 
   it('shows a manual pkgsrc FFmpeg plan without invoking a guessed package', async () => {

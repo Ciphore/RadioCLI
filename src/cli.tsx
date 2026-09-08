@@ -7,7 +7,7 @@ import {PlayerController} from './player/player-controller.js';
 import {defaultLibraryPath, JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
-import {resolveCommand} from './player/command.js';
+import {resolveCommand} from './platform/executables.js';
 import {diagnoseCommand, type CommandDiagnostic} from './player/command-diagnostics.js';
 import {airPlaySenderHealth} from './player/airplay-sender-health.js';
 import {appVersion} from './version.js';

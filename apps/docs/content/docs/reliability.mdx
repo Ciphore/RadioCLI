@@ -171,7 +171,10 @@ If an inhibitor helper exits unexpectedly, runtime health reports lost sleep
 protection while playback can continue. If Guard ownership cannot be verified,
 its record is retained for repair and its PID is not signaled. A failed native
 job removal is accepted only after the exact job is confirmed absent; otherwise
-the alarm definition and repair artifacts remain available. RadioCLI reports
+the alarm definition and repair artifacts remain available. Deleting an alarm
+first saves it as disabled. If that save fails, deletion stops before native
+cleanup; if cleanup or the final save fails, the disabled definition remains
+available for repair or another deletion attempt. RadioCLI reports
 these cases as unresolved rather than claiming protection or cleanup succeeded.
 
 Recurring alarms use minute precision, ISO weekdays, and an explicit IANA
@@ -193,13 +196,23 @@ intentionally disabled.
 
 Before starting the player, RadioCLI also checks the default local system output.
 If it is muted or below the alarm's configured volume, the runner attempts to
-unmute it and raise it to at least that level. It attempts to restore the prior
-state when the alarm ends. A partial mixer change triggers a rollback attempt;
-a failed restore is reported and remains retryable. This uses macOS
+unmute it and raise it to at least that level. Overlapping alarm runners share
+the original output state across library profiles: only the last runner to
+release it attempts restoration. Transferring playback to the interactive TUI
+preserves the current output level. A partial mixer change triggers a rollback
+attempt; a failed restore is reported and remains retryable. If every runner
+is forcibly terminated, recovery occurs on a later system-volume operation
+after any surviving mixer helper exits. An incomplete helper record blocks
+automatic adjustment and preserves the saved output state. This uses macOS
 output-volume scripting, Windows Core Audio
 through built-in PowerShell, or `wpctl`, `pactl`, or `amixer` on Linux. If the
 host exposes none of those controls, player volume still applies and runtime
 diagnostics report that the system output could not be raised.
+
+If diagnostics report an unknown mixer helper after a crash, restart the
+computer before clearing `native-write.json` and the `lock` directory from
+`.radiocli/system-volume` under the OS account's home directory. Keep
+`state.json`: it contains the output state needed for the next recovery attempt.
 
 ## Alarm Troubleshooting
 

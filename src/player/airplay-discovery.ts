@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import {lookup} from 'node:dns/promises';
 import {networkInterfaces} from 'node:os';
 import type {AirPlayDevice} from '../types.js';
-import {commandExists} from './command.js';
+import {commandExists} from '../platform/executables.js';
 import {networkPolicy} from '../platform/network.js';
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 

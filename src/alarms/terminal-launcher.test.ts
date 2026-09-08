@@ -2,7 +2,8 @@ import {EventEmitter} from 'node:events';
 import {spawn as nodeSpawn,type ChildProcess} from 'node:child_process';
 import {connect, type Socket} from 'node:net';
 import {describe,expect,it,vi} from 'vitest';
-import {detectAlarmTerminal,openAlarmControls,prepareAlarmTerminalAccess,verifyAlarmTerminalLaunch} from './terminal-launcher.js';
+import {openAlarmControls,prepareAlarmTerminalAccess,verifyAlarmTerminalLaunch} from './terminal-launcher.js';
+import {detectGraphicalTerminal} from '../platform/terminals.js';
 
 function spawnRecorder(){
   const calls:Array<{command:string;args:readonly string[]}>=[];
@@ -23,10 +24,10 @@ function bootstrapPayload(args: readonly string[]): {args: string[]; environment
 
 describe('alarm terminal launcher',()=>{
   it('remembers recognizable terminal emulators per platform',()=>{
-    expect(detectAlarmTerminal('darwin',{TERM_PROGRAM:'iTerm.app'})).toBe('darwin:iterm');
-    expect(detectAlarmTerminal('darwin',{})).toBe('darwin:apple-terminal');
-    expect(detectAlarmTerminal('win32',{WT_SESSION:'1'})).toBe('win32:windows-terminal');
-    expect(detectAlarmTerminal('win32',{})).toBe('win32:console');
+    expect(detectGraphicalTerminal('darwin',{TERM_PROGRAM:'iTerm.app'})).toBe('darwin:iterm');
+    expect(detectGraphicalTerminal('darwin',{})).toBe('darwin:apple-terminal');
+    expect(detectGraphicalTerminal('win32',{WT_SESSION:'1'})).toBe('win32:windows-terminal');
+    expect(detectGraphicalTerminal('win32',{})).toBe('win32:console');
   });
 
   it('opens Apple Terminal with RadioCLI and its saved data home',async()=>{
@@ -34,8 +35,10 @@ describe('alarm terminal launcher',()=>{
     const result=await openAlarmControls({platform:'darwin',env:{RADIOCLI_ALARM_TERMINAL:'darwin:apple-terminal',RADIOCLI_HOME:"/Data/O'Brien"},nodePath:'/usr/bin/node',cliPath:'/app/cli.js',spawn:recorded.spawn});
     expect(result).toMatchObject({opened:false,requested:true,message:expect.stringMatching(/requested.*unverified/i)});
     expect(recorded.calls[0]?.command).toBe('/usr/bin/osascript');
-    expect(recorded.calls[0]?.args.at(-1)).toContain("RADIOCLI_HOME='/Data/O'\\''Brien'");
-    expect(recorded.calls[0]?.args.at(-1)).toContain("'/app/cli.js'");
+    const shell=recorded.calls[0]!.args.at(-1)!;
+    expect(shell.startsWith("'/usr/bin/node' '-e' ")).toBe(true);
+    const encoded=/'([A-Za-z0-9_-]+)'$/.exec(shell)?.[1];expect(encoded).toBeDefined();
+    expect(bootstrapPayload([encoded!])).toEqual({args:['/app/cli.js'],environment:{RADIOCLI_HOME:"/Data/O'Brien"}});
   });
 
   it('reports opened only after the new TUI becomes observable',async()=>{const recorded=spawnRecorder();const hasLiveTui=vi.fn().mockReturnValueOnce(false).mockReturnValue(true);const result=await openAlarmControls({platform:'darwin',env:{},nodePath:'/node',cliPath:'/cli.js',spawn:recorded.spawn,hasLiveTui,timeoutMs:100});expect(result).toMatchObject({opened:true,requested:true});expect(hasLiveTui).toHaveBeenCalledTimes(2);});
@@ -55,7 +58,12 @@ describe('alarm terminal launcher',()=>{
     expect(bootstrapPayload(invocation.args)).toEqual({args:['C:\\RadioCLI\\cli.js'],environment:{RADIOCLI_HOME:home}});
   });
 
-  it.each(['freebsd','openbsd','netbsd'] as const)('requests an installed graphical terminal on %s',async platform=>{const recorded=spawnRecorder();const result=await openAlarmControls({platform,env:{DISPLAY:':0',TERMINAL:'xterm'},nodePath:'/node',cliPath:'/cli.js',spawn:recorded.spawn,resolve:command=>command==='xterm'?'/usr/local/bin/xterm':undefined});expect(result).toMatchObject({opened:false,requested:true,terminal:`${platform}:/usr/local/bin/xterm`});expect(recorded.calls[0]).toEqual({command:'/usr/local/bin/xterm',args:['-e','/node','/cli.js']});});
+  it.each(['freebsd','openbsd','netbsd'] as const)('requests an installed graphical terminal on %s',async platform=>{
+    const recorded=spawnRecorder();const result=await openAlarmControls({platform,env:{DISPLAY:':0',TERMINAL:'xterm'},nodePath:'/node',cliPath:'/cli.js',spawn:recorded.spawn,resolve:command=>command==='xterm'?'/usr/local/bin/xterm':undefined});
+    expect(result).toMatchObject({opened:false,requested:true,terminal:`${platform}:/usr/local/bin/xterm`});
+    expect(recorded.calls[0]!.command).toBe('/usr/local/bin/xterm');expect(recorded.calls[0]!.args.slice(0,3)).toEqual(['-e','/node','-e']);
+    expect(bootstrapPayload(recorded.calls[0]!.args)).toEqual({args:['/cli.js'],environment:{}});
+  });
 
   it('does not open a second terminal when a RadioCLI TUI is already live',async()=>{
     const recorded=spawnRecorder();

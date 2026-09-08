@@ -1,17 +1,16 @@
-import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
-export {detectPackageManager};
+import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageInstallPrerequisites, packageManagerElevation, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
 export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
 import {realpathSync} from 'node:fs';
 import {createInterface} from 'node:readline/promises';
 import type {Readable, Writable} from 'node:stream';
-import {clearCommandCache, commandExists, resolveCommand} from './player/command.js';
+import {clearCommandCache, commandExists, resolveCommand} from './platform/executables.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
 import {resolveTerminalCapabilities} from './platform/terminal.js';
-import {identifyPlatform, type PlatformProfile} from './platform/runtime.js';
+import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './platform/runtime.js';
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -80,9 +79,12 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   }
 
   const isRoot = (options.getUid ?? process.getuid)?.() === 0;
-  const elevation = isRoot ? null : hasCommand('sudo') ? 'sudo' : hasCommand('doas') ? 'doas' : 'sudo';
+  const elevation = packageManagerElevation(hasCommand, isRoot);
   const plan = createSetupPlan({platform, osRelease, env, packageManager, installed, selected, elevation});
   printPlan(plan, output);
+  if (packageManager && packageManagerNeedsRoot(packageManager) && !isRoot && !elevation) {
+    output.write('  Note: Run package commands as root; sudo/doas unavailable.\n');
+  }
   for (const note of packageManagerNotes(packageManager, host)) output.write(`  Note: ${note}\n`);
 
   const missing = plan.selected.filter(component => !plan.installed[component]);
@@ -112,7 +114,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const manual = missing.filter(component => !plan.commands.some(command => command.component === component));
   if (manual.length) throw new Error(`No verified automatic installation command for ${manual.join(', ')} with ${plan.packageManager}. Install these components manually or select --only=mpv.`);
   if (plan.packageManager === 'termux-pkg' && isRoot) throw new Error('Run setup as the normal Termux app user. Termux pkg refuses root execution.');
-  if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !hasCommand(elevation!)) {
+  if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !elevation) {
     throw new Error('System package installation requires root, sudo, or doas. Review the dry-run plan and install prerequisites with your administrator.');
   }
 
@@ -169,15 +171,7 @@ export function createSetupPlan({
   const uniqueSelected = components.filter(component => selected.includes(component));
   const missing = uniqueSelected.filter(component => !installed[component]);
   const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component, {elevation})).filter((command): command is SetupCommand => command !== null) : [];
-  if (packageManager === 'scoop' && missing.some(component => component === 'mpv' || component === 'vlc')) {
-    commands.unshift({
-      component: null,
-      label: 'Scoop extras bucket',
-      program: 'scoop',
-      args: ['bucket', 'add', 'extras'],
-      display: 'scoop bucket add extras'
-    });
-  }
+  if (packageManager) commands.unshift(...packageInstallPrerequisites(packageManager, missing));
 
   return {
     platform,
@@ -325,6 +319,9 @@ async function promptYesNo(input: Readable, output: Writable, question: string, 
 
 function printPlan(plan: SetupPlan, output: Writable): void {
   output.write('\nInstallation plan\n');
+  for (const command of plan.commands.filter(command => command.component === null)) {
+    output.write(`  ${pendingMark(output)} ${command.label} ${separator(output)} ${command.display}\n`);
+  }
   for (const component of plan.selected) {
     if (plan.installed[component]) output.write(`  ${successMark(output)} ${componentLabel(component)} already installed\n`);
     else {

@@ -3,6 +3,13 @@ import {posix, win32} from 'node:path';
 
 type PathInput = {platform?: string; home?: string; env?: NodeJS.ProcessEnv};
 
+/** Path selectors form one launch identity, including selectors that are absent. */
+export const pathEnvironmentKeys = [
+  'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  'RADIOCLI_HOME', 'RADIO_ATLAS_HOME',
+  'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR'
+] as const;
+
 /**
  * Keep historical namespaces stable. In particular, macOS alarm-control/Guard
  * files and general agent/occurrence runtime files already use different roots.

@@ -576,6 +576,81 @@ describe('alarm TUI integration', () => {
     app.stdin.write('r'); await settle(); expect(calls.syncAll.mock.calls.at(-1)?.[0]).toEqual([expect.objectContaining({id: alarm.id, enabled: false})]); app.unmount();
   });
 
+  it('does not touch native jobs when deletion cannot first save a disabled alarm', async () => {
+    const {store, service, calls} = fixture();
+    const alarm = addAlarm(store);
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    const original = readFileSync(store.filePath, 'utf8');
+    const disable = vi.spyOn(store, 'toggleAlarm').mockImplementation(() => { throw new Error('Library is read-only'); });
+    calls.remove.mockRejectedValue(new Error('Native cleanup denied'));
+
+    app.stdin.write('b'); await settle();
+    app.stdin.write('8'); await settle();
+    app.stdin.write('x'); app.stdin.write('x'); await settle();
+
+    expect(calls.remove).not.toHaveBeenCalled();
+    expect(store.getAlarm(alarm.id)?.enabled).toBe(true);
+    expect(readFileSync(store.filePath, 'utf8')).toBe(original);
+    expect(player.state().state).toBe('playing');
+    expect(app.lastFrame()).toContain('Library is read-only');
+    expect(app.lastFrame()).not.toContain('kept disabled');
+
+    // A failed attempt releases the row and permits an explicit retry.
+    disable.mockRestore(); calls.remove.mockResolvedValue(undefined);
+    app.stdin.write('x'); app.stdin.write('x'); await settle();
+    expect(store.getAlarm(alarm.id)).toBeUndefined();
+    expect(calls.remove).toHaveBeenCalledOnce();
+    expect(player.state().state).toBe('playing');
+    app.unmount();
+  });
+
+  it('survives native cleanup failure after storage becomes unavailable without a recovery write', async () => {
+    const {store, service, calls} = fixture();
+    const alarm = addAlarm(store);
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle(); await tuneLibrary(app);
+    const disable = vi.spyOn(store, 'toggleAlarm');
+    calls.remove.mockImplementationOnce(async () => {
+      disable.mockImplementation(() => { throw new Error('Storage disappeared during cleanup'); });
+      throw new Error('Native cleanup denied');
+    });
+    app.stdin.write('b'); await settle();
+    app.stdin.write('8'); await settle();
+    app.stdin.write('x'); app.stdin.write('x'); await settle();
+
+    expect(disable).toHaveBeenCalledOnce();
+    expect(store.getAlarm(alarm.id)?.enabled).toBe(false);
+    expect(new JsonLibraryStore(store.filePath).getAlarm(alarm.id)?.enabled).toBe(false);
+    expect(app.lastFrame()).toContain('Native cleanup denied');
+    expect(app.lastFrame()).toContain('kept disabled');
+    expect(player.state().state).toBe('playing');
+    app.stdin.write('b'); await settle();
+    expect(app.lastFrame()).toContain('Overview');
+    app.unmount();
+  });
+
+  it('retains a disabled definition and accurate diagnostics when its final deletion write fails', async () => {
+    const {store, service, calls} = fixture();
+    const alarm = addAlarm(store);
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const disable = vi.spyOn(store, 'toggleAlarm');
+    vi.spyOn(store, 'removeAlarm').mockImplementation(() => { throw new Error('Disk full'); });
+    app.stdin.write('8'); await settle();
+    app.stdin.write('x'); app.stdin.write('x'); await settle();
+
+    expect(calls.remove).toHaveBeenCalledWith(expect.objectContaining({id: alarm.id, enabled: false}));
+    expect(disable).toHaveBeenCalledOnce();
+    expect(new JsonLibraryStore(store.filePath).getAlarm(alarm.id)?.enabled).toBe(false);
+    expect(app.lastFrame()).toContain('Native cleanup completed');
+    expect(app.lastFrame()).toContain('Disk full');
+    app.unmount();
+  });
+
   it('preserves rapid disable-enable order through a deferred native sync', async () => {
     const {store, service, calls} = fixture(); addAlarm(store); let finish!: (value: Date) => void;
     calls.sync.mockImplementationOnce(async () => new Promise<Date>(resolve => { finish = resolve; }));

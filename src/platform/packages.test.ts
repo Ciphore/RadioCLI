@@ -3,6 +3,32 @@ import {detectPackageManager, ffplayInstallCommand, mpvInstallCommand, packageCo
 import {identifyPlatform} from './runtime.js';
 
 describe('native package plans', () => {
+  it.each(['darwin', 'win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'sunos', 'haiku', 'android'] as const)(
+    'gives manual guidance instead of an unavailable installer on %s', platform => {
+      const options = {hasCommand: () => false, getUid: () => 1000};
+      for (const hint of [mpvInstallCommand(platform, 'ID=ubuntu', {}, options), ffplayInstallCommand(platform, 'ID=ubuntu', {}, options)]) {
+        expect(hint).toMatch(/manual|manually/);
+        expect(hint).not.toMatch(/(?:brew|winget|sudo|doas|pkg|pkgin|pkgman) (?:install|add|-I|-y)/);
+      }
+    }
+  );
+
+  it('does not suggest a privilege helper that is missing or needed by root', () => {
+    const hasCommand = (command: string): boolean => command === 'apt';
+    expect(mpvInstallCommand('linux', 'ID=debian', {}, {hasCommand, getUid: () => 1000})).toBe('apt-get install -y mpv (run as root; sudo/doas unavailable)');
+    expect(mpvInstallCommand('linux', 'ID=debian', {}, {hasCommand, getUid: () => 0})).toBe('apt-get install -y mpv');
+  });
+
+  it('keeps Termux prerequisites explicit when pkg is absent or the caller is root', () => {
+    const env = {TERMUX_VERSION: '0.118.3'};
+    expect(mpvInstallCommand('android', '', env, {hasCommand: () => false})).toContain('manually');
+    const ffplay = ffplayInstallCommand('android', '', env, {hasCommand: () => false});
+    expect(ffplay).toContain('x11-repo');
+    expect(ffplay).toContain('configured display/audio');
+    expect(ffplay).not.toContain('pkg install');
+    expect(mpvInstallCommand('android', '', env, {hasCommand: () => true, getUid: () => 0})).toContain('normal Termux app user, without root');
+  });
+
   it.each([
     ['freebsd', 'pkg'], ['openbsd', 'pkg_add'], ['netbsd', 'pkgin'], ['sunos', 'pkgin'], ['haiku', 'pkgman']
   ] as const)('selects %s package tools without confusing other Unix commands', (platform, expected) => {
@@ -53,12 +79,13 @@ describe('native package plans', () => {
 
   it('keeps the printed installation hints consistent with each verified route', () => {
     const termux = {TERMUX_VERSION: '0.118.3'};
-    expect(mpvInstallCommand('android', '', termux)).toBe('pkg install -y mpv');
-    expect(ffplayInstallCommand('linux', '', termux)).toContain('x11-repo');
-    expect(mpvInstallCommand('haiku', '', {})).toBe('pkgman install -y mpv');
-    expect(ffplayInstallCommand('haiku', '', {})).toBe('pkgman install -y ffmpeg8_tools');
-    expect(mpvInstallCommand('sunos', '', {})).toContain('pkgin -y install mpv');
-    expect(ffplayInstallCommand('sunos', '', {})).toContain('matching pkgsrc');
+    const options = {hasCommand: () => true, getUid: () => 1000};
+    expect(mpvInstallCommand('android', '', termux, options)).toBe('pkg install -y mpv');
+    expect(ffplayInstallCommand('linux', '', termux, options)).toContain('x11-repo');
+    expect(mpvInstallCommand('haiku', '', {}, options)).toBe('pkgman install -y mpv');
+    expect(ffplayInstallCommand('haiku', '', {}, options)).toBe('pkgman install -y ffmpeg8_tools');
+    expect(mpvInstallCommand('sunos', '', {}, options)).toContain('pkgin -y install mpv');
+    expect(ffplayInstallCommand('sunos', '', {}, options)).toContain('matching pkgsrc');
   });
 
   it('uses verified noninteractive BSD syntax', () => {

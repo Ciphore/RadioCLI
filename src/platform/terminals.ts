@@ -3,7 +3,7 @@ import {posix,win32} from 'node:path';
 import {resolveCommandDetails} from './executables.js';
 import {identifyPlatform,nativeAdapters} from './runtime.js';
 import {powershellCommand} from './shell.js';
-import {launchEnvironment, nodeLaunchCommand} from './launch-command.js';
+import {launchEnvironment, nodeLaunchCommand, waitForLaunch} from './launch-command.js';
 
 export type TerminalResolver=(command:string)=>string|undefined;
 type TerminalSpawn=(command:string,args:readonly string[],options?:SpawnOptions)=>ChildProcess;
@@ -15,7 +15,7 @@ type UnixTerminal={name:string;args:string[];display?:'x11'|'wayland';shell?:boo
 const unixTerminals:UnixTerminal[]=[
   {name:'ghostty',args:['-e']},{name:'wezterm',args:['start','--always-new-process','--']},
   {name:'kitty',args:['-e']},{name:'gnome-terminal',args:['--']},{name:'konsole',args:['-e']},
-  {name:'xfce4-terminal',args:['-x']},{name:'x-terminal-emulator',args:['-e']},
+  {name:'xfce4-terminal',args:['-x']},{name:'x-terminal-emulator',args:['-e'],shell:true},
   {name:'alacritty',args:['-e']},{name:'foot',args:['--'],display:'wayland'},
   {name:'mate-terminal',args:['-x']},{name:'qterminal',args:['-e'],shell:true},
   {name:'terminator',args:['-x']},{name:'tilix',args:['-e']},
@@ -56,17 +56,16 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
   const platform=options.platform??process.platform;const env=options.env??process.env;const resolve=options.resolve??resolver(platform,env);
   const terminal=detectGraphicalTerminal(platform,env,resolve);const values=[options.nodePath,...options.args];
   if(values.some(value=>value.includes('\0')))throw new Error('Terminal command values cannot contain NUL bytes.');
-  const environment=launchEnvironment(env);
+  const environment=launchEnvironment(env,{platform});
+  const direct=nodeLaunchCommand(options.nodePath,options.args,environment);
   if(terminal.endsWith(':unsupported')){
     if(nativeAdapters(identifyPlatform({platform,env})).terminal==='unix'&&!hasDisplay(env))throw new Error('No graphical desktop session is available: DISPLAY and WAYLAND_DISPLAY are unset. Open radiocli manually for controls.');
     throw new Error('No supported installed graphical terminal was found. Open radiocli manually for controls.');
   }
   if(terminal==='darwin:apple-terminal'||terminal==='darwin:iterm'){
-    const assignments=Object.entries(environment).map(([key,value])=>`${key}=${shellQuote(value)}`).join(' ');
-    const command=`${assignments?`${assignments} `:''}${values.map(shellQuote).join(' ')}${options.closeOnExit?'; exit':''}`;
+    const command=`${direct.map(shellQuote).join(' ')}${options.closeOnExit?'; exit':''}`;
     return{terminal,command:'/usr/bin/osascript',args:terminal==='darwin:apple-terminal'?appleTerminalScript(command):iTermScript(command)};
   }
-  const direct=Object.keys(environment).length?nodeLaunchCommand(options.nodePath,options.args,environment):values;
   if(terminal==='darwin:wezterm')return{terminal,command:'/usr/bin/open',args:['-na','WezTerm','--args','start','--always-new-process','--',...direct]};
   if(terminal==='darwin:ghostty')return{terminal,command:'/usr/bin/open',args:['-na','Ghostty','--args','-e',...direct]};
   if(terminal==='darwin:kitty')return{terminal,command:'/usr/bin/open',args:['-na','kitty','--args','--detach',...direct]};
@@ -76,8 +75,7 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
     if(!powershell)throw new Error('PowerShell is unavailable; a RadioCLI terminal cannot be requested.');
     // PowerShell 5 does not preserve arbitrary native argv quoting. Only a
     // fixed quote-free Node program and encoded JSON cross that boundary.
-    const command=nodeLaunchCommand(options.nodePath,options.args,environment);
-    const args=powershellCommand(command,{}, {keepOpen:!options.closeOnExit});
+    const args=powershellCommand(direct,{}, {keepOpen:!options.closeOnExit});
     if(terminal==='win32:console')return{terminal,command:powershell,...newWindowsConsole(powershell,args)};
     const wt=resolve('wt.exe')??(env.LOCALAPPDATA?resolve(win32.join(env.LOCALAPPDATA,'Microsoft','WindowsApps','wt.exe')):undefined);
     if(!wt)throw new Error('Windows Terminal is unavailable; the saved terminal cannot be requested.');
@@ -85,9 +83,10 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
   }
   const executable=terminal.slice(terminal.indexOf(':')+1);const spec=unixTerminals.find(item=>item.name===posix.basename(executable));
   if(!spec)throw new Error('The saved graphical terminal is unsupported.');
-  // qterminal reparses its first -e argument as a command string. A fixed
-  // POSIX shell keeps a Node path containing quotes/spaces out of that parser.
-  if(spec.shell){const sh=resolve('/bin/sh');if(!sh)throw new Error('The POSIX shell required by qterminal is unavailable.');return{terminal,command:executable,args:[...spec.args,sh,'-c',direct.map(shellQuote).join(' ')]};}
+  // QTerminal reparses only its first -e argument, then appends argv literally.
+  // The alternatives alias can select QTerminal too, so both use the fixed
+  // POSIX shell boundary. This also preserves argv for ordinary -e terminals.
+  if(spec.shell){const sh=resolve('/bin/sh');if(!sh)throw new Error('The POSIX shell required by this terminal is unavailable.');return{terminal,command:executable,args:[...spec.args,sh,'-c',direct.map(shellQuote).join(' ')]};}
   return{terminal,command:executable,args:[...spec.args,...direct]};
 }
 
@@ -101,27 +100,6 @@ export async function launchTerminalCommand(options:TerminalCommand):Promise<str
   const consoleBootstrap=plan.terminal==='win32:console';
   const child=(options.spawn??spawn)(plan.command,plan.args,{env:{...(options.env??process.env),...plan.environment},detached:!consoleBootstrap,stdio:'ignore',windowsHide:consoleBootstrap});
   await waitForLaunch(child,{waitForExit:consoleBootstrap});return plan.terminal;
-}
-
-export function waitForLaunch(child:ChildProcess,options:{waitForExit?:boolean}={}):Promise<void>{
-  return new Promise((resolve,reject)=>{
-    let settled=false;let acceptedTimer:NodeJS.Timeout|undefined;
-    const finish=(error?:Error)=>{if(settled)return;settled=true;clearTimeout(startupTimer);if(acceptedTimer)clearTimeout(acceptedTimer);if(error)reject(error);else resolve();};
-    const startupTimer=setTimeout(()=>finish(new Error('Terminal launcher did not report process startup.')),3_000);
-    child.once('error',error=>finish(error));
-    child.once('close',(code,signal)=>finish(code===0?undefined:new Error(`Terminal launcher exited with ${code??signal??'unknown status'}.`)));
-    child.once('spawn',()=>{
-      if(options.waitForExit){
-        clearTimeout(startupTimer);
-        acceptedTimer=setTimeout(()=>{
-          finish(new Error('Terminal bootstrap did not complete.'));
-          try{child.kill();}catch{/* Preserve the timeout if cleanup also fails. */}
-        },10_000);
-      }else{
-        child.unref();acceptedTimer=setTimeout(()=>finish(),100);
-      }
-    });
-  });
 }
 
 function resolver(platform:NodeJS.Platform,env:NodeJS.ProcessEnv):TerminalResolver{return command=>resolveCommandDetails(command,{platform,env}).path??undefined;}

@@ -168,22 +168,8 @@ jobs:
         run: npm ci
 
       - name: Playback smoke
+        # Packed normal/omit-optional installs for this OS/CPU/Node matrix run in verify.
         run: npm run smoke:playback
-
-      - name: Packed mpv playback and portable install smoke
-        env:
-          RADIOCLI_EXPECTED_ARCH: ${{ matrix.architecture }}
-          RADIOCLI_SMOKE_EXECUTION_METHOD: GitHub-hosted native Linux VM (${{ matrix.os }}), real mpv with null audio
-          RADIOCLI_SMOKE_EVIDENCE_DIR: playback-evidence
-        run: npm run fresh:check -- --require-mpv
-
-      - name: Preserve playback evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: playback-${{ matrix.os }}-${{ matrix.node-version }}
-          path: playback-evidence/*.json
-          if-no-files-found: warn
 
   docs:
     name: Docs

@@ -9,9 +9,9 @@ import {nextOccurrenceForAlarm} from './schedule.js';
 import {AlarmRuntimeHealthStore} from './runtime-health.js';
 import {AlarmGuardService} from './guard.js';
 import {AlarmPowerGuardStore} from './power-guard-store.js';
-import {detectAlarmTerminal} from './terminal-launcher.js';
+import {detectGraphicalTerminal} from '../platform/terminals.js';
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
-import {resolveCommandDetails} from '../player/command.js';
+import {resolveCommandDetails} from '../platform/executables.js';
 import {launchEnvironment, nodeLaunchCommand} from '../platform/launch-command.js';
 import {powershellCommand} from '../platform/shell.js';
 
@@ -107,7 +107,7 @@ export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapt
   const resolve = (command:string) => resolveCommandDetails(command,{platform,env,home}).path;
   const run = deps.run ?? ((command,args) => runCommand(resolve(command)??command,args));
   const commandExists = deps.commandExists ?? (command => resolve(command)!==null);
-  const common = {home, nodePath, cliPath, env, terminal: detectAlarmTerminal(platform, env), write, removeFile, run};
+  const common = {platform, home, nodePath, cliPath, env, terminal: detectGraphicalTerminal(platform, env), write, removeFile, run};
   if (policy.scheduler === 'launchd') return launchdAdapter(common);
   if (policy.scheduler === 'task-scheduler') return windowsAdapter(common);
   if (policy.scheduler === 'systemd') {
@@ -117,9 +117,9 @@ export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapt
   return unsupportedAdapter(`Alarm scheduling is not supported on ${host.id==='unknown'?host.platform:host.id}.`);
 }
 
-type Common = {home: string; nodePath: string; cliPath: string; env: NodeJS.ProcessEnv; terminal:string; write: (p:string,c:string)=>void; removeFile:(p:string)=>void; run:(c:string,a:string[])=>Promise<CommandResult>};
+type Common = {platform: NodeJS.Platform; home: string; nodePath: string; cliPath: string; env: NodeJS.ProcessEnv; terminal:string; write: (p:string,c:string)=>void; removeFile:(p:string)=>void; run:(c:string,a:string[])=>Promise<CommandResult>};
 function runtimeEnvironment(common:Common):Record<string,string>{
-  return launchEnvironment(common.env, {includeDesktop: true, terminal: common.terminal});
+  return launchEnvironment(common.env, {platform: common.platform, includeDesktop: true, terminal: common.terminal});
 }
 const jobName = (id: string) => `io.radiocli.alarm.${createHash('sha256').update(id).digest('hex').slice(0, 20)}`;
 const invocationArgs = (common: Common, id: string, occurrence: Date,internalCommand='internal-run') => [common.cliPath, 'alarm', internalCommand, id, occurrence.toISOString()];
@@ -131,7 +131,7 @@ function launchdAdapter(common: Common): SchedulerAdapter {
   const occurrenceLabel=(id:string,occurrence:Date)=>`${jobName(id)}.${createHash('sha256').update(occurrence.toISOString()).digest('hex').slice(0,12)}`;
   const occurrencePath=(id:string,occurrence:Date)=>join(directory,`${occurrenceLabel(id,occurrence)}.plist`);
   const pathsFor=(id:string)=>{const prefix=`${jobName(id)}.`;let extras:string[]=[];try{extras=readdirSync(directory).filter(name=>name.startsWith(prefix)&&name.endsWith('.plist')).map(name=>join(directory,name));}catch{}return[pathFor(id),...extras];};
-  const installJob=async(alarm:Alarm,occurrence:Date,label:string,path:string,replace:boolean)=>{const local=localParts(occurrence);const entries=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`<key>${xml(key)}</key><string>${xml(value)}</string>`).join('');const envArgs=`<key>EnvironmentVariables</key><dict>${entries}</dict>`;const args=[common.nodePath,...invocationArgs(common,alarm.id,occurrence,'internal-launchd')].map(value=>`<string>${xml(value)}</string>`).join('');common.write(path,`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${args}</array>${envArgs}<key>StartCalendarInterval</key><dict><key>Month</key><integer>${local.month}</integer><key>Day</key><integer>${local.day}</integer><key>Hour</key><integer>${local.hour}</integer><key>Minute</key><integer>${local.minute}</integer></dict><key>ProcessType</key><string>Interactive</string><key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string><!-- launchd repeats this calendar pattern annually; the idempotent runner gates, removes, or reschedules it. --></dict></plist>\n`);if(replace)await common.run('launchctl',['bootout',`gui/${process.getuid?.()??''}`,path]).catch(()=>undefined);ensureSuccess(await common.run('launchctl',['bootstrap',`gui/${process.getuid?.()??''}`,path]),'launchctl bootstrap');};
+  const installJob=async(alarm:Alarm,occurrence:Date,label:string,path:string,replace:boolean)=>{const local=localParts(occurrence);const entries=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`<key>${xml(key)}</key><string>${xml(value)}</string>`).join('');const envArgs=`<key>EnvironmentVariables</key><dict>${entries}</dict>`;const args=nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence,'internal-launchd'),runtimeEnvironment(common)).map(value=>`<string>${xml(value)}</string>`).join('');common.write(path,`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${args}</array>${envArgs}<key>StartCalendarInterval</key><dict><key>Month</key><integer>${local.month}</integer><key>Day</key><integer>${local.day}</integer><key>Hour</key><integer>${local.hour}</integer><key>Minute</key><integer>${local.minute}</integer></dict><key>ProcessType</key><string>Interactive</string><key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string><!-- launchd repeats this calendar pattern annually; the idempotent runner gates, removes, or reschedules it. --></dict></plist>\n`);if(replace)await common.run('launchctl',['bootout',`gui/${process.getuid?.()??''}`,path]).catch(()=>undefined);ensureSuccess(await common.run('launchctl',['bootstrap',`gui/${process.getuid?.()??''}`,path]),'launchctl bootstrap');};
   const removeJob=async(path:string)=>{
     const label=path.split('/').at(-1)!.slice(0,-6);
     let failure:unknown;
@@ -168,7 +168,7 @@ function systemdAdapter(common: Common): SchedulerAdapter {
   return {
     capabilities,
     probeCapabilities,
-    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand([common.nodePath,...invocationArgs(common,alarm.id,occurrence)]); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
+    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand(nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence),runtimeEnvironment(common))); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
     async remove(id){
       const n=names(id);
       await removeWithVerification(()=>common.run('systemctl',['--user','disable','--now',n.timer]),()=>common.run('systemctl',['--user','show',n.timer,'--property=LoadState','--property=ActiveState']),result=>/^LoadState=not-found\r?$/m.test(result.stdout)&&/^ActiveState=inactive\r?$/m.test(result.stdout),'systemd timer');
@@ -195,9 +195,65 @@ function windowsAdapter(common: Common): SchedulerAdapter {
       common.write(path, body);
       ensureSuccess(await common.run('schtasks.exe', ['/Create', '/TN', name, '/XML', path, '/F']), 'schtasks create');
     },
-    async remove(id){const name=`\\RadioCLI\\${jobName(id)}`;await removeWithVerification(()=>common.run('schtasks.exe',['/Delete','/TN',name,'/F']),()=>common.run('schtasks.exe',['/Query','/TN',name]),result=>result.code===1&&/^ERROR: The system cannot find the (?:file|path) specified\.$/.test(`${result.stderr}\n${result.stdout}`.trim()),'Task Scheduler job');common.removeFile(xmlPath(id));},
+    async remove(id){
+      const name=`\\RadioCLI\\${jobName(id)}`;
+      const removal=await settledOperation(async()=>{
+        const result=await boundedWindowsCommand(()=>common.run('schtasks.exe',['/Delete','/TN',name,'/F']),'deletion');
+        if(result.code!==0)throw new Error(`Task Scheduler job removal failed: ${windowsCommandMessage(result)}`);
+      });
+      let state:WindowsTaskState;
+      try{
+        const result=await boundedWindowsCommand(()=>common.run('powershell.exe',windowsTaskLookupCommand(name)),'absence lookup');
+        state=windowsTaskState(result,name);
+      }catch(error){throw new Error(`Unable to verify Task Scheduler job removal; repair artifacts were retained. ${removal.error??''} ${errorMessage(error)}`);}
+      if(state.state!=='absent')throw new Error(`Unable to verify Task Scheduler job absence; repair artifacts were retained. ${removal.error??''} ${state.message}`);
+      common.removeFile(xmlPath(id));
+    },
     async status(id){const result=await common.run('schtasks.exe',['/Query','/TN',`\\RadioCLI\\${jobName(id)}`]);const artifact=existsSync(xmlPath(id));const executable=existsSync(common.nodePath)&&existsSync(common.cliPath);return{installed:result.code===0&&artifact,healthy:result.code===0&&artifact&&executable,message:result.code!==0?'task not registered':!artifact?'task XML artifact missing':!executable?'RadioCLI executable missing':'registered and executable'};}
   };
+}
+
+function windowsTaskLookupCommand(taskPath:string):string[]{
+  // Only GetTask failures can establish absence. A missing COM service or root
+  // folder must remain a repairable error, regardless of the UI language.
+  const encodedPath=Buffer.from(taskPath,'utf8').toString('base64');
+  const script=[
+    "$ErrorActionPreference='Stop'",
+    "$ProgressPreference='SilentlyContinue'",
+    '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)',
+    `$radiocliTaskPath=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}'))`,
+    "$radiocliResult=@{taskPath=$radiocliTaskPath;stage='connect';status='error';hresult=0;message=''}",
+    "try{$radiocliService=New-Object -ComObject 'Schedule.Service';$null=$radiocliService.Connect();$radiocliResult.stage='root';$radiocliFolder=$radiocliService.GetFolder('\\');$radiocliResult.stage='lookup';$null=$radiocliFolder.GetTask($radiocliTaskPath);$radiocliResult.status='present'}catch{$radiocliException=$_.Exception;$radiocliResult.message=$radiocliException.ToString();for($radiocliDepth=0;$null -ne $radiocliException.InnerException -and $radiocliDepth -lt 16;$radiocliDepth++){$radiocliException=$radiocliException.InnerException};$radiocliResult.hresult=$radiocliException.HResult}",
+    '[Console]::WriteLine(($radiocliResult | ConvertTo-Json -Compress))',
+    'exit 0'
+  ].join(';');
+  return ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')];
+}
+
+type WindowsTaskState={state:'absent'|'present'|'unknown';message:string};
+function windowsTaskState(result:CommandResult,taskPath:string):WindowsTaskState{
+  const unknown=(message:string):WindowsTaskState=>({state:'unknown',message:`${message} ${windowsCommandMessage(result)}`});
+  if(result.code!==0)return unknown('Task Scheduler lookup process failed.');
+  let value:unknown;
+  try{value=JSON.parse(result.stdout);}catch{return unknown('Malformed Task Scheduler lookup response.');}
+  if(!value||typeof value!=='object'||Array.isArray(value))return unknown('Malformed Task Scheduler lookup response.');
+  const response=value as Record<string,unknown>;
+  if(response.taskPath!==taskPath||!['connect','root','lookup'].includes(String(response.stage))||
+    !['present','error'].includes(String(response.status))||typeof response.hresult!=='number'||
+    !Number.isInteger(response.hresult)||response.hresult< -2147483648||response.hresult>2147483647||typeof response.message!=='string'){
+    return unknown('Invalid or unrelated Task Scheduler lookup response.');
+  }
+  if(response.status==='present'&&response.stage==='lookup'&&response.hresult===0)return{state:'present',message:'Task Scheduler job is still registered.'};
+  // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND), from the
+  // exact GetTask lookup. Never interpret schtasks exit 1 or localized text.
+  if(response.status==='error'&&response.stage==='lookup'&&[-2147024894,-2147024893].includes(response.hresult))return{state:'absent',message:response.message};
+  return unknown(`Task Scheduler ${response.stage} HRESULT 0x${(response.hresult>>>0).toString(16).padStart(8,'0')}: ${response.message}`);
+}
+function windowsCommandMessage(result:CommandResult):string{return [`exit ${result.code}`,result.stderr.trim(),result.stdout.trim()].filter(Boolean).join(' ');}
+async function boundedWindowsCommand(work:()=>Promise<CommandResult>,label:string):Promise<CommandResult>{
+  let timer:NodeJS.Timeout|undefined;
+  try{return await Promise.race([Promise.resolve().then(work),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error(`Task Scheduler ${label} timed out.`)),10_000);})]);}
+  finally{if(timer)clearTimeout(timer);}
 }
 
 function unsupportedAdapter(message:string):SchedulerAdapter{return{capabilities:()=>({supported:false,exactWake:false,catchUpAfterWake:false,message}),install:async()=>{throw new Error(message);},remove:async()=>{},status:async()=>({installed:false,healthy:false,message})};}

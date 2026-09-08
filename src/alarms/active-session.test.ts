@@ -4,9 +4,43 @@ import {join} from 'node:path';
 import {createServer} from 'node:http';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {connectActiveAlarm,connectActiveAlarms, startActiveAlarmSession} from './active-session.js';
+import {createSystemVolumeController} from './system-volume.js';
+import {SystemVolumeOwnership} from './system-volume-ownership.js';
 
 const dirs:string[]=[];
 afterEach(()=>dirs.splice(0).forEach(path=>rmSync(path,{recursive:true,force:true})));
+
+it('waits for handoff ownership contention beyond the short discovery deadline',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'radiocli-alarm-handoff-lock-'));dirs.push(root);
+  const directory=join(root,'volume');
+  const run=async(_command:string,args:string[])=>({code:0,stdout:args.includes('set s to get volume settings')?'20,true':'',stderr:''});
+  const lease=await createSystemVolumeController('darwin',run,()=>null,{directory}).acquireMinimum(70);
+  let unlock:()=>void=()=>{};let lockReady:()=>void=()=>{};
+  const ready=new Promise<void>(resolve=>{lockReady=resolve;});
+  const holding=new SystemVolumeOwnership(directory).transaction(async()=>{lockReady();await new Promise<void>(resolve=>{unlock=resolve;});});
+  await ready;
+  let server:Awaited<ReturnType<typeof startActiveAlarmSession>>|undefined;
+  let timer:NodeJS.Timeout|undefined;
+  let startedHandoff:()=>void=()=>{};
+  const started=new Promise<void>(resolve=>{startedHandoff=resolve;});
+  let handedOff=false;
+  try{
+    const file=join(root,'active.json');
+    server=await startActiveAlarmSession({alarmId:'a',scheduledAt:'2030-01-01T00:00:00Z',stationName:'A',startedAt:'2030-01-01T00:00:00Z'},{
+      filePath:file,onDismiss:vi.fn(),onSnooze:vi.fn(),onKeepPlaying:vi.fn(),
+      async onHandoff(){startedHandoff();await lease.release({preserve:true});handedOff=true;}
+    });
+    const client=await connectActiveAlarm(file);
+    const handoff=client!.handoff().then(()=>({ok:true}),error=>({error}));
+    await started;
+    timer=setTimeout(unlock,1_200);
+    expect(await handoff).toEqual({ok:true});
+    expect(handedOff).toBe(true);
+  }finally{
+    clearTimeout(timer);unlock();await holding;
+    await server?.close();await lease.release();
+  }
+});
 
 describe('active alarm IPC',()=>{
   it('discovers, authenticates, controls, and removes a local session',async()=>{

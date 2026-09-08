@@ -1,6 +1,6 @@
 import * as childProcess from 'node:child_process';
 import {describe, expect, it, vi} from 'vitest';
-import * as commands from './command.js';
+import * as commands from '../platform/executables.js';
 import {discoverAirPlayDevices, parseRaopBrowseOutput, parseRaopLookupOutput} from './airplay-discovery.js';
 
 vi.mock('node:child_process', () => ({spawn: vi.fn(() => {throw new Error('discovery must remain offline');})}));

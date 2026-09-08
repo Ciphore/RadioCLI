@@ -46,6 +46,7 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
   const recordRunnerWarning=(message:string)=>{runnerWarnings.add(message);try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:listening,message:[...runnerWarnings].join(' ')});}catch{}};
   let preserveNextOverride=false;
   let preserveSystemVolume=false;
+  let handoffOutput:Promise<void>|undefined;
   let validTerminalOccurrence=false;
   let completeLock=true;
   let signalReceived=false;let resolveEarlySignal:()=>void=()=>{};let onPlaybackSignal:()=>void=()=>{};const earlySignal=new Promise<void>(resolve=>{resolveEarlySignal=resolve;});const unsubscribeSignals=deps.subscribeSignals?.(()=>{signalReceived=true;resolveEarlySignal();onPlaybackSignal();void deps.player.stop().catch(()=>undefined);});
@@ -64,7 +65,7 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
       onDismiss:()=>{action='dismissed';resolveAction('dismissed');resolveEarlySignal();},
       onSnooze:minutes=>{deps.store.snoozeAlarm(alarmId,new Date(deps.now().getTime()+minutes*60_000));preserveNextOverride=true;action='snoozed';resolveAction('snoozed');resolveEarlySignal();},
       onKeepPlaying:()=>{keepPlaying=true;session?.update({keepPlaying:true});},
-      onHandoff:()=>{if(!listening)throw new Error('Alarm playback is still starting.');preserveSystemVolume=true;action='handoff';resolveAction('handoff');}
+      onHandoff:async()=>{if(!listening)throw new Error('Alarm playback is still starting.');handoffOutput=(systemVolumeLease?.release({preserve:true})??Promise.resolve()).then(()=>{preserveSystemVolume=true;});await handoffOutput;action='handoff';resolveAction('handoff');}
     });void creatingSession.then(created=>{if(signalReceived)void created.close().catch(()=>undefined);}).catch(()=>{});const created=await Promise.race([creatingSession.then(value=>({value})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in created){outcome=finish('dismissed','Alarm interrupted while local controls were starting.');return{status:'dismissed',message:outcome.message};}session=created.value;
     const claimed=deps.store.getAlarm(alarmId);if(claimed?.enabled&&claimed.schedule.type==='recurring'){if(deps.scheduler.syncClaimed)await deps.scheduler.syncClaimed(claimed,scheduledAt);else await deps.scheduler.sync(claimed);}
     let resolvedStation=alarm.station;let lastError:unknown;
@@ -97,6 +98,7 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     listening=false;
     unsubscribeSignals?.();
     try{await deps.player.stop();}catch{}
+    await handoffOutput?.catch(()=>undefined);
     if(!preserveSystemVolume)try{await systemVolumeLease?.release();}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Previous system output volume could not be restored: ${errorMessage(error)}`});}catch{}}
     if(historyStarted){
       try{deps.store.checkpointActiveListeningSession(deps.now());}catch(error){recordRunnerWarning(`Listening history could not be checkpointed: ${errorMessage(error)}`);}

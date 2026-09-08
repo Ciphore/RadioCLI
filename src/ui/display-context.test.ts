@@ -1,12 +1,12 @@
 import {describe, expect, it} from 'vitest';
-import {noColorRequested, panelBorderStyle, resolveDisplayMode} from './display-context.js';
+import {panelBorderStyle, resolveDisplayMode} from './display-context.js';
 import {appBackground, panelBackground} from './theme.js';
 
 describe('display mode', () => {
   it('honors the NO_COLOR convention only for non-empty values', () => {
-    expect(noColorRequested({NO_COLOR: '1'})).toBe(true);
-    expect(noColorRequested({NO_COLOR: ''})).toBe(false);
-    expect(noColorRequested({})).toBe(false);
+    expect(resolveDisplayMode({}, {NO_COLOR: '1'})).toMatchObject({colorLevel: 0, app: undefined, panel: undefined});
+    expect(resolveDisplayMode({}, {NO_COLOR: ''})).toMatchObject({colorLevel: 3, app: appBackground, panel: panelBackground});
+    expect(resolveDisplayMode({}, {})).toMatchObject({colorLevel: 3, app: appBackground, panel: panelBackground});
   });
 
   it('keeps opaque panel fills by default', () => {

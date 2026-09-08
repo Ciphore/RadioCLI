@@ -237,7 +237,7 @@ export async function smokeMcp({cli, cwd, env, nodeArgs = []}) {
 async function exercisePlayback(packageRoot, home) {
   const {PlayerController} = await import(pathToFileURL(join(packageRoot, 'dist', 'player', 'player-controller.js')).href);
   const {JsonLibraryStore} = await import(pathToFileURL(join(packageRoot, 'dist', 'storage', 'store.js')).href);
-  const {resolveCommand} = await import(pathToFileURL(join(packageRoot, 'dist', 'player', 'command.js')).href);
+  const {resolveCommand} = await import(pathToFileURL(join(packageRoot, 'dist', 'platform', 'executables.js')).href);
   const mpv = resolveCommand('mpv');
   assert.ok(mpv, 'mpv executable is required.');
   console.log(runCommand(mpv, ['--version']).stdout.split('\n')[0]);

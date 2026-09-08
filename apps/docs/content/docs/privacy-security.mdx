@@ -93,6 +93,12 @@ The following state is deliberately machine-local and excluded from backups:
 - scheduler and power-inhibitor health records
 - Alarm Guard process/lease state and occurrence locks
 - active-alarm discovery files and their random bearer tokens
+- shared system-volume snapshots and participating process IDs
+
+System-volume ownership lives in `.radiocli/system-volume` under the OS account's
+home directory. It is shared across `RADIOCLI_HOME` and XDG profiles so separate
+alarm runners cannot restore the same output device independently. The saved
+snapshot is removed after successful final restoration or playback handoff.
 
 After restoring a backup on another machine, run `radiocli alarm sync` to create
 that machine's native jobs. Alarm playback resolves the configured public station

@@ -1,5 +1,5 @@
 import {spawnSync} from 'node:child_process';
-import {resolveCommandDetails, type CommandDiscovery} from './command.js';
+import {resolveCommandDetails, type CommandDiscovery} from '../platform/executables.js';
 
 export type CommandDiagnostic = {
   path: string | null;

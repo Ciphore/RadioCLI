@@ -54,7 +54,7 @@ export function identifyPlatform(input: PlatformInput = {}): PlatformProfile {
     nodeMajor: Number.parseInt(nodeVersion, 10),
     libc: platform === 'android' || termux ? 'bionic' : input.libc ?? (platform === 'linux' ? nativeLibc(platform) : 'none'),
     isWsl: id === 'linux' && Boolean(env.WSL_INTEROP || env.WSL_DISTRO_NAME || /microsoft|wsl/i.test(kernelRelease)),
-    osRelease: input.osRelease ?? (platform === 'linux' && platform === process.platform ? readOsRelease() : '')
+    osRelease: input.osRelease ?? (platform === 'linux' && platform === process.platform ? readLinuxOsRelease() : '')
   };
 }
 
@@ -78,7 +78,8 @@ export function nativeAdapters(host: PlatformProfile = identifyPlatform()): Nati
   return portable;
 }
 
-function readOsRelease(): string {
+export function readLinuxOsRelease(platform: string = process.platform): string {
+  if (platform !== 'linux') return '';
   try { return readFileSync('/etc/os-release', 'utf8'); }
   catch { return ''; }
 }

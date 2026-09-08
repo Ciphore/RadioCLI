@@ -23,12 +23,6 @@ type DisplaySettings = {
 const opaqueBackgrounds: DisplayBackgrounds = {app: appBackground, panel: panelBackground};
 const transparentBackgrounds: DisplayBackgrounds = {app: undefined, panel: undefined};
 
-// Respect the NO_COLOR convention (https://no-color.org): any non-empty value
-// opts the user out of our forced colors, including the dark panel fills.
-export function noColorRequested(env: NodeJS.ProcessEnv = process.env): boolean {
-  return typeof env.NO_COLOR === 'string' && env.NO_COLOR.length > 0;
-}
-
 // Sixteen-color palettes cannot safely reproduce our dark fills. Let those
 // terminals keep their own background while Ink quantizes the foregrounds.
 export function resolveDisplayMode(settings: DisplaySettings, env: NodeJS.ProcessEnv = process.env, evidence: TerminalEvidence = {}): DisplayMode {

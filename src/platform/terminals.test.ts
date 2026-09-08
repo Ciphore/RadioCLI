@@ -1,9 +1,10 @@
-import {execFileSync,spawn,type ChildProcess} from 'node:child_process';
+import {execFileSync,spawn,spawnSync,type ChildProcess} from 'node:child_process';
 import {EventEmitter} from 'node:events';
-import {existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {basename,join,posix} from 'node:path';
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {createTerminalLaunch,detectGraphicalTerminal,launchTerminalCommand,waitForLaunch} from './terminals.js';
+import {createTerminalLaunch,detectGraphicalTerminal,launchTerminalCommand} from './terminals.js';
+import {waitForLaunch} from './launch-command.js';
 
 const roots:string[]=[];
 afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
@@ -37,9 +38,55 @@ describe('shared graphical terminal discovery',()=>{
 
 describe('graphical terminal invocation plans',()=>{
   it.each([
+    ['darwin','apple-terminal'],['darwin','iterm'],['darwin','wezterm'],['darwin','ghostty'],['darwin','kitty'],
+    ['linux','/tools/kitty'],['win32','console'],['win32','windows-terminal']
+  ] as const)('restores the saved identity through %s:%s despite an unrelated terminal environment', (platform,name) => {
+    if(platform==='darwin'&&(name==='apple-terminal'||name==='iterm')&&process.platform==='win32')return;
+    const saved=platform==='win32'
+      ?{HOME:"C:\\home\\Radio ' \" $() & 单播",RADIO_ATLAS_HOME:"C:\\legacy\\Radio ' \" $() & 单播",XDG_CACHE_HOME:'C:\\cache\\saved',XDG_RUNTIME_DIR:'C:\\run\\saved'}
+      :{HOME:"/home/Radio ' \" $() & 单播",RADIO_ATLAS_HOME:"/legacy/Radio ' \" $() & 单播",XDG_CACHE_HOME:'/cache/saved',XDG_RUNTIME_DIR:'/run/saved'};
+    const probe="process.stdout.write(JSON.stringify({home:process.env.HOME,legacy:process.env.RADIO_ATLAS_HOME,current:process.env.RADIOCLI_HOME??null,cache:process.env.XDG_CACHE_HOME,runtime:process.env.XDG_RUNTIME_DIR,args:process.argv.slice(1)}))";
+    const values=['--flag',"literal ' \" $() ; & 单播",''];
+    const plan=createTerminalLaunch({platform,env:{...saved,DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:`${platform}:${name}`},nodePath:process.execPath,args:['-e',probe,'--',...values],resolve});
+    let command:readonly string[];
+    if(plan.command==='/usr/bin/osascript')command=['/bin/sh','-c',plan.args.at(-1)!];
+    else if(platform==='win32'){const invocation=nodeInvocation(plan.args,plan.environment);command=[invocation.command,...invocation.args];}
+    else command=plan.args.slice(plan.args.indexOf(process.execPath));
+    const output=execFileSync(command[0]!,command.slice(1),{env:{RADIOCLI_HOME:'/unrelated/current',HOME:'/unrelated/home',RADIO_ATLAS_HOME:'/unrelated/legacy',XDG_CACHE_HOME:'/unrelated/cache',XDG_RUNTIME_DIR:'/unrelated/runtime'},encoding:'utf8'});
+    expect(JSON.parse(output)).toEqual({home:saved.HOME,legacy:saved.RADIO_ATLAS_HOME,current:null,cache:saved.XDG_CACHE_HOME,runtime:saved.XDG_RUNTIME_DIR,args:values});
+  });
+
+  it('clears an inherited path override even when a Unix launch has no saved settings', () => {
+    const plan=createTerminalLaunch({platform:'linux',env:{DISPLAY:':0',TERMINAL:'kitty'},nodePath:process.execPath,args:['-e',"process.stdout.write(process.env.RADIOCLI_HOME??'absent')"],resolve});
+    expect(execFileSync(plan.args[1]!,plan.args.slice(2),{env:{RADIOCLI_HOME:'/unrelated'},encoding:'utf8'})).toBe('absent');
+  });
+
+  it.skipIf(process.platform==='win32').each([
+    ['qterminal','requested'],['x-terminal-emulator','requested'],['x-terminal-emulator','automatic'],['x-terminal-emulator','saved']
+  ] as const)('preserves exact argv when %s (%s) reparses only its first -e argument', (name,selection) => {
+    const root=fixture();const nodeDirectory=join(root,"Radio Tools ' 单播");const nodePath=join(nodeDirectory,'node');mkdirSync(nodeDirectory);symlinkSync(process.execPath,nodePath);
+    const qterminal=join(root,'qterminal');const alias=join(root,'x-terminal-emulator');
+    // QTerminal parses optarg, then appends every remaining argv literally:
+    // https://github.com/lxqt/qterminal/blob/master/src/main.cpp#L99-L107
+    // This fake implements the unquoted whitespace case used by this fixture.
+    writeFileSync(qterminal,`import{spawnSync}from'node:child_process';const argv=process.argv.slice(2);const start=argv.indexOf('-e');const command=[...argv[start+1].split(/\\s+/),...argv.slice(start+2)];const child=spawnSync(command[0],command.slice(1),{stdio:'inherit'});if(child.error)console.error(child.error.message);process.exit(child.status??1);`);
+    symlinkSync(qterminal,alias);
+    const values=['--flag','--option=two words','a b',"apostrophe's",'"double quotes"','$(false); & | < > %PATH%!','单播',''];
+    const env={DISPLAY:':0',...(selection==='requested'?{TERMINAL:name}:selection==='saved'?{RADIOCLI_ALARM_TERMINAL:`linux:${alias}`}:{})};
+    const plan=createTerminalLaunch({platform:'linux',env,nodePath,args:['-e','process.stdout.write(JSON.stringify(process.argv.slice(1)))','--',...values],resolve:command=>command==='/bin/sh'?'/bin/sh':command===alias||command==='x-terminal-emulator'?alias:command==='qterminal'?qterminal:undefined});
+    expect(plan.command).toBe(join(root,name));
+    const result=spawnSync(process.execPath,[plan.command,...plan.args],{env:{},encoding:'utf8'});
+    expect(result.status,result.stderr).toBe(0);expect(JSON.parse(result.stdout)).toEqual(values);
+  });
+  it.each([
     ['gnome-terminal',['--']],['mate-terminal',['-x']],['xfce4-terminal',['-x']],['terminator',['-x']],
-    ['wezterm',['start','--always-new-process','--']],['kitty',['-e']],['alacritty',['-e']],['konsole',['-e']],['ghostty',['-e']],['tilix',['-e']],['x-terminal-emulator',['-e']],['xterm',['-e']],['uxterm',['-e']],['foot',['--']]
-  ] as const)('uses %s argument boundaries without joining application argv', (name,prefix)=>{const nodePath='/Node A/单播/node';const args=['/Radio A/cli.js','agent-ui','a;& quoted "value"'];const plan=createTerminalLaunch({platform:'linux',env:{DISPLAY:':0',WAYLAND_DISPLAY:'wayland-0',RADIOCLI_ALARM_TERMINAL:`linux:/tools/${name}`},nodePath,args,resolve});expect(plan).toMatchObject({command:`/tools/${name}`,args:[...prefix,nodePath,...args]});});
+    ['wezterm',['start','--always-new-process','--']],['kitty',['-e']],['alacritty',['-e']],['konsole',['-e']],['ghostty',['-e']],['tilix',['-e']],['xterm',['-e']],['uxterm',['-e']],['foot',['--']]
+  ] as const)('uses %s argument boundaries with an encoded application invocation', (name,prefix)=>{
+    const nodePath='/Node A/单播/node';const args=['/Radio A/cli.js','agent-ui','a;& quoted "value"'];
+    const plan=createTerminalLaunch({platform:'linux',env:{DISPLAY:':0',WAYLAND_DISPLAY:'wayland-0',RADIOCLI_ALARM_TERMINAL:`linux:/tools/${name}`},nodePath,args,resolve});
+    expect(plan.command).toBe(`/tools/${name}`);expect(plan.args.slice(0,prefix.length+2)).toEqual([...prefix,nodePath,'-e']);
+    expect(JSON.parse(Buffer.from(plan.args.at(-1)!,'base64url').toString('utf8'))).toEqual({args,environment:{}});
+  });
   it.skipIf(process.platform==='win32')('uses a literal-safe shell boundary for qterminal command parsing',()=>{const plan=createTerminalLaunch({platform:'linux',env:{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/tools/qterminal'},nodePath:process.execPath,args:['-e','process.stdout.write(process.argv[1])','--',"Data ' \" ; $() 单播"],resolve});expect(plan.args.slice(0,3)).toEqual(['-e','/bin/sh','-c']);expect(execFileSync('/bin/sh',plan.args.slice(2),{encoding:'utf8'})).toBe("Data ' \" ; $() 单播");});
   it('preserves a special data home and every argument through the Windows Node bootstrap',()=>{
     const home='C:\\Data %PATH%! & "quote" \' 单播';const values=['space value','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
@@ -167,11 +214,18 @@ describe('terminal launcher acceptance',()=>{
     child.emit('spawn');await vi.advanceTimersByTimeAsync(250);child.emit('close',7);
     expect(await result).toMatchObject({message:expect.stringMatching(/launcher.*exit.*7/i)});expect(child.kill).not.toHaveBeenCalled();
   });
-  it('bounds a transient bootstrap and kills its owned process on the completion deadline',async()=>{
+  it('bounds cleanup when a transient bootstrap never confirms its exit',async()=>{
     vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
     const result=waitForLaunch(child,{waitForExit:true}).then(()=>undefined,error=>error as Error);
     child.emit('spawn');await vi.advanceTimersByTimeAsync(9_999);expect(child.kill).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(await result).toMatchObject({message:expect.stringMatching(/bootstrap.*did not complete/i)});expect(child.kill).toHaveBeenCalledOnce();expect(child.unref).not.toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');expect(child.unref).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await result).toMatchObject({message:expect.stringMatching(/bootstrap.*did not complete/i)});expect(child.kill).toHaveBeenCalledTimes(2);expect(child.kill).toHaveBeenLastCalledWith('SIGKILL');expect(child.unref).toHaveBeenCalledOnce();
+  });
+  it('absorbs late native errors after accepting a detached application',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();
+    const result=waitForLaunch(child);child.emit('spawn');await vi.advanceTimersByTimeAsync(100);await result;
+    expect(()=>{child.emit('error',new Error('late native error'));child.emit('error',new Error('another native error'));}).not.toThrow();
   });
 });

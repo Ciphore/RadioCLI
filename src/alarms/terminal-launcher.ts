@@ -3,7 +3,7 @@ import {createServer, type Socket} from 'node:net';
 import {randomBytes} from 'node:crypto';
 import {listenLoopback} from '../platform/loopback.js';
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
-import {detectGraphicalTerminal, launchTerminalCommand, type TerminalOptions, type TerminalResolver} from '../platform/terminals.js';
+import {detectGraphicalTerminal, launchTerminalCommand, type TerminalOptions} from '../platform/terminals.js';
 
 export type AlarmTerminalLaunchResult = {opened: boolean; requested?: boolean; terminal: string; message: string};
 type LaunchOptions = TerminalOptions & {
@@ -14,10 +14,6 @@ type LaunchOptions = TerminalOptions & {
 };
 type PermissionOptions = TerminalOptions & {permissionTimeoutMs?: number};
 type ProbeOptions = PermissionOptions & {nodePath?: string; timeoutMs?: number};
-
-export function detectAlarmTerminal(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, resolve?: TerminalResolver): string {
-  return detectGraphicalTerminal(platform, env, resolve);
-}
 
 export async function openAlarmControls(options: LaunchOptions): Promise<AlarmTerminalLaunchResult> {
   if (options.hasLiveTui?.()) return {opened: false, terminal: 'existing-tui', message: 'An existing RadioCLI TUI will show the ringing controls.'};
@@ -37,7 +33,7 @@ export async function prepareAlarmTerminalAccess(options: PermissionOptions = {}
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   if (nativeAdapters(identifyPlatform({platform, env})).terminal !== 'macos') return;
-  const terminal = detectAlarmTerminal(platform, env, options.resolve);
+  const terminal = detectGraphicalTerminal(platform, env, options.resolve);
   const application = terminal === 'darwin:apple-terminal' ? 'Terminal' : terminal === 'darwin:iterm' ? 'iTerm' : undefined;
   if (!application) return;
   const launch = options.spawn ?? spawnAttached;
@@ -55,7 +51,7 @@ export async function verifyAlarmTerminalLaunch(options: ProbeOptions = {}): Pro
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   await prepareAlarmTerminalAccess(options);
-  const terminal = detectAlarmTerminal(platform, env, options.resolve);
+  const terminal = detectGraphicalTerminal(platform, env, options.resolve);
   if (terminal.endsWith(':unsupported')) throw new Error('No supported graphical terminal was found for automatic alarm controls.');
   const token = randomBytes(24).toString('base64url');
   const server = createServer();

@@ -1,7 +1,6 @@
-import {ffplayInstallCommand, mpvInstallCommand, readLinuxOsRelease} from '../platform/packages.js';
-export {mpvInstallCommand};
-import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
-import {commandExists} from './command.js';
+import {ffplayInstallCommand, mpvInstallCommand, type PackageHintOptions} from '../platform/packages.js';
+import {identifyPlatform, nativeAdapters, readLinuxOsRelease} from '../platform/runtime.js';
+import {commandExists} from '../platform/executables.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 
 type PlaybackBackendDetectionOptions = {
@@ -104,22 +103,24 @@ export function playbackBackendLabel(backend: string | null | undefined): string
 
 export function playbackBackendInstallHint(
   platform: NodeJS.Platform = process.platform,
-  osRelease = readLinuxOsRelease()
+  osRelease = readLinuxOsRelease(platform),
+  options: PackageHintOptions = {}
 ): string {
-  return `Run radiocli setup to install mpv for playback (${mpvInstallCommand(platform, osRelease)}), then run radiocli doctor.`;
+  return `Run radiocli setup to install mpv for playback (${mpvInstallCommand(platform, osRelease, process.env, options)}), then run radiocli doctor.`;
 }
 
 export function playbackBackendStatusLines(
   backends: string[],
   platform: NodeJS.Platform = process.platform,
-  osRelease = readLinuxOsRelease()
+  osRelease = readLinuxOsRelease(platform),
+  options: PackageHintOptions = {}
 ): string[] {
   const backendSet = new Set(backends);
   const lines = [
     'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
     'guided_setup=radiocli setup',
-    `install_mpv=${mpvInstallCommand(platform, osRelease)}`,
-    `optional_ffplay=${ffplayInstallCommand(platform, osRelease)}`
+    `install_mpv=${mpvInstallCommand(platform, osRelease, process.env, options)}`,
+    `optional_ffplay=${ffplayInstallCommand(platform, osRelease, process.env, options)}`
   ];
 
   if (backendSet.has('mpv')) {

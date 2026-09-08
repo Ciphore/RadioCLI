@@ -1,5 +1,5 @@
 import {spawn as nodeSpawn} from 'node:child_process';
-import {resolveCommandDetails} from '../player/command.js';
+import {resolveCommandDetails} from '../platform/executables.js';
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 
 type InhibitorStatus = {supported: boolean; active: boolean; message: string};

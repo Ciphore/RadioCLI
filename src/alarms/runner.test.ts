@@ -166,7 +166,31 @@ describe('alarm runner',()=>{
 
   it('reconciles the next daily occurrence before keep-playing can run indefinitely',async()=>{const recurring:Alarm={...alarm,schedule:{type:'recurring',time:'08:00',weekdays:[1,2,3,4,5,6,7],timezone:'UTC'}};let signal:()=>void=()=>{};const sync=vi.fn(async()=>null);const d=deps({store:{...deps().store,getAlarm:vi.fn(()=>recurring)},scheduler:{sync},createSession:vi.fn(async(_status,handlers)=>{handlers.onKeepPlaying();return{update:vi.fn(),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{})),subscribeSignals:handler=>{signal=handler;return vi.fn();}});const running=runAlarm('a',scheduledAt,d);for(let attempt=0;attempt<10&&sync.mock.calls.length===0;attempt+=1)await Promise.resolve();expect(sync).toHaveBeenCalledWith(recurring);signal();await running;});
 
-  it('hands playback to the interactive player without restoring the alarm output level',async()=>{const release=vi.fn(async()=>{});const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(status,handlers)=>{expect(status.station).toEqual(station);return{update:vi.fn(change=>{if(change.state==='playing')queueMicrotask(()=>handlers.onHandoff?.());}),close:vi.fn(async()=>{})};})});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(result.message).toContain('Handed off');expect(release).not.toHaveBeenCalled();expect(d.player.stop).toHaveBeenCalled();});
+  it('hands playback to the interactive player and releases shared ownership while preserving output',async()=>{const release=vi.fn(async()=>{});const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(status,handlers)=>{expect(status.station).toEqual(station);return{update:vi.fn(change=>{if(change.state==='playing')queueMicrotask(()=>handlers.onHandoff?.());}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{}))});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(result.message).toContain('Handed off');expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});expect(d.player.stop).toHaveBeenCalled();});
+
+  it('does not accept a handoff if preserving shared output ownership fails',async()=>{
+    let handlers:Parameters<AlarmRunnerDeps['createSession']>[1]|undefined;
+    let playing:()=>void=()=>{};const started=new Promise<void>(resolve=>{playing=resolve;});
+    const release=vi.fn().mockRejectedValueOnce(new Error('ownership disk full')).mockResolvedValue(undefined);
+    const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(_status,value)=>{handlers=value;return{update:vi.fn(change=>{if(change.state==='playing')playing();}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{}))});
+    const running=runAlarm('a',scheduledAt,d);await started;
+    await expect(Promise.resolve().then(()=>handlers!.onHandoff!())).rejects.toThrow('ownership disk full');
+    await handlers!.onDismiss();expect((await running).status).toBe('dismissed');
+    expect(release).toHaveBeenNthCalledWith(1,{preserve:true});expect(release).toHaveBeenNthCalledWith(2);
+  });
+
+  it('waits for an in-progress handoff before timeout cleanup can restore shared output',async()=>{
+    let handlers:Parameters<AlarmRunnerDeps['createSession']>[1]|undefined;
+    let playing:()=>void=()=>{};const started=new Promise<void>(resolve=>{playing=resolve;});
+    let preserved:()=>void=()=>{};const preserving=new Promise<void>(resolve=>{preserved=resolve;});
+    let timedOut:()=>void=()=>{};const timeout=new Promise<void>(resolve=>{timedOut=resolve;});
+    const release=vi.fn(async(options?:{preserve?:boolean})=>{if(options?.preserve)await preserving;});
+    const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(_status,value)=>{handlers=value;return{update:vi.fn(change=>{if(change.state==='playing')playing();}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>timeout)});
+    const running=runAlarm('a',scheduledAt,d);await started;const handoff=handlers!.onHandoff!();timedOut();
+    try{for(let turn=0;turn<20;turn+=1)await Promise.resolve();expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});}
+    finally{preserved();await handoff;await running;}
+    expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});
+  });
 
   it('claims the alarm before resolving and preempts interactive playback before raising output or tuning',async()=>{const events:string[]=[];const base=deps();const d=deps({providers:{resolve:vi.fn(async()=>{events.push('resolve');return{url:'https://main'};})},preemptInteractivePlayback:vi.fn(async()=>{events.push('preempt');}),systemVolume:{acquireMinimum:vi.fn(async()=>{events.push('system-volume');return{message:'raised',release:vi.fn(async()=>{})};})},player:{...base.player,play:vi.fn(async()=>{events.push('play');})},createSession:vi.fn(async(status,handlers)=>{events.push(`claim-${status.state}`);return{update:vi.fn(change=>{events.push(`update-${change.state}`);queueMicrotask(()=>handlers.onDismiss());}),close:vi.fn(async()=>{})};})});await runAlarm('a',scheduledAt,d);expect(events).toEqual(['claim-starting','resolve','preempt','system-volume','play','update-playing']);});
 

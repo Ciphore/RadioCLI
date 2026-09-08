@@ -3,16 +3,16 @@ import {spawn} from 'node:child_process';
 import {existsSync, unlinkSync} from 'node:fs';
 import {createServer, type Server} from 'node:net';
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {commandExists} from './command.js';
+import {commandExists} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
-import {createMpvIpcPath, extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
+import {extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
 import type {AirPlayDevice, AppSettings, Station} from '../types.js';
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }));
 
-vi.mock('./command.js', () => ({
+vi.mock('../platform/executables.js', () => ({
   commandExists: vi.fn(),
   resolveCommand: vi.fn()
 }));
@@ -61,16 +61,6 @@ describe('extractMpvTitle', () => {
 
   it('strips standard StreamTitle wrappers', () => {
     expect(extractMpvTitle({StreamTitle: "StreamTitle='Artist - Song';"})).toBe('Artist - Song');
-  });
-});
-
-describe('createMpvIpcPath', () => {
-  it('uses a Unix socket path on POSIX platforms', () => {
-    expect(createMpvIpcPath('linux', 123, 456)).toMatch(/radiocli-123-456\.sock$/);
-  });
-
-  it('uses a Windows named pipe path on native Windows', () => {
-    expect(createMpvIpcPath('win32', 123, 456)).toBe('\\\\.\\pipe\\radiocli-123-456');
   });
 });
 

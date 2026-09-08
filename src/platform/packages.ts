@@ -1,10 +1,10 @@
-import {existsSync, readFileSync} from 'node:fs';
 import {commandExists} from './executables.js';
 import {powershellCommand} from './shell.js';
-import {identifyPlatform, type PlatformProfile} from './runtime.js';
+import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './runtime.js';
 
 export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
-export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper' | 'pkg' | 'pkg_add' | 'pkgin' | 'termux-pkg' | 'pkgman';
+export const packageManagers = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'] as const;
+export type SetupPackageManager = typeof packageManagers[number];
 
 export type SetupCommand = {
   component: SetupComponent | null;
@@ -13,8 +13,6 @@ export type SetupCommand = {
   args: string[];
   display: string;
 };
-
-export const packageManagers: SetupPackageManager[] = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'];
 
 /** FreeBSD pkg and Termux pkg have distinct recipes and privilege models. */
 export function packageManagerProgram(manager: SetupPackageManager): string {
@@ -73,18 +71,8 @@ export function packageInstallCommand(
   component: SetupComponent,
   {elevation = 'sudo'}: {elevation?: 'sudo' | 'doas' | null} = {}
 ): SetupCommand | null {
-  const packages: Record<SetupPackageManager, Partial<Record<SetupComponent, string>>> = {
-    brew: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
+  const packages: Partial<Record<SetupPackageManager, Partial<Record<SetupComponent, string>>>> = {
     winget: {mpv: 'shinchiro.mpv', ffmpeg: 'Gyan.FFmpeg', vlc: 'VideoLAN.VLC'},
-    scoop: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    choco: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apt: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    dnf: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    pacman: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apk: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    zypper: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    pkg: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    pkg_add: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
     // pkgsrc FFmpeg/ffplay packages and executables carry a major version.
     // Choose an available matching pair manually instead of guessing a catalog.
     pkgin: {mpv: 'mpv', vlc: 'vlc'},
@@ -93,7 +81,7 @@ export function packageInstallCommand(
     'termux-pkg': {mpv: 'mpv'},
     pkgman: {mpv: 'mpv', ffmpeg: 'ffmpeg8_tools'}
   };
-  const packageName = packages[manager][component];
+  const packageName = packages[manager] ? packages[manager][component] : component;
   if (!packageName) return null;
   let program = packageManagerProgram(manager);
   let args: string[];
@@ -103,11 +91,10 @@ export function packageInstallCommand(
   else if (manager === 'scoop') args = ['install', packageName];
   else if (manager === 'choco') args = ['install', packageName, '-y'];
   else if (manager === 'apt') { program = 'apt-get'; args = ['install', '-y', packageName]; }
-  else if (manager === 'dnf') args = ['install', '-y', packageName];
   else if (manager === 'pacman') args = ['-S', '--needed', '--noconfirm', packageName];
   else if (manager === 'apk') args = ['add', packageName];
   else if (manager === 'zypper') args = ['--non-interactive', 'install', packageName];
-  else if (manager === 'pkg' || manager === 'termux-pkg' || manager === 'pkgman') args = ['install', '-y', packageName];
+  else if (manager === 'dnf' || manager === 'pkg' || manager === 'termux-pkg' || manager === 'pkgman') args = ['install', '-y', packageName];
   else if (manager === 'pkg_add') args = ['-I', packageName];
   else args = ['-y', 'install', packageName];
 
@@ -163,15 +150,6 @@ function firstAvailable<T extends string>(values: T[], hasCommand: (command: str
   return values.find(hasCommand) ?? null;
 }
 
-export function readLinuxOsRelease(platform: NodeJS.Platform = process.platform): string {
-  if (platform !== 'linux' || !existsSync('/etc/os-release')) return '';
-  try {
-    return readFileSync('/etc/os-release', 'utf8');
-  } catch {
-    return '';
-  }
-}
-
 function linuxReleaseIds(osRelease: string): Set<string> {
   const ids = new Set<string>();
   for (const line of osRelease.split('\n')) {
@@ -191,90 +169,47 @@ function hasAny(values: Set<string>, candidates: string[]): boolean {
   return candidates.some(candidate => values.has(candidate));
 }
 
-export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env): string {
-  if (identifyPlatform({platform, osRelease, env}).id === 'termux') return 'pkg install -y mpv';
-  if (platform === 'darwin') {
-    return 'brew install mpv';
-  }
+export type PackageHintOptions = {
+  hasCommand?: (command: string) => boolean;
+  getUid?: () => number | undefined;
+};
 
-  if (platform === 'win32') {
-    return 'winget install --id shinchiro.mpv -e';
-  }
-
-  if (platform === 'freebsd') return 'pkg install -y mpv (as root, or use sudo/doas)';
-  if (platform === 'openbsd') return 'doas pkg_add -I mpv';
-  if (platform === 'netbsd' || platform === 'sunos') return 'pkgin -y install mpv (with pkgsrc configured, as root or using sudo/doas)';
-  if (platform === 'haiku') return 'pkgman install -y mpv';
-  if (platform === 'aix') return 'manual native player required; no verified AIX mpv package recipe (set RADIOCLI_MPV_PATH)';
-
-  if (platform !== 'linux') {
-    return 'install mpv with your system package manager';
-  }
-
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install mpv';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install mpv';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S mpv';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add mpv';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install mpv';
-  }
-
-  return 'install mpv with your system package manager';
+export function packageManagerElevation(hasCommand: (command: string) => boolean, isRoot: boolean): 'sudo' | 'doas' | null {
+  return isRoot ? null : firstAvailable(['sudo', 'doas'], hasCommand);
 }
 
-export function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env): string {
-  if (identifyPlatform({platform, osRelease, env}).id === 'termux') return 'enable x11-repo manually, then pkg install -y ffplay (requires configured display/audio); use mpv for audio';
-  if (platform === 'darwin') {
-    return 'brew install ffmpeg';
-  }
+export function packageInstallPrerequisites(manager: SetupPackageManager, components: SetupComponent[]): SetupCommand[] {
+  if (manager !== 'scoop' || !components.some(component => component === 'mpv' || component === 'vlc')) return [];
+  return [{component: null, label: 'Scoop extras bucket', program: 'scoop', args: ['bucket', 'add', 'extras'], display: 'scoop bucket add extras'}];
+}
 
-  if (platform === 'win32') {
-    return 'winget install --id Gyan.FFmpeg -e';
-  }
+export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env, options: PackageHintOptions = {}): string {
+  return playbackInstallHint('mpv', platform, osRelease, env, options);
+}
 
-  if (platform === 'freebsd') return 'pkg install -y ffmpeg; ffplay requires the SDL build option';
-  if (platform === 'openbsd') return 'doas pkg_add -I ffmpeg';
-  if (platform === 'netbsd' || platform === 'sunos') return 'install a matching pkgsrc ffmpegN/ffplayN pair; set RADIOCLI_FFPLAY_PATH';
-  if (platform === 'haiku') return 'pkgman install -y ffmpeg8_tools';
-  if (platform === 'aix') return 'manual native player required; no verified AIX ffplay package recipe (set RADIOCLI_FFPLAY_PATH)';
+export function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env, options: PackageHintOptions = {}): string {
+  return playbackInstallHint('ffmpeg', platform, osRelease, env, options);
+}
 
-  if (platform !== 'linux') {
-    return 'install FFmpeg with your system package manager';
-  }
+function playbackInstallHint(component: 'mpv' | 'ffmpeg', platform: NodeJS.Platform, osRelease: string, env: NodeJS.ProcessEnv, {hasCommand = commandExists, getUid = process.getuid}: PackageHintOptions): string {
+  const host = identifyPlatform({platform, osRelease, env});
+  const player = component === 'mpv' ? 'mpv' : 'ffplay';
+  if (host.id === 'aix') return `manual native player required; no verified AIX ${player} package recipe (set RADIOCLI_${player.toUpperCase()}_PATH)`;
+  const manager = detectPackageManager(platform, osRelease, hasCommand, env);
+  if (component === 'ffmpeg' && host.id === 'termux') return `enable x11-repo manually, then ${manager ? 'pkg install -y ffplay' : 'install the separate ffplay package manually'} (requires configured display/audio); use mpv for audio`;
+  if (component === 'ffmpeg' && (platform === 'netbsd' || platform === 'sunos')) return 'manually install a matching pkgsrc ffmpegN/ffplayN pair; set RADIOCLI_FFPLAY_PATH';
 
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install ffmpeg';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install ffmpeg';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S ffmpeg';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add ffmpeg';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install ffmpeg';
-  }
-
-  return 'install FFmpeg with your system package manager';
+  const notes: string[] = [];
+  if (component === 'ffmpeg' && platform === 'freebsd') notes.push('ffplay requires the SDL build option');
+  if (!manager) return [`install ${component === 'mpv' ? 'mpv' : 'FFmpeg'} manually; no supported package manager was found`, ...notes].join('; ');
+  const isRoot = getUid?.() === 0;
+  const elevation = packageManagerElevation(hasCommand, isRoot);
+  const command = packageInstallCommand(manager, component, {elevation});
+  if (!command) return `install ${componentLabel(component)} manually`;
+  if (packageManagerNeedsRoot(manager) && !isRoot && !elevation) notes.unshift('run as root; sudo/doas unavailable');
+  if (manager === 'pkgin') notes.push('requires configured pkgsrc');
+  if (manager === 'termux-pkg' && isRoot) notes.push('run as the normal Termux app user, without root');
+  const prerequisites = packageInstallPrerequisites(manager, [component]);
+  for (const prerequisite of prerequisites) notes.push(`first run ${prerequisite.display}`);
+  return command.display + (notes.length ? ` (${notes.join('; ')})` : '');
 }

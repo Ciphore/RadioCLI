@@ -1,18 +1,13 @@
 import {EventEmitter} from 'node:events';
 import {spawn as nodeSpawn,type ChildProcess,type SpawnOptions} from 'node:child_process';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
-import {launchRadioTui,resolveExecutable} from './launcher.js';
+import {launchRadioTui} from './launcher.js';
 
 vi.mock('node:child_process',async importOriginal=>({...await importOriginal<typeof import('node:child_process')>(),spawn:vi.fn()}));
-const roots:string[]=[];
 const calls:Array<{command:string;args:readonly string[];options?:SpawnOptions}>=[];
 const spawn=vi.fn((command:string,args:readonly string[],options?:SpawnOptions)=>{calls.push({command,args,options});const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();queueMicrotask(()=>{child.emit('spawn');child.emit('close',0);});return child;});
 beforeEach(()=>{calls.length=0;spawn.mockClear();vi.mocked(nodeSpawn).mockImplementation(spawn as unknown as typeof nodeSpawn);});
-afterEach(()=>{vi.restoreAllMocks();vi.unstubAllEnvs();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-function fixture(){const root=mkdtempSync(join(tmpdir(),'radiocli-launcher-'));roots.push(root);return root;}
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllEnvs();});
 function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): {command: string; args: string[]} {
   const encodedScript = args[args.indexOf('-EncodedCommand') + 1];
   const script = Buffer.from(encodedScript!, 'base64').toString('utf16le');
@@ -25,10 +20,6 @@ function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv 
 }
 
 describe('agent graphical launcher',()=>{
-  it('does not resolve a directory as a command',()=>{const root=fixture();const path=join(root,'radiocli-test-command');mkdirSync(path);expect(resolveExecutable(path,{PATH:root},'linux')).toBeUndefined();});
-  it.skipIf(process.platform==='win32')('requires executable permission for Unix commands',()=>{const root=fixture();const path=join(root,'radiocli-test-command');writeFileSync(path,'test',{mode:0o600});expect(resolveExecutable(path,{PATH:root},'linux')).toBeUndefined();});
-  it('preserves the existing executable lookup API for runnable files',()=>{const root=fixture();const path=join(root,`radiocli-test-command${process.platform==='win32'?'.exe':''}`);writeFileSync(path,'test',{mode:0o700});expect(resolveExecutable('radiocli-test-command',{PATH:root},process.platform)).toBe(path);});
-
   it.each(['win32:console','win32:windows-terminal'])('encodes hostile paths and the data home without cmd interpolation in %s',async terminal=>{
     const home='C:\\Data %PATH%! & "quoted" \' 单播';const nodePath='C:\\Node %TEMP%! & 单播\\node.exe';const cliPath='C:\\Radio %PATH%! & 单播\\cli.js';
     await launchRadioTui(nodePath,cliPath,'encoded-agent-command',{platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:terminal,RADIOCLI_HOME:home},spawn,resolve:command=>command});
@@ -45,5 +36,9 @@ describe('agent graphical launcher',()=>{
   });
 
   it('does not launch a graphical terminal in a headless Unix session',async()=>{await expect(launchRadioTui('/node','/cli.js','encoded',{platform:'linux',env:{RADIOCLI_ALARM_TERMINAL:'linux:/usr/bin/kitty'},spawn,resolve:command=>command})).rejects.toThrow(/graphical|display|headless/i);expect(spawn).not.toHaveBeenCalled();});
-  it.each(['freebsd','openbsd','netbsd'] as const)('requests the same agent session command in a supported %s desktop',async platform=>{await launchRadioTui('/node','/cli.js','encoded',{platform,env:{DISPLAY:':0',TERMINAL:'xterm'},spawn,resolve:command=>command==='xterm'?'/usr/local/bin/xterm':undefined});expect(calls[0]).toMatchObject({command:'/usr/local/bin/xterm',args:['-e','/node','/cli.js','agent-ui','encoded']});});
+  it.each(['freebsd','openbsd','netbsd'] as const)('requests the same agent session command in a supported %s desktop',async platform=>{
+    await launchRadioTui('/node','/cli.js','encoded',{platform,env:{DISPLAY:':0',TERMINAL:'xterm'},spawn,resolve:command=>command==='xterm'?'/usr/local/bin/xterm':undefined});
+    expect(calls[0]!.command).toBe('/usr/local/bin/xterm');expect(calls[0]!.args.slice(0,3)).toEqual(['-e','/node','-e']);
+    expect(JSON.parse(Buffer.from(calls[0]!.args.at(-1)!,'base64url').toString('utf8'))).toEqual({args:['/cli.js','agent-ui','encoded'],environment:{}});
+  });
 });

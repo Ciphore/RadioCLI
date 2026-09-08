@@ -68,6 +68,14 @@ describe('safe executable configuration and permissions', () => {
     expect(resolveCommandDetails(directory).path).toBeNull();
   });
 
+  it('finds a runnable agent command on the supplied PATH', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-executable-'));
+    roots.push(root);
+    const path = join(root, `radiocli-test-command${process.platform === 'win32' ? '.exe' : ''}`);
+    writeFileSync(path, 'test', {mode: 0o700});
+    expect(resolveCommandDetails('radiocli-test-command', {env: {PATH: root}, platform: process.platform}).path).toBe(path);
+  });
+
   it.skipIf(process.platform === 'win32')('honors POSIX executable permission and environment changes without a stale cache', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-executable-'));
     roots.push(root);
