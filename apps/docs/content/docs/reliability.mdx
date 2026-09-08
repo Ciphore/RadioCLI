@@ -15,6 +15,8 @@ requirement.
 - station codecs can be mislabeled
 - ICY metadata can be absent, malformed, or delayed
 - terminal dimensions can change mid-session
+- a data directory can become read-only, inaccessible, or full
+- a native service can fail even when its command is installed
 
 ## Current Defenses
 
@@ -22,7 +24,7 @@ requirement.
 - sharded, bounded provider cache with per-entry corruption isolation and stale fallback
 - cached geotagged station atlas for Explore and Nearby, with local
   distance-first ranking
-- bounded network calls for provider and location lookups
+- public HTTP deadlines that cover headers and response bodies
 - tune timeout
 - skip-to-next on failed tune when enabled
 - `mpv` IPC readiness check
@@ -34,8 +36,9 @@ requirement.
   playback states
 - metadata polling through `mpv`, avoiding a second stream listener
 - user-controllable approximate-location lookup, requested only when Nearby opens
-- corrupt store/cache backups
+- required corrupt-library backups and separate best-effort cache recovery
 - locked, atomic local JSON writes with concurrent-process merge protection
+- nonfatal optional TUI history saves, with explicit errors for failed edits
 - defensive playlist import
 - functional compact navigation for tiny terminals
 - native per-user alarm registration on launchd, Windows Task Scheduler, and
@@ -44,6 +47,62 @@ requirement.
   optional fallback station, stop-after, and machine-local runtime health
 - authenticated loopback controls for alarms that began while no TUI was open
 - best-effort playback sleep inhibition and optional pre-alarm Guard
+
+## Network Requests
+
+Radio Browser mirror attempts share a bounded deadline. A response that sends
+headers but stalls while sending JSON cannot keep a request open indefinitely.
+Usable stale cache entries remain available after a request fails, and a failed
+cache write does not turn a successful response into a directory outage.
+
+RadioCLI's public HTTP client supports HTTP(S) proxies through Node's native
+`fetch`. On Node 22.21 or newer in the 22 release line, or Node 24 or newer, set
+`NODE_USE_ENV_PROXY=1` before starting RadioCLI along with `HTTP_PROXY` or
+`HTTPS_PROXY`; Node also reads `NO_PROXY`. A configured proxy without the
+required startup opt-in is reported instead of silently using a direct
+connection. See [Node's proxy configuration documentation](https://nodejs.org/learn/http/enterprise-network-configuration#proxy-configuration).
+
+SOCKS proxies and `ALL_PROXY` as the sole proxy configuration are unsupported by
+this client and produce an actionable error. Proxy support leaves Node's TLS
+verification and certificate configuration unchanged. It does not configure
+the external player's networking. Authenticated local control uses literal
+loopback addresses and direct HTTP requests regardless of proxy settings.
+
+| Setting | Behavior |
+| --- | --- |
+| `RADIOCLI_OFFLINE=1` | Block RadioCLI's public Node HTTP requests, including directory, location, vote, and update requests; use available cached directory results and saved direct stream URLs |
+| `RADIOCLI_LOW_BANDWIDTH=1` | Use only a cached geotagged atlas for Explore and Nearby; smaller searches, health checks, location lookups, and manual controls remain available |
+
+A missing cache entry is reported rather than fetched in offline mode. These
+flags do not put the operating system or native player offline: a requested
+direct stream can still connect to its station. They do not download audio for
+offline listening.
+
+Both flags skip automatic AirPlay receiver discovery. Offline mode also blocks
+manual discovery and reports the setting; low-bandwidth mode allows an explicit
+receiver refresh. Existing authenticated loopback controls and the stdio MCP
+transport remain available offline.
+
+## Library Write Failures
+
+Library access errors preserve the existing bytes. An unreadable file is not
+renamed as corrupt or replaced with defaults, and an inaccessible current
+library does not trigger a switch to an older legacy file. If corrupt
+JSON cannot be backed up, RadioCLI leaves it intact and reports the backup
+failure.
+
+Atomic replacement requires a writable library file and destination directory.
+A failed lock, write, permission change, or rename leaves the previous committed
+state intact. Cleanup errors cannot replace the original failure or make a
+completed replacement appear to have failed.
+
+When the library can be read but cannot be written, the TUI can still tune,
+navigate, stop, and quit. Optional history failures produce a library warning;
+they do not turn successful playback into a failed tune or prevent a sleep
+timer or alarm takeover from stopping it. Settings and favorite edits remain
+explicit saves and report failure without changing the saved state. Check the
+directory's permissions or choose a private writable location with
+`RADIOCLI_HOME`.
 
 ## Scheduled Radio Delivery
 
@@ -70,13 +129,26 @@ that audio.
 | Windows | Task Scheduler interactive-token task | `StartWhenAvailable` | `WakeToRun` is requested when enabled, but hardware and power policy decide |
 | Linux with systemd user session | systemd user timer | persistent timer catches up after the user session resumes | No `WakeSystem` claim without system privileges |
 | Linux without systemd user scheduling | Unsupported | None | None |
+| BSD, Termux, and other experimental targets | No verified alarm adapter | None claimed | None claimed |
+
+An installed scheduler executable alone is insufficient. Registration and
+diagnostics check the user service; a Linux host without a reachable systemd
+user manager cannot register reliable background alarms. RadioCLI does not
+substitute cron or a process-local timer for an unsupported native scheduler.
+The [platform support matrix](./platforms.mdx) separates runtime eligibility
+from verified RadioCLI behavior.
 
 Terminal reopening supports Apple Terminal, iTerm2, WezTerm, Ghostty, and kitty
-on macOS; Windows Terminal with Command Prompt fallback on Windows; and common
+on macOS; Windows Terminal or a PowerShell console on Windows; and common
 GUI terminal emulators on Linux. Integrated terminals that cannot be launched
 independently fall back to the platform terminal where possible. If a graphical
 terminal is unavailable, audio still plays and opening `radiocli` manually
 reveals the authenticated ringing controls.
+
+The Windows console launcher waits for its temporary PowerShell bootstrap to
+finish creating a separate console. Successful bootstrap completion still does
+not establish TUI readiness; the caller verifies the expected session. The
+console adapter requires PowerShell to permit .NET/native interop.
 
 All three supported adapters require the computer to be powered on and the user
 to have a logged-in interactive audio session with usable local speakers. A
@@ -95,6 +167,13 @@ power and does not override shutdown, hibernate, explicit sleep, lid policy,
 logout, or other OS decisions. Guard state is machine-local and is reconciled
 again after each alarm change.
 
+If an inhibitor helper exits unexpectedly, runtime health reports lost sleep
+protection while playback can continue. If Guard ownership cannot be verified,
+its record is retained for repair and its PID is not signaled. A failed native
+job removal is accepted only after the exact job is confirmed absent; otherwise
+the alarm definition and repair artifacts remain available. RadioCLI reports
+these cases as unresolved rather than claiming protection or cleanup succeeded.
+
 Recurring alarms use minute precision, ISO weekdays, and an explicit IANA
 timezone. In a spring daylight-saving gap, RadioCLI uses the first valid minute
 later on that civil date. In a fall overlap, it fires the first matching instant
@@ -104,7 +183,8 @@ definitions keep their own IANA timezone, while the platform job contains the
 already-resolved next instant.
 
 When a native job starts late, the missed-run grace decides whether it still
-plays. A due alarm tries its primary station twice, with a short bounded backoff,
+plays. An early launch does not mark the occurrence complete or consume its due
+dispatch. A due alarm tries its primary station twice, with a short bounded backoff,
 then tries the configured fallback. It stops after the requested number of
 minutes unless playback is transferred into the interactive TUI. True fade-in requires `mpv`;
 `ffplay` and VLC start at the target volume because they lack dependable runtime
@@ -112,9 +192,11 @@ volume control. Scheduled audio is local-speaker only; unattended AirPlay is
 intentionally disabled.
 
 Before starting the player, RadioCLI also checks the default local system output.
-If it is muted or below the alarm's configured volume, the runner unmutes it and
-raises it to at least that level, then restores the previous device state when
-the alarm ends. This uses macOS output-volume scripting, Windows Core Audio
+If it is muted or below the alarm's configured volume, the runner attempts to
+unmute it and raise it to at least that level. It attempts to restore the prior
+state when the alarm ends. A partial mixer change triggers a rollback attempt;
+a failed restore is reported and remains retryable. This uses macOS
+output-volume scripting, Windows Core Audio
 through built-in PowerShell, or `wpctl`, `pactl`, or `amixer` on Linux. If the
 host exposes none of those controls, player volume still applies and runtime
 diagnostics report that the system output could not be raised.

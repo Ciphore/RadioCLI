@@ -37,11 +37,11 @@ Repository configuration, README, security/contribution guidance, architecture,
 design, reliability, installation, alarm, packaging, roadmap, and CI documents
 were inspected before implementation. No repository-specific `AGENTS.md` or shared
 repository memory was present. The initial local-only editor configuration was
-removed at the owner's subsequent request for a clean checkout.
+removed as requested for a clean checkout.
 
 The initial local test counts also included 216 duplicate tests from an ignored
 legacy security-audit scratch copy. It was discovered during comparison with
-the isolated staged tree and removed under the owner's clean-checkout request.
+the isolated staged tree and removed under the clean-checkout request.
 The actual original repository contains 690 tests; the committed baseline tree
 passes all 1,268 tests (690 original plus 578 captures) on Node 22.23.2.
 
@@ -68,7 +68,7 @@ On native macOS 26.5.2 arm64 with Node 26.8.1/npm 11.19.0:
 
 Node 26 is supplementary evidence. Node 22/24 runs, native playback checks,
 deterministic visual captures, and the final package matrix are recorded in the
-verification report as they are completed. An interrupted playback attempt during
+[verification report](verification.md). An interrupted playback attempt during
 dependency replacement is not playback evidence.
 
 A second baseline on Node 22.23.2 reproduced the alarm-test race (888 passed,
@@ -157,3 +157,123 @@ scheduler support remains a separate capability from general CLI/TUI support.
 Haiku, illumos/SmartOS, AIX, musl, and uncommon architectures require exact runtime
 and playback evidence before any promotion in tier. Windows XP and separate
 legacy applications are outside the initiative.
+
+## Implementation and compatibility review
+
+The final platform layer lives in `src/platform/`. Runtime identity and upstream
+runtime eligibility are separate from verified project support. Capability
+results keep playback, storage, desktop integration, terminal reopening,
+scheduling, power, volume, rendering, and AirPlay independent. Doctor reports
+the current installation's evidence scope; it does not claim acceptance tests
+were run merely because a reference CI machine passed.
+
+The operation owners remain in `player`, `providers`, `storage`, `alarms`,
+`agent`, and `ui`. Existing launchd, Task Scheduler, and systemd adapters remain
+in place. They now preserve cleanup evidence on actual failure, check a usable
+systemd user manager, retain unverified live Guard ownership records, and avoid
+consuming an alarm occurrence when a scheduler invokes it early. Terminal launch
+requests preserve literal arguments, necessary player/session environment, and
+the existing saved descriptors. Windows uses an encoded Node bootstrap across
+PowerShell's native-argument boundary; console creation is tested separately
+from a successful process request.
+
+Storage changes preserve the schema, current/legacy path precedence, library
+filenames, and settings defaults. Writes stage the next in-memory state and
+publish it only after atomic persistence succeeds. Failed writes keep the old
+file and in-memory state; an error in optional history, cache, presence, or
+listening statistics is reported without stopping unrelated playback. No data
+migration is needed. Explicit ASCII, screen-reader, offline, and reduced-motion
+environment overrides do not rewrite saved preferences.
+
+FreeBSD, OpenBSD, NetBSD, and Termux have explicit package and executable plans.
+BSD desktop helpers require the actual display and tool. Other Unix package
+routes retain their runtime or native-player limits. Non-systemd Linux and the
+new OS targets report background scheduling as unavailable; no cron, `at`, or
+Android substitute weakens the existing delivery contract.
+
+All 578 renderer captures remain covered. Compared with the first committed
+baseline, all 335 Unicode/ANSI captures are unchanged. Of 243 ASCII captures,
+160 intentionally replace remaining decorative Unicode (including bars, bullets,
+and ellipses), while 83 are unchanged. User-supplied station names and metadata
+are preserved. See [before-and-after terminal captures](visual-before-after.txt)
+and the [complete snapshot fixture](../../src/ui/__snapshots__/visual-baseline.test.tsx.snap).
+These are renderer captures, not photographs of native terminal applications.
+Keyboard, focus, provider caching, imports/exports, storage recovery, player
+controls, and alarm lifecycle tests remain in the suite.
+
+## Dependency and security audit
+
+- `package.json`, the root lockfile, and the documentation lockfile retain the
+  original dependency versions. No runtime dependency, lifecycle package
+  installation, registry publication, or external packaging change was added.
+- Required-runtime and documentation dependency audit gates remain enabled,
+  together with strict TypeScript, unused/export/whitespace checks, and package
+  lint. Normal local installs still report the existing two low-severity
+  optional-tree advisories; required-runtime and docs audit gates pass.
+- Authenticated local control uses a direct HTTP agent and IPv4/IPv6 loopback
+  binding. Regression tests exercise actual local proxy listeners and confirm
+  private control tokens are not sent through environment proxies. Ownership
+  tokens are not inserted into terminal command lines or diagnostic output.
+- Public provider/update requests retain TLS verification and bounded deadlines
+  through response-body consumption. Native HTTP(S) proxy opt-in is diagnosed;
+  unsupported SOCKS/ALL_PROXY configurations fail explicitly. External player
+  networking remains separate. Offline mode suppresses public directory and
+  update requests, and low-bandwidth mode reduces background discovery.
+- Every CI action is pinned to a full immutable commit. New vmactions guest
+  providers run with read-only repository permissions and no repository secrets.
+  Their maintained VM image downloads remain an external supply dependency,
+  distinct from the pinned action source. Native macOS/Windows mpv fixtures use
+  fixed official release assets, pinned SHA-256 values, and CPU-header checks.
+  Linux/BSD package catalogs remain the selected distribution's trust boundary.
+  NetBSD's minimal guest additionally installs its matching official X11 base
+  set with a pinned SHA-512 digest, because the native mpv package links to those
+  OS libraries even with null output.
+
+The final review covers the complete diff from the original merge base as well
+as the native-CI corrections. Review findings are accepted only after checking
+the affected contract and reproducing the problem. In particular, an upstream
+community runtime route does not imply upstream Tier 1 support, and a screen
+reader label is evaluated against Ink's actual accessible output behavior.
+
+## Risks, limits, and rollback
+
+The broadest risk is interaction with real desktop/session policy: terminal
+permissions, task registration, audio devices, wake policy, and screen-reader
+applications need checks beyond deterministic rendering and null-audio IPC.
+Native tests do not establish every Windows desktop edition, older macOS release,
+WSL distribution, or Linux init/audio combination. The exact verification
+matrix and remaining experimental targets are recorded in the
+[platform guide](../../apps/docs/content/docs/platforms.mdx).
+
+The package still requires Node 22 or newer. Standard HaikuPorts Node 20 remains
+blocked; AIX playback, Termux devices, illumos, musl, and additional CPU targets
+retain their stated verification gaps. AirPlay stays an optional experimental
+macOS feature; loading its sender and finding Bonjour/FFmpeg do not establish a
+receiver connection. Unsupported optional capabilities cannot be promoted by
+mocked host tests or a successful build.
+
+Rollback can revert this initiative's commits on an owner-managed branch or
+restore the previously installed RadioCLI package. There is no schema downgrade
+or lockfile migration to reverse. Back up the library before changing versions.
+If this version registered alarm tasks, use its normal alarm removal/repair
+commands while its CLI remains installed, confirm native cleanup, and then
+re-register with the selected older version. Preserve failed-cleanup health and
+ownership records for diagnosis; do not delete live control state or kill a PID
+based only on an unverified record. Terminal and rendering environment overrides
+can be removed independently. The repository owner retains all merge and release
+decisions.
+
+## Reviewer checklist
+
+- Check each reference platform tier against the recorded native or full-guest
+  result, Node version, install mode, and artifact hash.
+- Confirm rich rendering against the baseline and inspect intentional ASCII
+  changes, screen-reader output, and small-terminal keyboard behavior.
+- Review quoting and environment propagation at POSIX, systemd, Windows XML,
+  PowerShell, and terminal boundaries.
+- Exercise optional-feature failures and alarm cleanup on a representative real
+  desktop before expanding its advertised feature coverage.
+- Check direct authenticated loopback control, proxy diagnostics, private file
+  permissions, failed-write preservation, and unchanged data compatibility.
+- Keep required CI and package/playback gates in the release process; retain
+  explicit limits for the extended platforms.

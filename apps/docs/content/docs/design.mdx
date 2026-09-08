@@ -1,6 +1,6 @@
 ---
 title: Design
-description: Product rationale for Ink, mpv, provider adapters, location behavior, and the receiver UI.
+description: Product rationale for the receiver UI, terminal adaptation, playback backends, and provider adapters.
 ---
 
 RadioCLI is meant to feel like a product, not a terminal proof of concept.
@@ -17,10 +17,10 @@ Radio streams are messy: redirects, playlists, HLS, odd codecs, and flaky
 metadata are normal. `mpv` already handles that complexity well and exposes JSON
 IPC for controls and metadata.
 
-`ffplay` remains as a playback fallback because it is often already installed
-with FFmpeg, but it does not provide the control and state surface RadioCLI needs
-for a polished interactive receiver. `mpv` is the intended backend for pause,
-mute, volume, media keys, metadata, and readiness checks.
+`ffplay` and VLC provide playback fallbacks when `mpv` is unavailable. Their
+limited control and state reporting is reflected in the UI. `mpv` is the
+intended backend for pause, mute, volume, media keys, metadata, and readiness
+checks.
 
 ## Why Provider Adapters
 
@@ -48,9 +48,10 @@ The UI borrows from old receiver and car head-unit displays: direct labels,
 compact hierarchy, visible status, and no fake copy. The app should be usable in
 a terminal session, not a landing page rendered in ANSI.
 
-The app shell paints its own near-black background instead of relying on the
-terminal profile color. That keeps the receiver, tabs, stats panels, and footer
-visually cohesive across terminal themes.
+On terminals with sufficient color support, the app shell paints a near-black
+background that keeps the receiver, tabs, stats panels, and footer visually
+cohesive. Transparent Background, limited-color terminals, and `NO_COLOR`
+let the terminal keep its own background.
 
 The Now Playing screen supports multiple visualizer styles so the display can
 feel like a receiver without locking the product into one animation. The default
@@ -80,6 +81,56 @@ builds a cached atlas from all available Radio Browser stations with coordinates
 and computes local distance inside the app. The list reports the radius covered
 by the returned stations so the user can tell whether a cursor position is dense,
 sparse, or limited by provider geotag coverage.
+
+## Terminal Adaptation
+
+Full, compact, and micro layouts keep the current selection and keyboard actions
+available as space shrinks. Compact and micro views shorten labels and adjust
+the receiver and list areas. The selected station's full name remains available
+to screen-reader output.
+
+Unicode and rich color are retained when the terminal supports them. Explicit
+ASCII settings or a bare `C`/`POSIX` locale replace decorative glyphs; UTF-8
+locales and SSH sessions retain Unicode. ASCII mode preserves international
+station text. Sixteen-color terminals drop the dark fills, and `NO_COLOR`
+removes color entirely.
+
+Reduce Motion stops receiver animation, loading animation, and scrolling labels.
+Screen-reader mode also omits receiver visualizers and mouse reporting while
+keeping keyboard controls and text status. `TERM=dumb` produces static frames
+with ASCII decoration and no color. These environment adaptations apply to the
+current launch and leave saved appearance preferences intact. The exact
+overrides are listed in [TUI Controls](getting-started/tui-controls.mdx).
+
+### Visual Regression Captures
+
+The portability work began with 578 deterministic Ink captures. They cover
+every screen and settings group, all receiver styles at full size,
+representative receivers at smaller sizes, Unicode and ASCII decoration,
+output without color, and focused ANSI color and selection checks. The capture
+fixtures use these sizes:
+
+| Layout | Columns × rows |
+| --- | --- |
+| Full | 100 × 30 |
+| Compact | 50 × 16 |
+| Micro | 24 × 8 |
+
+All 335 Unicode/ANSI captures remain unchanged. Of the 243 ASCII captures,
+160 intentionally changed to remove remaining block characters, small circles,
+bullets, and ellipses; 83 were already compatible and remain unchanged.
+
+| Capture | Before | After |
+| --- | --- | --- |
+| Full Overview logo | `████` | `####` |
+| Compact receiver status | `playing · vol 70` | `playing . vol 70` |
+| Micro Settings header | `Settings · Choose …` | `Settings . Choose .` |
+
+The repository contains [full before-and-after terminal text](https://github.com/Ciphore/RadioCLI/blob/master/docs/cross-platform/visual-before-after.txt)
+and the [complete snapshot suite](https://github.com/Ciphore/RadioCLI/blob/master/src/ui/visual-baseline.test.tsx).
+Time, timezone, station data, and animation frame are fixed. These captures
+verify renderer output; native font, audio, and desktop integration results are
+tracked separately in [Platforms](/docs/platforms).
 
 ## Navigation And Stats
 

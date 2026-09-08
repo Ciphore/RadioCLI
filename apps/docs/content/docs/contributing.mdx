@@ -15,17 +15,21 @@ npm run build
 npm run test
 ```
 
-Install `mpv` for the best playback experience:
+Install `mpv` for playback controls and metadata polling. On a macOS
+configuration supported by Homebrew:
 
 ```bash
 brew install mpv
 ```
 
-On Linux, use your package manager's `mpv` package. On Windows, use:
+On Linux, use your package manager's `mpv` package. On Windows x64, use:
 
 ```powershell
 winget install --id shinchiro.mpv -e
 ```
+
+Use the [platform installation routes](platforms.mdx#installation-and-playback-prerequisites)
+for Windows arm64 and other package managers.
 
 ## Verification
 
@@ -36,16 +40,41 @@ npm run check
 npm run lint
 npm run test
 npm run build
+npm run smoke:mcp
+npm run pack:check
+npm run check:package
+npm run fresh:check -- --require-mpv
+npm run docs:check
+npm run docs:build
+node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs
 ```
 
-Run `npm run smoke:playback` when changing playback code. It opens a public
-stream briefly, so do not run it in environments where audio or network access
-is not acceptable.
+Run `npm run smoke:playback` when changing playback code. By default it generates
+a local silent WAV and exercises an installed player. The packed smoke uses
+real mpv with null audio and verifies IPC controls. A requested external stream
+is a separate live-network test.
+
+Run `npm ci` in `apps/docs` before the documentation checks. Test maintained
+Node 22/24 lines separately, and keep dependency installation separate from
+concurrent tests that use the same `node_modules` directory.
 
 Live provider checks are useful before releases, but ordinary pull requests
-should stay deterministic. Run `npm run verify:release` for a full maintainer
+should stay deterministic. Run `npm run smoke:data` explicitly for live directory
+verification. Run `npm run verify:release` for a full maintainer
 pre-release pass that includes live data, playback, packaging, and fresh-install
 checks.
+
+For platform changes, record OS/product version, kernel, CPU and endianness,
+libc where relevant, exact Node/player versions, artifact hash, and whether
+execution was native, a same-CPU guest, foreign-CPU emulation, or a mock.
+Compilation, a lockfile entry, or a downloaded executable cannot establish
+runtime support. Use the [platform matrix](platforms.mdx) tier requirements.
+
+Review visual changes against the fixed-size captures described in
+[Design](design.mdx#visual-regression-captures). Explain intentional changes and
+preserve rich-terminal fixtures when adding degraded rendering. Exercise
+permission failures and missing optional tools without weakening core playback,
+authentication, or cleanup behavior.
 
 ## Development Principles
 

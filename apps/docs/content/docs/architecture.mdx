@@ -3,8 +3,9 @@ title: Architecture
 description: Runtime shape, provider adapters, playback control, TUI state, and persistence.
 ---
 
-RadioCLI is a terminal-first product built around four seams: TUI state,
-provider adapters, playback control, and local persistence.
+RadioCLI separates TUI state, provider adapters, playback control, and local
+persistence. A shared platform layer describes the host and selects native
+integrations for those components.
 
 ## Runtime Shape
 
@@ -45,6 +46,26 @@ AirPlay stream before the alarm switches to local output. If that owner cannot
 be reached, alarm delivery continues and runtime health records the degraded
 takeover instead of suppressing the alarm.
 
+## Platform Boundaries
+
+The modules in `src/platform` keep host detection separate from runtime
+readiness and the project's support policy:
+
+| Modules | Responsibility |
+| --- | --- |
+| `runtime.ts`, `support.ts` | Describe the OS, CPU, libc, WSL, and Termux environment; assess runtime eligibility and verified support evidence separately |
+| `capabilities.ts` | Report each feature as available, unavailable, or unverified from the evidence gathered in this session |
+| `paths.ts`, `storage.ts` | Preserve library and runtime namespaces; inspect storage access without creating a write probe |
+| `executables.ts`, `packages.ts`, `shell.ts` | Resolve commands and construct installation or launch arguments for the host |
+| `desktop.ts`, `terminals.ts`, `terminal.ts` | Select optional desktop helpers and describe terminal capabilities |
+| `network.ts`, `loopback.ts` | Bound public HTTP requests and keep authenticated local control independent of public-network proxy settings |
+
+Finding a player, scheduler command, or terminal executable does not establish
+that its audio device, user service, or desktop session works. Native operations
+check their results, and `radiocli doctor` reports the available evidence. BSD,
+Termux, and other experimental targets do not inherit Linux alarm adapters or a
+support claim from a successful platform mock. See [Platform support](./platforms.mdx).
+
 ## Alarm Runtime
 
 Alarm definitions are portable library data, while delivery is rebuilt from
@@ -67,6 +88,12 @@ uses an occurrence lock to suppress duplicate dispatch, records the result, and
 then installs the next occurrence. A four-worker bound keeps bulk synchronization
 from spawning unbounded native commands.
 
+An early native dispatch releases its occurrence lock without marking the
+occurrence complete, so the real due dispatch can still run. If removal of a
+native job fails, the adapter accepts the result only when a query confirms that
+specific job is absent. An ambiguous failure keeps the definition and repair
+artifacts available.
+
 Recurring schedules store `HH:mm`, ISO weekdays, and an IANA timezone. Civil
 time is resolved one minute at a time: a spring-forward gap advances to the
 first valid minute on that civil date, while a fall-back overlap fires only the
@@ -84,9 +111,15 @@ start at the configured target volume.
 Alarm Guard is a second detached process, separate from native scheduling. It
 holds the platform idle-sleep inhibitor until just after the next occurrence and
 uses an authenticated loopback ownership challenge so stale PID files cannot
-cause an unrelated process to be signaled. Guard state, scheduler health,
-occurrence locks, and active-control discovery are operational machine state,
-not portable library state.
+cause an unrelated process to be signaled. Unreadable ownership records and
+records for live processes that fail the challenge are retained for repair; the
+unverified PID is not signaled. An inhibitor lease reports an unexpected helper
+exit, allowing runtime health to show that sleep protection was lost.
+
+System-volume leases snapshot the prior mixer state. A partial change triggers
+a rollback attempt, and a failed restore leaves the lease retryable. Guard
+state, scheduler health, occurrence locks, and active-control discovery are
+operational machine state, not portable library state.
 
 ## Provider Layer
 
@@ -100,7 +133,19 @@ not portable library state.
 
 Radio Browser calls use mirror fallback and a durable cache. If a live request
 fails and stale cached data exists, the provider returns stale data rather than
-blanking the interface.
+blanking the interface. A cache write failure does not discard a successful
+directory response. Request deadlines remain active while response bodies are
+consumed, and unused bodies are canceled where possible.
+
+`RADIOCLI_OFFLINE=1` blocks public requests made by RadioCLI's Node HTTP client.
+Cached directory results and saved direct stream URLs remain usable.
+`RADIOCLI_LOW_BANDWIDTH=1` makes the geotagged atlas cache-only; smaller directory
+queries remain available. Both flags skip automatic AirPlay discovery. Offline
+mode also blocks manual discovery; low-bandwidth mode allows an explicit
+refresh. Authenticated local controls remain available. These policies do not
+block the external player's network access when a user requests a direct
+stream. Proxy configuration and the exact network boundaries are described in
+[Reliability](./reliability.mdx#network-requests).
 
 Explore and Nearby share the same geospatial path: RadioCLI caches the full
 available Radio Browser geotagged station atlas, filters out invalid coordinates,
@@ -113,7 +158,7 @@ so map exploration is not capped to globally popular stations.
 `PlayerController` owns playback process lifecycle.
 
 - Default local output: `mpv`
-- Fallback backend: `ffplay` for playback only
+- Playback-only fallbacks: `ffplay` and VLC
 - Experimental macOS output: AirPlay/RAOP through Bonjour discovery, FFmpeg,
   and RadioCLI's bundled sender bridge
 - `mpv` is controlled over JSON IPC for pause, mute, volume, readiness checks,
@@ -130,11 +175,11 @@ other non-Radio-Browser stations use their exposed stream URL.
 
 Once a URL is resolved, `PlayerController` starts `mpv` with `--no-video`,
 `--force-window=no`, a local JSON IPC endpoint, a forced media title, and the
-configured volume. That endpoint is a Unix socket on macOS/Linux and a named
-pipe on native Windows. `ffplay` is available as a playback-only fallback, but it
-does not provide a reliable IPC surface for pause, mute, volume, play/pause
-media-key handling, metadata, or readiness checks. RadioCLI labels that mode as
-limited instead of updating UI state optimistically.
+configured volume. That endpoint is a named pipe on native Windows and a Unix
+socket on Unix-like targets whose runtime supports it. `ffplay` and VLC are
+playback-only fallbacks; they do not provide a reliable IPC surface for pause,
+mute, volume, play/pause media-key handling, metadata, or readiness checks.
+RadioCLI labels that mode as limited instead of updating UI state optimistically.
 
 On macOS, the optional AirPlay backend discovers RAOP receivers with Bonjour and
 streams through a child worker that feeds decoded PCM from `ffmpeg` into a
@@ -215,11 +260,30 @@ The store is local JSON. It keeps:
 - alarm definitions, next snooze override, and recent run outcome
 - settings
 
-Corrupt store/cache files are renamed with a `.bad-*` suffix before defaults are
-used, so user data is not silently overwritten.
+The library distinguishes missing data, malformed JSON or schema data, and an
+unreadable file. A missing library starts with defaults. Corrupt
+library bytes must first be preserved under a `.bad-*` name; a failed backup
+leaves the original file in place and reports an error. Permission and I/O
+failures are never treated as corruption or as a missing current library that
+allows fallback to an older legacy file. Provider caches use separate best-effort
+recovery.
 
-Writes use a temp-file-and-rename flow so interrupted writes are less likely to
-leave partial JSON behind.
+Library writes take a lock, merge concurrent changes, write a private temporary
+file beside the destination, and atomically rename it into place. POSIX file
+permissions are set before replacement. A failed write preserves the previous
+disk and in-memory state, and cleanup cannot mask the original error. Windows
+uses the user directory's ACLs rather than POSIX modes.
+
+A readable library remains usable when its file or directory is read-only. The
+TUI catches optional recent, listening, track, search, and update-history save
+failures separately from playback and navigation. Stop, sleep-timer expiry,
+alarm takeover, and quit still stop the player. Explicit settings and favorite
+changes report a failed save without claiming success. Error messages suggest
+a writable `RADIOCLI_HOME` without exposing the private path.
+
+The platform changes introduce no new library or backup schema. Existing
+`RADIOCLI_HOME`, `RADIO_ATLAS_HOME`, and legacy Radio Atlas locations retain
+their meaning, including the existing macOS runtime namespaces.
 
 Full library backup/restore includes alarm definitions. Native scheduler files,
 runtime health, Alarm Guard state, occurrence locks, and authenticated local

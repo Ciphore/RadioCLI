@@ -14,9 +14,10 @@ packages from lifecycle scripts. The explicit, user-invoked `radiocli setup`
 command may install selected native tools after displaying and confirming its
 plan. Native playback and interactive controls come
 from `mpv`, with `ffplay` from FFmpeg as an optional playback-only fallback.
-Linux users install `mpv` through their distro package manager. Windows users
-install Node.js and `mpv` through `winget` or Scoop, then install RadioCLI
-through npm.
+Install a compatible Node runtime and a native player before using local audio.
+The [platform matrix](platforms.mdx) records the verified OS/CPU combinations,
+runtime minimums, package routes, and limitations. npm installation alone does
+not establish native playback or desktop integration.
 
 ## NPM Release
 
@@ -58,14 +59,50 @@ bun add -g @ciphore/radiocli
 radiocli doctor
 ```
 
-Cross-platform release smoke checks should cover macOS, Linux, and Windows
-startup paths:
+The fresh-install harness builds one tarball, installs it into separate temporary
+projects with normal dependencies and with `--omit=optional`, and executes only
+that installed artifact. It checks CLI/doctor, offline cached providers, library
+import/export, and MCP status. Its temporary paths contain
+spaces and non-ASCII characters. Require a real native mpv for release evidence:
 
 ```bash
-npm run fresh:check          # macOS/Linux
-npm run fresh:check          # Windows, from PowerShell
-radiocli doctor
+npm run fresh:check -- --require-mpv
+node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs
 ```
+
+The playback check generates a local WAV, uses mpv's null audio output, and
+verifies readiness, IPC volume, pause, resume, and stop. It does not prove physical
+audio-device output, a receiver connection, wake delivery, or a particular
+terminal application. Set `RADIOCLI_SMOKE_EVIDENCE_DIR` to preserve JSON records
+containing the artifact SHA-256, runtime identity, installation mode, and results.
+Set `RADIOCLI_MPV_PATH` when the verified native executable is outside `PATH`.
+
+### Release Gates And Experimental Checks
+
+The required CI matrix preserves Ubuntu, macOS, and Windows on Node 22/24 and
+adds Linux arm64, macOS Intel, and Windows 11 arm64. All 12 jobs require packed
+mpv smoke checks in both installation modes; Linux also has source playback
+checks. Documentation checks run on Node 22/24. All required jobs must pass on
+the release candidate before publication; a failed required job blocks release.
+Inspect the recorded runner OS/version and CPU before carrying evidence into
+a release. Repository protection settings and publication remain owner-managed.
+
+All workflow actions use immutable commit pins. macOS and Windows playback
+fixtures come from explicitly selected official mpv release assets, checked
+against pinned SHA-256 values and native CPU headers before execution. Linux
+uses its runner's distribution package. These are CI fixtures, not packages
+installed by npm or a new public distribution channel.
+
+Weekly or manually requested FreeBSD, OpenBSD, and NetBSD checks boot full QEMU
+guest kernels, install the Linux-built JavaScript tarball with guest-native Node
+and mpv, and label the result as guest verification. They do not infer BSD
+behavior from a Linux container, and they do not establish foreign-CPU or desktop
+audio support. The [evidence matrix](platforms.mdx#project-tiers-and-current-evidence)
+records actual outcomes and remaining verification gaps.
+
+Do not publish a release with a failed required job. An experimental job failure
+must remain visible and its platform tier must retain the corresponding limit.
+This initiative changes no external tap, registry, or release ownership.
 
 ## Homebrew Tap
 
@@ -103,7 +140,7 @@ radiocli doctor
 
 ## Windows And Linux Native Playback
 
-Windows setup uses native Node.js and native `mpv`:
+Windows x64 setup uses native Node.js and native `mpv`:
 
 ```powershell
 winget install --id OpenJS.NodeJS.LTS -e
@@ -117,6 +154,9 @@ directory to `PATH`. RadioCLI resolves that standard installation directly and
 also checks registered Windows application locations. Doctor should report an
 `mpv_path`, its `mpv_discovery` source, and `mpv_launch=ready`.
 
+The inspected WinGet `mpv` recipe is x64-only. Scoop's `mpv` recipe includes x64 and
+arm64 builds; verify the installed executable matches the intended runtime.
+Windows x86 remains a Node 22 route requiring separate player and native evidence.
 Scoop users can install `mpv` with:
 
 ```powershell
@@ -139,8 +179,9 @@ smoke checks should treat it as playback-only. `radiocli doctor` reports
 `controls=limited` when only `ffplay` is available and `controls=full` when
 `mpv` is available.
 
-AirPlay is experimental on macOS. The npm package bundles the sender bridge,
-and the Homebrew formula installs FFmpeg so the one-command macOS path exposes
-AirPlay without extra user setup. Release checks should keep high/critical
+AirPlay is experimental on macOS. Its optional sender dependency must install
+and load successfully, and Bonjour and FFmpeg must be usable. The Homebrew
+formula installs FFmpeg; that does not establish a working receiver connection.
+Release checks should keep high/critical
 sender dependency advisories out of the shipped tree. AirPlay should remain an
 explicit session output rather than the automatic startup fallback.

@@ -3,11 +3,13 @@
   "pages": [
     "index",
     "getting-started",
+    "platforms",
     "alarms",
     "demo",
     "architecture",
     "design",
     "reliability",
+    "troubleshooting",
     "privacy-security",
     "contributing",
     "release-packaging",

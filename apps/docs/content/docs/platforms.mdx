@@ -1,0 +1,220 @@
+---
+title: Platforms
+description: Runtime requirements, installation routes, native feature limits, and the evidence behind RadioCLI's platform tiers.
+---
+
+RadioCLI requires Node.js 22 or newer. Local audio needs a working player.
+The reference matrix below covers Node.js 22 and 24. Runtime eligibility,
+installed tools, and verified RadioCLI behavior are tracked separately for each
+OS version, CPU, libc, and Node release line.
+
+This evidence snapshot was reviewed on **September 7, 2026**. Native runner
+and full BSD guest results are recorded separately below. Run
+`radiocli doctor --json` for the capabilities detected on your own machine;
+use `radiocli setup --dry-run` to inspect its playback installation plan.
+
+## Project Tiers And Current Evidence
+
+| Tier | Required evidence |
+| --- | --- |
+| First-class | A repeatable installation with verified prerequisites, packed runtime and playback checks on the target, and maintained required CI whose failures block releases |
+| Supported | A verified, repeatable runtime, packed installation, and playback path without required CI coverage |
+| Experimental | A code path or package route exists, but project verification is incomplete |
+| Unsupported | A known requirement blocks the configuration, such as Node.js below 22 or an incompatible OS/CPU runtime |
+
+A package recipe, a mocked platform test, or a downloaded binary does not
+establish a verified installation. A Linux container exercises its host kernel;
+a full BSD guest exercises a BSD kernel. Foreign-CPU emulation is recorded as
+emulation. Each result applies to the configuration and artifact actually tested.
+
+The upstream Node rating is a separate axis: repeatable project evidence can
+establish a supported configuration on a community runtime. Known runtime
+requirements still apply.
+
+Doctor reports `support.scope=current-installation`. It checks runtime
+requirements and available tools without running packed-install or audio
+acceptance tests, and does not import a reference machine's CI evidence. Its
+`support.tier` therefore remains experimental for an unverified local installation,
+even when the reference configuration below is supported or first-class. A known
+runtime blocker is reported as unsupported. Individual capability results explain
+what can be used in the current session.
+
+| Configuration | Recorded evidence | Current project tier |
+| --- | --- | --- |
+| macOS 26.5.2, Darwin 25.5.0, arm64; Node 22.23.2 and 24.20.0 | Local packed installs passed with normal dependencies and with `--omit=optional`; real mpv decoded a generated WAV with `ao=null`, and IPC volume, pause, resume, and stop passed. MCP checks exposed 31 tools. | Supported for the recorded local builds |
+| macOS 26.6.2 / Darwin 25.6.0, arm64; Node 22.23.2 and 24.20.0 | Required native CI passed the complete tests and both packed-install/playback modes. | First-class for these reference configurations and recorded capabilities |
+| Ubuntu 24.04.4 glibc, kernel 6.17.0-1022-azure, x64 and arm64; Node 22.23.2 and 24.20.0 | All four required native combinations passed complete tests, both packed-install/playback modes, and separate source playback jobs. | First-class for these reference configurations and recorded capabilities |
+| macOS 15.7.9 / Darwin 24.6.0, Intel x64; Node 22.23.2 and 24.19.0 | Required native CI passed complete tests and both packed-install/playback modes. | First-class for these reference configurations and recorded capabilities |
+| Windows Server 2025 Datacenter, kernel 10.0.26100, x64; Node 22.23.2 and 24.19.0 | Required native CI passed regression tests, real PowerShell literal-argument and independent-console TTY checks, and both packed-install/mpv named-pipe playback modes. | First-class for these reference configurations and recorded capabilities; Windows 10/11 x64 desktop editions need separate verification |
+| Windows 11 Enterprise, kernel 10.0.26200, arm64; Node 22.23.2 and 24.20.0 | Required native CI passed the same Windows tests and both packed-install/playback modes using a native arm64 mpv binary. | First-class for these reference configurations and recorded capabilities |
+| FreeBSD 14.4-RELEASE x64, Node 22.23.2/npm 11.19.1; OpenBSD 7.9 x64, Node 22.23.2/npm 10.9.8 | Repeated full QEMU guest runs passed packed CLI/cache/import/export/MCP checks and real mpv 0.41 null-output IPC playback with `--omit=optional`. | Supported for this explicit core package route; desktop/TUI applications and background native integrations remain unverified or unavailable |
+| NetBSD 10.1 x64, Node 22.23.0/npm 10.9.8 | Repeated full QEMU guest runs passed the same core checks with `--omit=optional`, after installing the matching OS X11 base libraries. | Supported for this explicit core package route; desktop/TUI applications and background native integrations remain unverified or unavailable |
+| Alpine/musl, WSL, other Linux CPUs, other BSD CPUs, Termux, illumos, AIX | Runtime or package routes have been reviewed; no matching RadioCLI installation and playback result is recorded here. | Experimental; not yet verified |
+| Standard HaikuPorts Node 20 installation; Node below 22; Windows XP; 32-bit macOS; Windows x86 with Node 24 | The normal runtime route does not meet RadioCLI's requirement. A Haiku player package does not resolve its Node version blocker. | Unsupported for these configurations |
+
+The successful expanded workflow contains 12 native OS/CPU/Node combinations: macOS
+arm64 and Intel, Linux x64 and arm64, and Windows x64 and arm64, each on Node
+22 and 24. All required jobs and three BSD guests passed at the `fd57fda` code
+checkpoint. Required checks must remain release gates; merely configuring a job
+does not establish first-class status.
+Windows Server runners do not verify Windows 10/11 desktop behavior; a Node 22
+x86 process under WoW64 would not verify a native 32-bit Windows installation.
+See the [GitHub runner definitions](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+and the [recorded expanded CI run](https://github.com/MrSeizy/RadioCLI/actions/runs/34180703652).
+The [draft PR](https://github.com/Ciphore/RadioCLI/pull/36) links the full
+verification record, exact npm versions and tarball hashes, and verification
+of its final documentation commit.
+
+The recorded mpv checks verify decoding and IPC through a null audio output.
+Physical audio devices, terminal applications, screen-reader applications,
+desktop window opening, and actual wake delivery require their own verification.
+The [578 terminal captures](design.mdx#visual-regression-captures) verify
+renderer output at fixed sizes.
+
+## Node.js Runtime Reference
+
+The version numbers here are upstream binary or build baselines. Node.js also
+excludes OS releases whose vendor support has ended, even if they meet a listed
+minimum. A newer Node major may meet RadioCLI's package minimum while remaining
+outside this Node 22/24 reference matrix. The primary references are the
+[Node 22 platform list](https://github.com/nodejs/node/blob/v22.x/BUILDING.md#platform-list)
+and [Node 24 platform list](https://github.com/nodejs/node/blob/v24.x/BUILDING.md#platform-list).
+
+| System and CPU | OS / libc baseline | Node 22 upstream status | Node 24 upstream status |
+| --- | --- | --- | --- |
+| macOS x64 / arm64 | macOS 11 for Node 22; macOS 13.5 for Node 24 | Tier 1 | Tier 1 |
+| Windows x64 | Windows 10 / Server 2016 or newer | Tier 1 | Tier 1 |
+| Windows arm64 | Windows 10 or newer | Tier 2 | Tier 2 |
+| Windows x86 | Windows 10 or newer; upstream tests use WoW64 | Binaries provided; running is Tier 1, native compilation experimental | No Windows x86 runtime |
+| glibc Linux x64 / arm64 | Kernel 4.18+, glibc 2.28+ | Tier 1 | Tier 1 |
+| glibc Linux ARMv7 | Kernel 4.18+, glibc 2.28+ | Tier 1 | Experimental; community build needed |
+| glibc Linux ppc64le / s390x | Kernel 4.18+, glibc 2.28+; POWER8+ for ppc64le | Tier 2 | Tier 2 |
+| glibc Linux x86 | Kernel 3.10+, glibc 2.17+ | Experimental | Experimental |
+| glibc Linux riscv64 | Node 24 reference: kernel 5.19+, glibc 2.36+ | Not listed; community route needs verification | Experimental |
+| Linux big-endian ppc64 | A compatible community Node 22+ port must be established | No standard upstream route listed | No standard upstream route listed |
+| musl Linux x64, including Alpine | Kernel 3.10+, musl 1.1.19+; use a musl build | Experimental | Experimental |
+| musl Linux arm64 / s390x; ARMv7 on Node 22 | Distribution-specific build and runtime libraries | Distribution route; verify the selected package | Distribution route for arm64 / s390x; ARMv7 unverified |
+| WSL | A compatible Linux runtime inside the selected WSL distribution | WSL-specific issues are outside upstream native Linux support | Same limitation |
+
+The glibc release binaries also need a compatible libstdc++; the reference
+symbol version is `GLIBCXX_3.4.25`, or `GLIBCXX_3.4.28` for Node 22 ARMv7.
+Linux ppc64le is little-endian; it is distinct from both Linux big-endian ppc64
+and the big-endian POWER runtime used by AIX. A generic `arm` label alone does
+not establish ARMv7 compatibility.
+
+Node 24 now publishes x64-musl archives while retaining an experimental musl
+rating. Its current release files do not include ARMv7 binaries. Use the
+[Node 24 release manifest](https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt)
+and [distribution image architecture records](https://github.com/nodejs/docker-node/blob/main/versions.json)
+to check the available build; a glibc Linux archive is not a musl or Android
+Bionic archive. Distribution images do not establish RadioCLI audio or desktop
+verification.
+
+### Additional OS Runtime Routes
+
+| System | OS / CPU reference | Node route and limit |
+| --- | --- | --- |
+| FreeBSD | Upstream experimental baseline: FreeBSD 13.2+ x64; verified guest: 14.4 x64 | Node 22/24 ports exist. Other CPUs use port-specific routes; an architecture allowlist does not establish a binary package for every release. |
+| OpenBSD | Release and CPU must provide Node 22+; verified guest: 7.9 x64 | The current Node port is 24.x and lists amd64, aarch64, i386, powerpc64, and riscv64. Release binary repositories can supply an older Node; the recorded 7.9 guest supplied Node 22.23.2. |
+| NetBSD | Release-specific pkgsrc packages; selected guest: 10.1 x64 | Node 22/24 pkgsrc recipes exist. The guest supplied Node 22.23.0. Other CPUs need separate package and runtime verification. |
+| Android / Termux | Android 7+ with Termux's Bionic packages | `nodejs-lts` currently provides Node 24. Recipe targets include aarch64, arm, i686, and x86_64; device execution is unverified. Android outside Termux has no established RadioCLI install route. |
+| SmartOS | Upstream reference: SmartOS 18+ x64 | Node 22/24 list Tier 2; use a suitable maintained distribution or pkgsrc build. |
+| Other illumos distributions | x64 package routes depend on the distribution | Generic SunOS kernel 5.11 does not identify SmartOS or prove its version requirements. Verify the selected Node port and backend. |
+| AIX | AIX 7.2 TL04+, big-endian POWER8+ | Node 22/24 list Tier 2; Node 24 also needs libstdc++12. A native player installation route remains unverified. |
+| Haiku | A custom working Node 22+ port would be required | The inspected HaikuPorts catalog provides Node 20.15.1, below RadioCLI's minimum. The normal package route is blocked. |
+
+These routes come from the [FreeBSD Node ports](https://github.com/freebsd/freebsd-ports/blob/main/www/node22/Makefile),
+[OpenBSD Node port](https://github.com/openbsd/ports/blob/master/lang/node/Makefile),
+[pkgsrc Node 22](https://github.com/NetBSD/pkgsrc/blob/trunk/lang/nodejs22/Makefile)
+and [Node 24 recipes](https://github.com/NetBSD/pkgsrc/blob/trunk/lang/nodejs24/Makefile),
+[Termux installation requirements](https://github.com/termux/termux-app#installation),
+[Termux Node LTS recipe](https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh),
+and [HaikuPorts Node catalog](https://github.com/haikuports/haikuports/tree/master/net-libs/nodejs).
+They describe available routes, not completed RadioCLI tests.
+
+## Installation And Playback Prerequisites
+
+After installing a compatible Node runtime and npm, the standard package command
+is `npm install -g @ciphore/radiocli`. `mpv` provides IPC playback controls;
+`ffplay` and VLC are limited-control fallbacks. Custom player installations can
+use the [absolute path overrides](troubleshooting.mdx#playback-tool-installed-but-not-found).
+
+The recipes below were checked against package sources. Only the recorded
+configurations in the evidence table have completed RadioCLI verification.
+System package commands need the host's appropriate administrator access;
+Termux `pkg` and Haiku `pkgman` run without `sudo`.
+
+| System | Playback / runtime route | Packaging limits and primary source |
+| --- | --- | --- |
+| macOS | Compatible Node plus npm; Homebrew `mpv`, or `sudo port install mpv` with MacPorts | Homebrew's OS/CPU policy is narrower than Node's. [MacPorts mpv](https://ports.macports.org/port/mpv/) is a separate route. |
+| Windows | x64: `winget install --id shinchiro.mpv -e`; arm64: Scoop's `mpv`; x86: a matching native i686 build | The checked [WinGet mpv manifest](https://github.com/microsoft/winget-pkgs/blob/master/manifests/s/shinchiro/mpv/0.41.0/shinchiro.mpv.installer.yaml) is x64-only. [Scoop](https://github.com/ScoopInstaller/Extras/blob/master/bucket/mpv.json) lists x64 and arm64; [mpv release assets](https://github.com/mpv-player/mpv/releases/tag/v0.41.0) also include i686. |
+| glibc Linux | `mpv` from the configured distribution catalog; setup selects apt, dnf, pacman, or zypper | Verify the actual Node version and media repository. A distribution's `nodejs` package can still be below 22. See [mpv's package references](https://mpv.io/installation/). |
+| Alpine / musl | `apk add nodejs npm mpv`, with a compatible repository | The inspected [Alpine 3.24 x64 Node package](https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/nodejs) is 24.x. Other releases/CPUs need separate checks. |
+| FreeBSD | `pkg install -y node22 npm-node22 mpv`, or a matching Node 24/npm pair | Node ports omit npm, so install the matching npm package. [FFmpeg's SDL option](https://github.com/freebsd/freebsd-ports/blob/main/multimedia/ffmpeg/Makefile) controls whether `ffplay` is present. |
+| OpenBSD | `doas pkg_add -I node mpv` | Check that the selected release supplies Node 22+. The [`pkg_add` manual](https://man.openbsd.org/pkg_add) defines `-I` as noninteractive. |
+| NetBSD / pkgsrc | Install the matching NetBSD X11 base set, then `pkgin -y install 'nodejs>=22<23' mpv`, when that line exists in the repository | The binary mpv package links to system X11 libraries even for null output; a minimal OS image can lack them. Binary Node packages are named `nodejs`, with npm included. Use an available Node 24 range if needed. [pkgin](https://pkgin.net/) manages the catalog; [pkgsrc ffplay](https://github.com/NetBSD/pkgsrc/blob/trunk/multimedia/ffplay7/Makefile) uses versioned packages and executables such as `ffplay7`. |
+| SmartOS / illumos | Bootstrap the appropriate pkgsrc environment, then use its `pkgin` Node/mpv packages | RadioCLI's setup recipe uses existing `pkgin`; it does not treat IPS `pkg` as FreeBSD `pkg`. See [SmartOS packages](https://docs.smartos.org/working-with-packages/) and [illumos binary packages](https://pkgsrc.smartos.org/). |
+| Termux | `pkg install -y nodejs-lts npm mpv` as the normal app user | Setup identifies this as `termux-pkg`. Its [main FFmpeg recipe](https://github.com/termux/termux-packages/blob/master/packages/ffmpeg/build.sh) omits `ffplay`; the [separate ffplay package](https://github.com/termux/termux-packages/blob/master/x11-packages/ffplay/build.sh) needs `x11-repo` and its display/audio environment. |
+| Haiku | `pkgman install -y mpv`; `ffmpeg8_tools` provides FFmpeg/ffplay | These [player recipes](https://github.com/haikuports/haikuports/tree/master/media-video) do not resolve the Node 20 runtime blocker. No working normal RadioCLI install is claimed. |
+| AIX | Provision a compatible Node runtime and native player manually | No verified `mpv` or `ffplay` package recipe was established. The [IBM Toolbox catalog](https://www.ibm.com/support/pages/aix-toolbox-open-source-software-downloads-alpha) is not evidence that a `dnf install mpv` command exists. |
+
+As of the review date, Homebrew classifies Intel macOS as Tier 3 and has stopped
+building new Intel bottles. Its [support policy](https://docs.brew.sh/Support-Tiers)
+is independent of Node's x64 runtime eligibility. Likewise, a Windows x64 media
+package is not evidence of native ARM64 or x86 playback; use a matching executable.
+
+The optional AirPlay sender has native installation dependencies. A package
+installed with `--omit=optional` retains the normal local-player path but omits
+that sender. Installs with and without optional dependencies are separate
+acceptance checks; neither establishes an AirPlay receiver connection.
+The recorded BSD guests installed the packed tarball with `--omit=optional`
+in fresh temporary projects and executed the generated npm bin link. For a
+manual registry installation, use `npm install -g --omit=optional @ciphore/radiocli`;
+that global registry route and normal optional-dependency installation were
+not the recorded guest checks.
+
+## Implemented Playback And Desktop Paths
+
+These tables describe implemented adapters and their prerequisites. Tool
+discovery is checked separately from successful execution. Shared TUI code
+supports Unicode, ASCII decoration, limited color, screen-reader output, and
+reduced motion; it still needs interactive keyboard input. See
+[TUI Controls](getting-started/tui-controls.mdx) for rendering options.
+
+| Host | Local playback / TUI | Browser and clipboard | Terminal reopening |
+| --- | --- | --- | --- |
+| macOS | mpv Unix-socket IPC; ffplay/VLC fallback; shared TUI | `open` and `pbcopy` in a local desktop session | Supported installed macOS terminal; Apple Terminal/iTerm2 may require Automation consent |
+| Windows | mpv named-pipe IPC; ffplay/VLC fallback; shared TUI | `explorer` and `clip` in a local desktop session | Windows Terminal or a PowerShell console |
+| Linux, glibc or musl | Shared player/TUI paths; actual backend and audio service required | `xdg-open`; `wl-copy`, `xclip`, or `xsel`, with an appropriate desktop session | An installed supported GUI terminal and display session |
+| WSL | Linux player/TUI paths require separate WSL verification | Linux session helpers; Windows desktop access is not inferred | Linux terminal path; depends on the guest's display/session |
+| FreeBSD / OpenBSD / NetBSD | Shared player/TUI paths; exact guest results above do not establish a desktop terminal application | `xdg-open` and the available Wayland/X11 clipboard helper | Unix terminal adapter; installed terminal and display required, launch unverified |
+| Termux | Bionic runtime and Termux mpv path; device/TUI/audio execution unverified | `termux-open-url`; `termux-clipboard-set` needs Termux:API | No separate terminal-reopening adapter |
+| illumos / AIX / custom Haiku or other ports | Core execution requires a separately verified Node/player pair | No automatic browser or clipboard adapter | No terminal-reopening adapter |
+
+The Termux helper contracts are defined by
+[`termux-open-url`](https://github.com/termux/termux-tools/blob/master/scripts/termux-open-url.in)
+and [`termux-clipboard-set`](https://github.com/termux/termux-api-package/blob/master/scripts/termux-clipboard-set.in).
+Clipboard access also requires the helper package and a compatible, correctly
+signed [Termux:API app](https://github.com/termux/termux-api#installation);
+Android permission and execution checks still apply.
+
+## Alarm, Power, And Output Paths
+
+| Host | Background alarms | System volume | Sleep inhibition and wake | AirPlay |
+| --- | --- | --- | --- | --- |
+| macOS | Per-user launchd LaunchAgent | macOS output-volume scripting | `caffeinate` for idle sleep; no privileged exact-wake event | Experimental; FFmpeg, Bonjour, usable sender, and explicit receiver selection required |
+| Windows | Task Scheduler with interactive user token | Core Audio through PowerShell | `SetThreadExecutionState`; `WakeToRun` can be requested, subject to hardware and policy | No adapter |
+| Linux, including musl | Accessible systemd user manager and timer required | Working `wpctl`, `pactl`, or `amixer` | Live `systemd-inhibit` lease; no privileged `WakeSystem` request | No adapter |
+| WSL | Linux systemd user path only when its session is usable; unverified | Linux mixer path, not Windows host volume | Linux inhibitor path; Windows wake behavior is not inferred | No adapter |
+| FreeBSD / OpenBSD / NetBSD | No background scheduler adapter | No system-volume adapter | No sleep-inhibitor or wake adapter | No adapter |
+| Termux / illumos / AIX / Haiku / other ports | No background scheduler adapter | No system-volume adapter | No sleep-inhibitor or wake adapter | No adapter |
+
+Finding `systemctl` does not prove a working systemd user manager. Finding a
+mixer or inhibitor command does not prove it can control this session. Player
+volume remains separate from system output volume, and local playback can remain
+usable when optional desktop or scheduling features are unavailable.
+
+Use `radiocli alarm doctor` and **Verify alarm setup** for the current machine.
+The latter performs native actions and bounded sample playback. The
+[Alarms guide](alarms.mdx), [Reliability](reliability.mdx), and
+[Troubleshooting](troubleshooting.mdx) describe repair paths and delivery limits.

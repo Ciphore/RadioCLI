@@ -25,12 +25,66 @@ description: Shipped scope and focused follow-up work for RadioCLI.
 - optional OS wake requests where available and machine-local Alarm Guard idle
   sleep inhibition
 
-## Follow-up Work
+## Cross-platform Initiative: Implemented And Verified
 
-- native scheduling adapters for Linux systems without systemd user sessions
-- broader wake-from-sleep capability detection as OS and hardware APIs allow
-- a signed macOS app bundle and Service Management helper so Background Activity
-  can identify RadioCLI instead of the Node runtime
-- unattended remote audio outputs; alarms currently use local speakers only
+The [platform matrix](platforms.mdx#project-tiers-and-current-evidence) is the
+source for exact tested versions, architectures, and current tiers. Changes on
+the cross-platform branch are not represented here as a published release.
+
+- Centralized runtime identity, capability decisions, executable and package
+  discovery, storage paths, desktop/terminal plans, IPC, and network policy.
+- Regression coverage for scheduler cleanup, alarm ownership, authenticated
+  loopback control, mpv readiness, and permission failures that previously
+  interrupted optional history or presence registration.
+- Deterministic full, compact, and micro terminal captures, ASCII decoration,
+  limited color and `NO_COLOR`, screen-reader rendering, reduced motion, and
+  offline/low-bandwidth provider behavior.
+- Packed-install acceptance checks with and without optional dependencies,
+  real mpv decoding and IPC through null audio, and explicit evidence records.
+- Required native CI on both Node 22/24 lines for macOS Intel/Apple Silicon,
+  Ubuntu x64/arm64, Windows Server x64, and Windows 11 arm64. All 12 reference
+  configurations passed full tests and both packed-install/playback modes;
+  exact versions and capability limits are in the [platform matrix](platforms.mdx).
+- FreeBSD 14.4, OpenBSD 7.9, and NetBSD 10.1 x64 core packed CLI and mpv IPC
+  playback with `--omit=optional`, executed in full guest kernels. NetBSD's
+  verified package route includes the matching OS X11 base libraries.
+
+These tests establish their stated behavior; they do not establish every desktop,
+audio device, screen reader, or background scheduler on every target.
+
+## Implemented Paths With Experimental Verification
+
+- BSD desktop helpers and terminal applications beyond the verified core guest
+  route; display sessions, physical audio, and other CPUs need separate checks.
+- Non-systemd Linux playback and core TUI behavior, with background scheduling
+  explicitly unavailable when no usable systemd user manager exists.
+- Termux package and executable discovery, browser and clipboard helper plans;
+  device audio, Android permissions, and background limits still need native runs.
+- Haiku package guidance, illumos/pkgsrc discovery, and AIX runtime diagnostics;
+  each keeps its actual runtime or native-player limitation visible.
+- musl, WSL, ARMv7, x86, ppc64 variants, s390x, and riscv64 runtime assessments;
+  a compatible package route is not a verified RadioCLI deployment.
+
+## Work Blocked On Runtime, CI, Hardware, Or Upstream Support
+
+- Establish native installation, packed playback, and repeatable regression
+  evidence for the experimental configurations before promoting their tiers.
+- Verify Windows desktop editions, older supported macOS releases, Raspberry Pi,
+  physical audio devices, named terminal applications, and screen-reader apps
+  beyond the exact native runner configurations already recorded.
+- A maintained Node 22+ Haiku port and a verified AIX native player route.
+- Equivalent reliable background alarms for non-systemd Linux, BSD, Termux, and
+  other ports. Cron, `at`, Android JobScheduler, and generic service supervision
+  have not demonstrated the existing occurrence, session, retry, and catch-up
+  contract; no replacement adapter is claimed.
+- SOCKS support for public provider/update requests requires a suitable transport
+  implementation. Current diagnostics explain unsupported proxy configuration.
+- Broader wake capability verification against actual hardware and OS policy.
+- A signed macOS app bundle and Service Management helper so Background Activity
+  can identify RadioCLI instead of the Node runtime.
+- Unattended remote audio outputs; alarms currently use local speakers only.
+
+Windows XP, obsolete Windows runtimes, and a separate legacy client are outside
+the roadmap.
 
 See [Changelog](./changelog.mdx) for the full release history.

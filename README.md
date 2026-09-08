@@ -26,7 +26,7 @@ Built with [Ink](https://github.com/vadimdemedes/ink),
 
 ## Quick start
 
-macOS with Homebrew:
+On macOS configurations supported by Homebrew:
 
 ```bash
 brew install ciphore/tap/radiocli
@@ -44,10 +44,42 @@ radiocli
 RadioCLI requires Node.js 22 or newer. The Homebrew formula installs `mpv` and
 FFmpeg. After an npm install, `radiocli setup` detects the operating system and
 package manager, lets you choose `mpv`, FFmpeg, and VLC, installs the selected
-native tools with branded progress feedback, and verifies playback readiness.
+native tools with branded progress feedback, and checks that executables are
+available. Play a station to verify the actual audio path. Intel or older macOS
+installations should consult the platform matrix for alternative package routes.
 
 See the [installation guide](apps/docs/content/docs/getting-started/install.mdx)
 for Windows, Linux distributions, AirPlay prerequisites, and fallback players.
+
+## Platform coverage
+
+RadioCLI separates core playback, storage, terminal rendering, desktop helpers,
+and native alarm services. A missing scheduler or clipboard helper leaves the
+other features available. `radiocli doctor --json` reports each capability,
+terminal and network policy, and runtime eligibility separately.
+
+The [platform matrix](apps/docs/content/docs/platforms.mdx) distinguishes required
+CI targets from verified installations, experimental community paths, and known
+runtime blockers. Node 22 and 24 are the reference test lines. BSD package plans,
+Termux, Haiku and illumos guidance do not imply that every OS/CPU combination has
+been exercised. AIX playback and Haiku's packaged Node 20 remain explicit gaps.
+Linux without a usable systemd user session can still run the player and TUI;
+reliable background alarms require a verified native adapter.
+
+Invocation preferences do not change saved settings:
+
+```bash
+RADIOCLI_ASCII=1 radiocli             # ASCII decoration; station names preserved
+NO_COLOR=1 radiocli                  # no color or background fills
+RADIOCLI_SCREEN_READER=1 radiocli     # readable controls; no visualizer animation
+RADIOCLI_OFFLINE=1 radiocli           # cached directories and saved stations
+RADIOCLI_LOW_BANDWIDTH=1 radiocli     # cached atlas; no automatic receiver scan
+```
+
+Offline mode disables directory, location, update, vote and receiver-discovery
+requests. An external player still needs a connection to listen to a live stream.
+For proxy, SSH, read-only storage and custom-player paths, see
+[troubleshooting](apps/docs/content/docs/troubleshooting.mdx).
 
 ## Visual tour
 
@@ -214,6 +246,8 @@ complete data-flow description.
 - `src/ui` — screens, input, layout, and terminal rendering
 - `src/providers` — station directories, resolution, and caches
 - `src/player` — playback backends, metadata, and AirPlay
+- `src/platform` — host identity, independent capabilities, native command plans,
+  paths, terminal policy, networking and runtime eligibility
 - `src/alarms` — schedules, native registration, Alarm Guard, and active controls
 - `src/storage` — local library persistence and migration
 - `apps/docs` — documentation website and manual
@@ -231,9 +265,10 @@ npm run verify
 npm run dev
 ```
 
-`npm run verify` checks types, lint, tests, the production build, and package
-contents. Playback and live-data smoke tests are available separately because
-they contact public services or start a local player.
+`npm run verify` checks types, lint, tests, the production build, and live provider
+data. `npm run fresh:check -- --require-mpv` tests packed installs with and without
+optional dependencies using a local WAV, real mpv IPC controls and MCP. See
+[contribution checks](CONTRIBUTING.md) for documentation and packaging validation.
 
 ## Contributing
 
@@ -244,6 +279,8 @@ include `radiocli check` output with playback reports.
 
 - [Getting started](apps/docs/content/docs/index.mdx)
 - [Installation](apps/docs/content/docs/getting-started/install.mdx)
+- [Platform matrix](apps/docs/content/docs/platforms.mdx)
+- [Troubleshooting](apps/docs/content/docs/troubleshooting.mdx)
 - [Controls](apps/docs/content/docs/getting-started/tui-controls.mdx)
 - [Architecture](apps/docs/content/docs/architecture.mdx)
 - [Roadmap](apps/docs/content/docs/roadmap.mdx)

@@ -1,6 +1,6 @@
 ---
 title: TUI Controls
-description: Navigation, playback, settings, command palette, and learned media keys.
+description: Navigation, playback, terminal rendering, accessibility, and learned media keys.
 ---
 
 RadioCLI keeps shortcuts at the bottom of the terminal. When playback is active,
@@ -26,7 +26,7 @@ volume or mute state, and an active sleep timer.
 | `q` or `Ctrl+C` twice | Quit cleanly |
 
 Pause, mute, volume, and play/pause media-key control require the `mpv` backend.
-When only `ffplay` is active, RadioCLI keeps playback and station skipping
+When `ffplay` or VLC is active, RadioCLI keeps playback and station skipping
 available but labels interactive playback controls as limited and shows an
 `Install mpv` warning instead of pretending the control worked.
 
@@ -56,7 +56,8 @@ Explore keeps an aspect-correct Braille world map in full, compact, and micro
 layouts. Compact windows always place stations beside the map, while true micro
 places the selected station below it. Long selected station and metadata lines
 scroll after a short pause in compact and micro layouts. Enable Reduce Motion to
-keep those lines truncated instead.
+keep those lines truncated instead. ASCII mode substitutes plain characters for
+the map's decorative glyphs.
 
 Press `?` from any screen to open Help, a full reference of keybindings and
 `:` commands. In the command palette, `Tab` completes the command name.
@@ -175,17 +176,63 @@ Useful command entries:
 ## Display And Compatibility Modes
 
 Settings includes toggles for terminals and devices that need them, each also
-available as a command:
+available as a command. These choices are saved in your local library:
 
 - **Resume last station on launch** (`:resume on`) re-tunes your most recent
   station when RadioCLI starts, like a radio powering back on.
 - **Transparent background** (`:background on`) drops the dark panel fill so
-  light-themed terminals keep their own background. RadioCLI also honors the
-  [`NO_COLOR`](https://no-color.org) convention automatically.
+  light-themed terminals keep their own background.
 - **ASCII-safe display** (`:ascii on`) maps braille, block, and box-drawing
-  glyphs to ASCII for terminals and fonts without those glyphs.
+  glyphs, borders, and decorative punctuation to ASCII. International station
+  names and metadata remain intact; this is not a transliteration setting.
 - **Reduce motion** (`:motion on`) freezes the receiver and loading animations
-  to save CPU and bandwidth over SSH and on low-power devices.
+  and keeps long lines truncated instead of scrolling.
+
+RadioCLI retains its Unicode receiver display on terminals that support it,
+including UTF-8 sessions over SSH. Locale detection checks the first non-empty
+value in `LC_ALL`, `LC_CTYPE`, then `LANG`. A bare `C` or `POSIX` locale selects
+ASCII decoration; UTF-8 locales such as `C.UTF-8` do not. SSH alone does not
+change the display mode.
+
+Environment variables override rendering for that launch without rewriting
+saved appearance settings:
+
+| Variable | Effect |
+| --- | --- |
+| `RADIOCLI_ASCII=1` | Force ASCII decoration |
+| `RADIOCLI_UNICODE=1` | Force Unicode decoration unless ASCII is also explicitly enabled or `TERM=dumb` |
+| `NO_COLOR=1` | Remove foreground colors and background fills; any non-empty value enables this |
+| `FORCE_COLOR=0`, `1`, `2`, or `3` | Select no color, 16 colors, 256 colors, or truecolor |
+| `RADIOCLI_DISABLE_ANIMATION=1` | Freeze receiver and loading animations and stop scrolling text |
+| `RADIOCLI_SCREEN_READER=1` or `INK_SCREEN_READER=true` | Enable screen-reader output with text status, no receiver visualizers, no animation, and no mouse reporting |
+| `TERM=dumb` | Show static frames with ASCII decoration and no color or animation |
+
+Detected 16-color terminals retain their own background; 256-color and truecolor
+terminals can use the dark receiver panels. `NO_COLOR`, screen-reader mode, and
+`TERM=dumb` take precedence over `FORCE_COLOR`.
+
+For one launch in a POSIX shell:
+
+```bash
+RADIOCLI_ASCII=1 RADIOCLI_DISABLE_ANIMATION=1 radiocli
+```
+
+In PowerShell, set the variables for the current shell before launching:
+
+```powershell
+$env:RADIOCLI_SCREEN_READER = '1'
+radiocli
+```
+
+Screen-reader mode keeps keyboard navigation, station and playback labels,
+selection, and command entry available. Decorative receiver frames are omitted,
+and long labels are exposed as text without a scrolling marquee.
+
+The TUI requires interactive keyboard input, including with `TERM=dumb`.
+Use [CLI commands](cli.mdx) such as `radiocli doctor --json` and
+`radiocli search "jazz"` in pipelines or scripts. For display problems, see
+[Troubleshooting](../troubleshooting.mdx); runtime and optional feature coverage
+is listed under [Platforms](/docs/platforms).
 
 ## Source-List Queues
 
