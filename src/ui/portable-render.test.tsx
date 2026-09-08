@@ -95,6 +95,32 @@ describe('portable terminal rendering', () => {
     }
   });
 
+  it.each([{name: 'Unicode', ascii: false}, {name: 'ASCII', ascii: true}])('summarizes the Stats heatmap without decorative rows in $name mode', ({ascii}) => {
+    vi.stubEnv('TZ', 'UTC');
+    vi.stubEnv('COLUMNS', '100');
+    vi.stubEnv('LINES', '30');
+    const props = contentProps('stats', sizes[0]!);
+    props.library = {...library, activity: {sessions: [
+      {id: 'yesterday', station, startedAt: '2026-09-06T12:00:00.000Z', endedAt: '2026-09-06T13:00:00.000Z', listenedSeconds: 3600},
+      {id: 'today', station, startedAt: '2026-09-07T09:00:00.000Z', endedAt: '2026-09-07T09:30:00.000Z', listenedSeconds: 1800}
+    ]}};
+    const settings = {...library.settings, asciiMode: ascii};
+    const visualDisplay = resolveDisplayMode(settings, {});
+    const visual = staticFrame(<DisplayContext.Provider value={visualDisplay}><AppContent {...props} /></DisplayContext.Provider>, 100);
+    expect(stripVTControlCharacters(visual)).toMatch(/\bMon\b/u);
+
+    vi.stubEnv('INK_SCREEN_READER', 'true');
+    const display = resolveDisplayMode(settings, {INK_SCREEN_READER: 'true'});
+    let view!: ReturnType<typeof render>;
+    act(() => { view = render(<DisplayContext.Provider value={display}><AppContent {...props} /></DisplayContext.Provider>); });
+    const frame = stripVTControlCharacters(view.lastFrame() ?? '');
+    expect(frame).toContain('Activity graph: 2 active days in 2026');
+    expect(frame).toMatch(/Total hours listened:\s*1\.5h/u);
+    expect(frame).toMatch(/Sessions:\s*2/u);
+    expect(frame).toMatch(/Active days:\s*2\/371/u);
+    expect(frame).not.toMatch(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Wed|Fri|Less|More)\b/u);
+  });
+
   it.each([{TERM: 'dumb'}, {RADIOCLI_SCREEN_READER: '1'}])('stops compact station marquees with %j', async env => {
     const props = contentProps('library', sizes[2]!);
     props.displayStations = [{...station, name: `${station.name} — A long international station name that would scroll`}];

@@ -1,4 +1,4 @@
-import {createServer, type Server} from 'node:http';
+import {createServer, request as requestHttp, type Server} from 'node:http';
 import {createServer as createHttpsServer} from 'node:https';
 import {connect} from 'node:net';
 import {spawn} from 'node:child_process';
@@ -71,7 +71,7 @@ describe('public network policy', () => {
   it('explains that ALL_PROXY alone is not implemented even for HTTP proxy URLs', async () => {
     vi.stubEnv('ALL_PROXY', 'http://proxy.invalid:8080');
     const fetchImpl = vi.fn(async () => new Response('{}'));
-    await expect(withExternalResponse('https://example.com', {timeoutMs: 100, fetchImpl}, response => response.json())).rejects.toThrow(/ALL_PROXY/);
+    await expect(withExternalResponse('https://example.com', {timeoutMs: 100, fetchImpl}, response => response.json())).rejects.toThrow(/ALL_PROXY/i);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -80,7 +80,7 @@ describe('public network policy', () => {
     for (const value of ['not-a-url-private-password', 'http://private-user:private-password%ZZ@proxy.invalid']) {
       vi.stubEnv('HTTPS_PROXY', value);
       const error = await withExternalResponse('https://example.com', {timeoutMs: 100, fetchImpl}, response => response.json()).then(() => null, value => value as Error);
-      expect(error!.message).toMatch(/HTTPS_PROXY/);
+      expect(error!.message).toMatch(/HTTPS_PROXY/i);
       expect(error!.message).not.toMatch(/private-user|private-password|proxy\.invalid/);
       expect(error!.cause).toBeUndefined();
     }
@@ -207,10 +207,27 @@ describe('external response lifetime', () => {
     const destination = await start(origin);
     let proxyConnections = 0;
     let authenticatedProxy = false;
-    const proxy = createServer();
+    let proxyTarget: string | undefined;
+    // Native fetch may use absolute-form HTTP requests or a CONNECT tunnel.
+    const proxy = createServer((request, response) => {
+      proxyConnections += 1;
+      authenticatedProxy = request.headers['proxy-authorization'] === `Basic ${Buffer.from('test-user:test-password').toString('base64')}`;
+      proxyTarget = new URL(request.url!).origin;
+      const headers = {...request.headers};
+      delete headers['proxy-authorization'];
+      const upstream = requestHttp(request.url!, {method: request.method, headers, agent: false}, upstreamResponse => {
+        response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+        upstreamResponse.pipe(response);
+      });
+      upstream.on('socket', socket => sockets.add(socket));
+      upstream.on('error', error => response.destroy(error));
+      request.on('error', error => upstream.destroy(error));
+      request.pipe(upstream);
+    });
     proxy.on('connect', (request, socket, head) => {
       proxyConnections += 1;
       authenticatedProxy = request.headers['proxy-authorization'] === `Basic ${Buffer.from('test-user:test-password').toString('base64')}`;
+      proxyTarget = `http://${request.url}`;
       sockets.add(socket);
       const upstream = connect(Number(new URL(destination).port), '127.0.0.1', () => {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
@@ -242,6 +259,7 @@ describe('external response lifetime', () => {
     });
     expect(JSON.parse(result)).toEqual({route: 'origin'});
     expect(proxyConnections).toBe(1);
+    expect(proxyTarget).toBe(destination);
     expect(authenticatedProxy).toBe(true);
     expect(originProxyAuthorization).toBeUndefined();
   });

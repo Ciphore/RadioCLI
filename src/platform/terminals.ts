@@ -1,4 +1,4 @@
-import {spawn,type ChildProcess} from 'node:child_process';
+import {spawn,type ChildProcess,type SpawnOptions} from 'node:child_process';
 import {posix,win32} from 'node:path';
 import {resolveCommandDetails} from './executables.js';
 import {identifyPlatform,nativeAdapters} from './runtime.js';
@@ -6,10 +6,10 @@ import {powershellCommand} from './shell.js';
 import {launchEnvironment, nodeLaunchCommand} from './launch-command.js';
 
 export type TerminalResolver=(command:string)=>string|undefined;
-type TerminalSpawn=(command:string,args:readonly string[])=>ChildProcess;
+type TerminalSpawn=(command:string,args:readonly string[],options?:SpawnOptions)=>ChildProcess;
 export type TerminalOptions={platform?:NodeJS.Platform;env?:NodeJS.ProcessEnv;resolve?:TerminalResolver;spawn?:TerminalSpawn};
 type TerminalCommand=TerminalOptions&{nodePath:string;args:readonly string[];title?:string;closeOnExit?:boolean};
-type TerminalLaunch={terminal:string;command:string;args:string[]};
+type TerminalLaunch={terminal:string;command:string;args:string[];environment?:Record<string,string>};
 
 type UnixTerminal={name:string;args:string[];display?:'x11'|'wayland';shell?:boolean};
 const unixTerminals:UnixTerminal[]=[
@@ -78,7 +78,7 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
     // fixed quote-free Node program and encoded JSON cross that boundary.
     const command=nodeLaunchCommand(options.nodePath,options.args,environment);
     const args=powershellCommand(command,{}, {keepOpen:!options.closeOnExit});
-    if(terminal==='win32:console')return{terminal,command:powershell,args:newWindowsConsole(powershell,args)};
+    if(terminal==='win32:console')return{terminal,command:powershell,...newWindowsConsole(powershell,args)};
     const wt=resolve('wt.exe')??(env.LOCALAPPDATA?resolve(win32.join(env.LOCALAPPDATA,'Microsoft','WindowsApps','wt.exe')):undefined);
     if(!wt)throw new Error('Windows Terminal is unavailable; the saved terminal cannot be requested.');
     return{terminal,command:wt,args:['-w','new','new-tab','--title',options.title??'RadioCLI',powershell,...args]};
@@ -94,7 +94,7 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
 /** Request acceptance is separate from the caller's TUI/session verification. */
 export async function launchTerminalCommand(options:TerminalCommand):Promise<string>{
   const plan=createTerminalLaunch(options);
-  const child=options.spawn?options.spawn(plan.command,plan.args):spawn(plan.command,plan.args,{env:options.env??process.env,detached:true,stdio:'ignore',windowsHide:false});
+  const child=(options.spawn??spawn)(plan.command,plan.args,{env:{...(options.env??process.env),...plan.environment},detached:true,stdio:'ignore',windowsHide:false});
   await waitForLaunch(child);return plan.terminal;
 }
 
@@ -117,17 +117,25 @@ function resolveUnixTerminal(input:string,env:NodeJS.ProcessEnv,resolve:Terminal
   const path=resolve(input);return path&&unixTerminals.some(item=>item.name===posix.basename(path))?path:undefined;
 }
 function shellQuote(value:string):string{return`'${value.replaceAll("'",`'\\''`)}'`;}
-function newWindowsConsole(powershell: string, args: readonly string[]): string[] {
-  const payload = Buffer.from(JSON.stringify({command: powershell, args}), 'utf8').toString('base64');
+function newWindowsConsole(powershell: string, args: readonly string[]): {args: string[]; environment: Record<string, string>} {
+  const key = 'RADIOCLI_WINDOWS_CONSOLE_COMMAND';
   // Node's detached Windows launcher has NUL stdio. Start-Process must create
   // a separate console without -NoNewWindow or any standard-stream redirection.
   // Its ArgumentList joins values, so only fixed flags and encoded data go in it.
   const script = [
     "$ErrorActionPreference='Stop'",
-    `$radiocliConsole=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json`,
+    "$ProgressPreference='SilentlyContinue'",
+    `$radiocliConsole=[Environment]::GetEnvironmentVariable('${key}','Process') | ConvertFrom-Json`,
+    `[Environment]::SetEnvironmentVariable('${key}',$null,'Process')`,
     'Start-Process -FilePath ([string]$radiocliConsole.command) -ArgumentList ([string[]]$radiocliConsole.args) -WindowStyle Normal'
   ].join(';');
-  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+  // Only this short-lived outer process needs the handoff. Encoding the inner
+  // PowerShell command again exceeds Windows' command-line limit for ordinary
+  // deep install paths. Clear the private variable before creating the console.
+  return {
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    environment: {[key]: JSON.stringify({command: powershell, args})}
+  };
 }
 function appleTerminalScript(command:string):string[]{return['-e','on run argv','-e','tell application "Terminal"','-e','activate','-e','do script (item 1 of argv)','-e','end tell','-e','end run',command];}
 function iTermScript(command:string):string[]{return['-e','on run argv','-e','tell application "iTerm"','-e','activate','-e','set w to (create window with default profile)','-e','tell current session of w to write text (item 1 of argv)','-e','end tell','-e','end run',command];}

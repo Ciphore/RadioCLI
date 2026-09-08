@@ -334,6 +334,7 @@ jobs:
           copyback: false
           prepare: |
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            /usr/sbin/pkg_add pkgin
             pkgin -y update
             pkgin -y install 'nodejs>=22<23' mpv
           run: |

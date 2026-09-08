@@ -98,15 +98,16 @@ describe('App terminal integration', () => {
   });
 
   it.each([
-    {env: {TERM: 'dumb'}, animated: false},
-    {env: {RADIOCLI_SCREEN_READER: '1'}, animated: false},
-    {env: {}, animated: true}
-  ])('keeps the loading spinner animated=$animated for $env without changing settings', async ({env, animated}) => {
+    {env: {TERM: 'dumb'}, animated: false, redirected: false},
+    {env: {RADIOCLI_SCREEN_READER: '1'}, animated: false, redirected: false},
+    {env: {TERM: 'xterm-256color'}, animated: false, redirected: true},
+    {env: {}, animated: true, redirected: false}
+  ])('keeps the loading spinner animated=$animated for $env with redirected=$redirected without changing settings', async ({env, animated, redirected}) => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
     setPlayback('playing');
     vi.spyOn(ProviderManager.prototype, 'resolve').mockResolvedValue({url: 'https://example.test/portable'});
     const play = vi.spyOn(PlayerController.prototype, 'play').mockImplementation(() => new Promise<void>(() => undefined));
-    const {store, input, frames} = await openApp(false);
+    const {store, input, frames} = await openApp(false, redirected);
     await input('\u001B[B');
     await input('\r');
     await input('\r');
@@ -125,7 +126,7 @@ function setPlayback(state: 'playing' | 'loading'): void {
   vi.spyOn(PlayerController.prototype, 'onChange').mockImplementation(listener => { listener(playback); return () => undefined; });
 }
 
-async function openApp(screenReader: boolean) {
+async function openApp(screenReader: boolean, redirected = false) {
   const directory = mkdtempSync(join(tmpdir(), 'radiocli-portable-app-'));
   directories.push(directory);
   vi.stubEnv('RADIOCLI_HOME', directory);
@@ -133,7 +134,7 @@ async function openApp(screenReader: boolean) {
   store.updateSettings({resumeOnLaunch: false, automaticUpdateChecks: false, asciiMode: false, reduceMotion: false, transparentBackground: false});
   store.toggleFavorite({id: 'portable', provider: 'radio-browser', name: 'Portable Radio', tags: [], streamUrl: 'https://example.test/portable'});
   const frames: string[] = [];
-  const stdout = Object.assign(new Writable({write(chunk, _encoding, done) { frames.push(String(chunk)); done(); }}), {isTTY: true, columns: 100, rows: 30, getColorDepth: () => 24}) as NodeJS.WriteStream;
+  const stdout = Object.assign(new Writable({write(chunk, _encoding, done) { frames.push(String(chunk)); done(); }}), {columns: 100, rows: 30, ...(!redirected ? {isTTY: true, getColorDepth: () => 24} : {})}) as NodeJS.WriteStream;
   const errors: string[] = [];
   const stderr = new Writable({write(chunk, _encoding, done) { errors.push(String(chunk)); done(); }}) as NodeJS.WriteStream;
   const stdin = Object.assign(new PassThrough(), {isTTY: true, setRawMode: () => undefined, ref: () => undefined, unref: () => undefined}) as unknown as NodeJS.ReadStream;

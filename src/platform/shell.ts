@@ -15,6 +15,7 @@ export function powershellCommand(
   const payload = Buffer.from(JSON.stringify({command: values[0], args: values.slice(1), environment}), 'utf8').toString('base64');
   const script = [
     "$ErrorActionPreference='Stop'",
+    "$ProgressPreference='SilentlyContinue'",
     `$radiocliInvocation=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json`,
     "foreach($radiocliVariable in $radiocliInvocation.environment.PSObject.Properties){[Environment]::SetEnvironmentVariable($radiocliVariable.Name,[string]$radiocliVariable.Value,'Process')}",
     '$radiocliArguments=@($radiocliInvocation.args | ForEach-Object {[string]$_})',

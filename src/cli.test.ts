@@ -185,11 +185,13 @@ describe('CLI command dispatch', () => {
       await runCommand(['doctor', '--json']);
       const report = JSON.parse(logs.join('\n'));
       expect(report.support.tier).toBe(tier);
+      expect(report.support.scope).toBe('current-installation');
       expect(report.support.evidence).toEqual(assessment.evidence);
       expect(report.backends).toEqual([]);
       logs.length = 0;
       await runCommand(['doctor']);
       expect(logs.join('\n')).toContain(`support_tier=${tier}`);
+      expect(logs.join('\n')).toContain('support_scope=current-installation');
       expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
     } finally {spy.mockRestore();}
   });

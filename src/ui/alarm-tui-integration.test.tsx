@@ -530,7 +530,19 @@ describe('alarm TUI integration', () => {
   });
 
   it('does not let background active polling move a non-alarm screen cursor', async () => {
-    const {store,service}=fixture();const app=render(<App store={store} alarmService={service}/>);await settle();app.stdin.write('9');await settle();await moveDown(app,4);const selectedLine=app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '));expect(selectedLine).toBeTruthy();vi.useFakeTimers();try{await act(async () => vi.advanceTimersByTimeAsync(1_600));expect(app.lastFrame()?.split('\n').find(line=>line.trimStart().startsWith('> '))).toBe(selectedLine);}finally{app.unmount();vi.useRealTimers();}
+    const {store, service, calls} = fixture();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    app.stdin.write('9');
+    await settle();
+    await moveDown(app, 4);
+    const selectedLine = app.lastFrame()?.split('\n').find(line => line.trimStart().startsWith('> '));
+    expect(selectedLine).toBeTruthy();
+    expect(calls.activeAlarms).toHaveBeenCalledOnce();
+    await settle(1_600);
+    expect(calls.activeAlarms).toHaveBeenCalledTimes(2);
+    expect(app.lastFrame()?.split('\n').find(line => line.trimStart().startsWith('> '))).toBe(selectedLine);
+    app.unmount();
   });
 
   it('toggles, confirms deletion with a second x, and cleans the native job through the injected service', async () => {

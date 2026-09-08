@@ -1,4 +1,4 @@
-import {execFileSync,type ChildProcess} from 'node:child_process';
+import {execFileSync,spawn,type ChildProcess} from 'node:child_process';
 import {EventEmitter} from 'node:events';
 import {existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {basename,join,posix} from 'node:path';
@@ -10,13 +10,15 @@ afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,
 const resolve=(command:string)=>command;
 function fixture(){const root=mkdtempSync(join(process.cwd(),'.radiocli-terminals-'));roots.push(root);return root;}
 function terminalPath(root:string,name:string){return posix.join(basename(root),name);}
-function nodeInvocation(args: readonly string[]): {command: string; args: string[]} {
+function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): {command: string; args: string[]} {
   const index = args.indexOf('-EncodedCommand');
   expect(index).toBeGreaterThanOrEqual(0);
   const script = Buffer.from(args[index + 1]!, 'base64').toString('utf16le');
   const encoded = /FromBase64String\('([^']+)'\)/.exec(script)?.[1];
-  expect(encoded).toBeDefined();
-  const invocation = JSON.parse(Buffer.from(encoded!, 'base64').toString('utf8')) as {command: string; args: string[]};
+  const key = /GetEnvironmentVariable\('([^']+)'/.exec(script)?.[1];
+  const source = encoded ? Buffer.from(encoded, 'base64').toString('utf8') : environment[key!];
+  expect(source).toBeDefined();
+  const invocation = JSON.parse(source!) as {command: string; args: string[]};
   return invocation.args.includes('-EncodedCommand') ? nodeInvocation(invocation.args) : invocation;
 }
 
@@ -42,23 +44,50 @@ describe('graphical terminal invocation plans',()=>{
   it('preserves a special data home and every argument through the Windows Node bootstrap',()=>{
     const home='C:\\Data %PATH%! & "quote" \' 单播';const values=['space value','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
     const plan=createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home},nodePath:process.execPath,args:['-e',"process.stdout.write(JSON.stringify({args:process.argv.slice(1),home:process.env.RADIOCLI_HOME}))",'--',...values],resolve,closeOnExit:true});
-    const payload=nodeInvocation(plan.args);
+    const payload=nodeInvocation(plan.args,plan.environment);
     expect(payload.args[1]).not.toContain('"');const output=execFileSync(payload.command,payload.args,{encoding:'utf8'});expect(JSON.parse(output)).toEqual({args:values,home});expect(plan.command).toBe('powershell.exe');
   });
   it('requests a separate Windows console without inheriting detached launcher stdio',()=>{
     const plan=createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,closeOnExit:true});
     const script=Buffer.from(plan.args.at(-1)!,'base64').toString('utf16le');
     expect(script).toContain('Start-Process');expect(script).toContain('-WindowStyle Normal');expect(script).not.toMatch(/-NoNewWindow|-RedirectStandard/);
+    expect(script).toMatch(/SetEnvironmentVariable\('[^']+',\$null,'Process'\);Start-Process/);
+  });
+  it('keeps a console launch with ordinary deep install paths below the Windows command-line limit',()=>{
+    const nodePath=`C:\\Program Files\\${'Runtime\\'.repeat(19)}node.exe`;
+    const cliPath=`C:\\${'RadioCLI\\'.repeat(22)}dist\\cli.js`;
+    const dataRoot=`C:\\${'Radio Data\\'.repeat(18)}`;
+    const env={RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:`${dataRoot}Home`,RADIOCLI_MPV_PATH:`${dataRoot}mpv.exe`,RADIOCLI_FFPLAY_PATH:`${dataRoot}ffplay.exe`,RADIOCLI_VLC_PATH:`${dataRoot}vlc.exe`,RADIOCLI_FFMPEG_PATH:`${dataRoot}ffmpeg.exe`};
+    const plan=createTerminalLaunch({platform:'win32',env,nodePath,args:[cliPath],resolve});
+    expect([nodePath,cliPath,...Object.values(env)].every(value=>value.length<260)).toBe(true);
+    // Include quotes, separators, and NUL in the CreateProcessW limit.
+    expect([plan.command,...plan.args].reduce((length,value)=>length+value.length+3,1)).toBeLessThan(32_767);
+    const handoff=Object.values(plan.environment!);expect(handoff).toHaveLength(1);
+    expect(handoff[0]!.length+1).toBeLessThan(32_767);
+    const inner=JSON.parse(handoff[0]!) as {command:string;args:string[]};
+    expect([inner.command,...inner.args].reduce((length,value)=>length+value.length+3,1)).toBeLessThan(32_767);
   });
   it.skipIf(process.platform!=='win32')('opens real Windows console TTY handles and preserves literal argv and environment',async()=>{
     const root=fixture();const cli=join(root,"Radio %PATH%! & ' 单播.cjs");const output=join(root,'console-result.json');
     // File output observes the actual TTY child without redirecting its stdio.
     writeFileSync(cli,"const fs=require('node:fs');const output=process.argv[2];fs.writeFileSync(output+'.tmp',JSON.stringify({stdin:process.stdin.isTTY===true,stdout:process.stdout.isTTY===true,stderr:process.stderr.isTTY===true,args:process.argv.slice(3),home:process.env.RADIOCLI_HOME,mpv:process.env.RADIOCLI_MPV_PATH}),'utf8');fs.renameSync(output+'.tmp',output)");
     const home='C:\\Data %PATH%! & "quote" \' 单播';const mpv="C:\\Players %PATH%! & ' 单播\\mpv.exe";const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
-    await launchTerminalCommand({platform:'win32',env:{...process.env,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true});
+    const diagnostic:{commandCharacters:number;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,spawned:false,code:null,signal:null,stdout:'',stderr:''};
+    await launchTerminalCommand({platform:'win32',env:{...process.env,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
+      diagnostic.commandCharacters=[command,...args].reduce((length,value)=>length+value.length+3,1);
+      // Capture only the outer launcher; Start-Process still creates the child
+      // with its own unredirected console handles. Never log inherited env.
+      const child=spawn(command,args,{...options,stdio:['ignore','pipe','pipe']});
+      child.stdout?.on('data',chunk=>diagnostic.stdout=(diagnostic.stdout+String(chunk)).slice(-4_000));
+      child.stderr?.on('data',chunk=>diagnostic.stderr=(diagnostic.stderr+String(chunk)).slice(-4_000));
+      child.once('spawn',()=>diagnostic.spawned=true);
+      child.once('error',error=>diagnostic.error=error.message);
+      child.once('close',(code,signal)=>{diagnostic.code=code;diagnostic.signal=signal;});
+      return child;
+    }}).catch(error=>{throw new Error(`Windows console launcher failed: ${JSON.stringify(diagnostic)}`,{cause:error});});
     const deadline=Date.now()+10_000;
     while(!existsSync(output)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
-    expect(existsSync(output)).toBe(true);
+    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify(diagnostic)}`).toBe(true);
     expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
   },15_000);
   it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{

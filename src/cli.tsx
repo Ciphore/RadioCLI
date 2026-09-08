@@ -58,7 +58,7 @@ async function renderTui(encodedCommand?: string): Promise<void> {
     return;
   }
   const {configureTerminalRenderer} = await import('./ui/terminal-renderer.js');
-  const terminal = await configureTerminalRenderer(process.env, {isTTY: process.stdout.isTTY, colorDepth: process.stdout.getColorDepth?.()});
+  const terminal = await configureTerminalRenderer(process.env, {isTTY: Boolean(process.stdout.isTTY), colorDepth: process.stdout.getColorDepth?.()});
   const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
   render(<App initialAgentCommand={encodedCommand ? decodeAgentCommand(encodedCommand) : undefined} />, {
     // App owns Ctrl+C so it can confirm before performing a clean shutdown.
@@ -127,6 +127,8 @@ export async function runCommand(args: string[]): Promise<void> {
     }
     console.log(`network=${report.network.status} ${report.network.message}`);
     console.log(`support_tier=${report.support.tier} runtime=${report.support.runtime.status}`);
+    console.log(`support_scope=${report.support.scope}`);
+    console.log('support_note=Doctor checks this installation without running packed-install or audio acceptance tests; reference CI results are documented in the platform matrix.');
     for (const reason of report.support.reasons) console.log(`support_note=${reason}`);
     return;
   }
@@ -340,7 +342,7 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
     platform: process.platform,
     architecture: process.arch,
     host: {id: host.id, arch: host.arch, armVersion: host.armVersion, endianness: host.endianness, release: host.release, libc: host.libc, isWsl: host.isWsl},
-    support: assessPlatformSupport(host),
+    support: {scope: 'current-installation' as const, ...assessPlatformSupport(host)},
     capabilities,
     terminal,
     network: networkDiagnostic(),

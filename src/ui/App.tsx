@@ -200,7 +200,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
-    () => resolveDisplayMode(library.settings, process.env, {screenReader, isTTY: stdout.isTTY, colorDepth: stdout.getColorDepth?.()}),
+    () => resolveDisplayMode(library.settings, process.env, {screenReader, isTTY: Boolean(stdout.isTTY), colorDepth: stdout.getColorDepth?.()}),
     [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion, screenReader, stdout]
   );
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
