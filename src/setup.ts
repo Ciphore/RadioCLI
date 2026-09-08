@@ -10,6 +10,7 @@ import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backe
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
+import {resolveTerminalCapabilities} from './platform/terminal.js';
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -54,7 +55,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand);
 
   writeHeader(output);
-  output.write(`System  ${platformLabel(platform, osRelease)} · Node ${process.version}\n`);
+  output.write(`System  ${platformLabel(platform, osRelease)} ${separator(output)} Node ${process.version}\n`);
   output.write(`Manager ${packageManager ?? 'not detected'}\n\n`);
 
   let selected = parsed.only ?? defaultComponents(platform, parsed.all);
@@ -284,9 +285,9 @@ async function promptForComponents({
 }): Promise<SetupComponent[]> {
   output.write('Choose components (installed items will be skipped):\n');
   const selected: SetupComponent[] = [];
-  if (await promptYesNo(input, output, `  mpv      Full playback controls${installed.mpv ? ' · installed' : ''}`, true)) selected.push('mpv');
-  if (await promptYesNo(input, output, `  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ' · installed' : ''}`, platform === 'darwin')) selected.push('ffmpeg');
-  if (await promptYesNo(input, output, `  VLC      Additional playback fallback${installed.vlc ? ' · installed' : ''}`, false)) selected.push('vlc');
+  if (await promptYesNo(input, output, `  mpv      Full playback controls${installed.mpv ? ` ${separator(output)} installed` : ''}`, true)) selected.push('mpv');
+  if (await promptYesNo(input, output, `  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ` ${separator(output)} installed` : ''}`, platform === 'darwin')) selected.push('ffmpeg');
+  if (await promptYesNo(input, output, `  VLC      Additional playback fallback${installed.vlc ? ` ${separator(output)} installed` : ''}`, false)) selected.push('vlc');
   return selected;
 }
 
@@ -307,14 +308,15 @@ function printPlan(plan: SetupPlan, output: Writable): void {
     if (plan.installed[component]) output.write(`  ${successMark(output)} ${componentLabel(component)} already installed\n`);
     else {
       const command = plan.commands.find(candidate => candidate.component === component);
-      output.write(`  ${pendingMark(output)} ${componentLabel(component)}${command ? ` · ${command.display}` : ' · manual installation required'}\n`);
+      output.write(`  ${pendingMark(output)} ${componentLabel(component)} ${separator(output)} ${command ? command.display : 'manual installation required'}\n`);
     }
   }
   if (plan.selected.length === 0) output.write('  No components selected\n');
 }
 
 async function runInstallCommand(command: SetupCommand, output: Writable, platform: NodeJS.Platform): Promise<void> {
-  const interactive = Boolean((output as NodeJS.WriteStream).isTTY);
+  const terminal = setupTerminal(output);
+  const interactive = terminal.interactive && !terminal.reduceMotion;
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
   let frame = 0;
@@ -355,8 +357,9 @@ function progressFrame(label: string, frame: number, elapsedMs: number, output: 
   const cycle = travel * 2;
   const offset = frame % cycle;
   const start = offset <= travel ? offset : cycle - offset;
-  const bar = Array.from({length: width}, (_, index) => index >= start && index < start + segment ? '█' : '░').join('');
-  return `  ${accent(output, '◒')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
+  const unicode = setupTerminal(output).unicode;
+  const bar = Array.from({length: width}, (_, index) => index >= start && index < start + segment ? (unicode ? '█' : '#') : (unicode ? '░' : '.')).join('');
+  return `  ${accent(output, unicode ? '◒' : '*')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
 }
 
 function printVerification(output: Writable): void {
@@ -370,7 +373,7 @@ function printVerification(output: Writable): void {
 
 function writeHeader(output: Writable): void {
   output.write(`${accent(output, 'RADIOCLI')}  SETUP RECEIVER\n`);
-  output.write(`${accent(output, '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')}\n`);
+  output.write(`${accent(output, setupTerminal(output).unicode ? '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' : '------------------------------------')}\n`);
 }
 
 function isInteractive(input: Readable, output: Writable): boolean {
@@ -378,23 +381,33 @@ function isInteractive(input: Readable, output: Writable): boolean {
 }
 
 function accent(output: Writable, value: string): string {
-  return colorsEnabled(output) ? `\u001b[38;2;116;242;138m${value}\u001b[0m` : value;
+  const level = setupTerminal(output).colorLevel;
+  const color = level === 3 ? '38;2;116;242;138' : level === 2 ? '38;5;120' : '32';
+  return level > 0 ? `\u001b[${color}m${value}\u001b[0m` : value;
 }
 
 function successMark(output: Writable): string {
-  return accent(output, '✓');
+  return accent(output, setupTerminal(output).unicode ? '✓' : '+');
 }
 
 function pendingMark(output: Writable): string {
-  return accent(output, '◆');
+  return accent(output, setupTerminal(output).unicode ? '◆' : '*');
 }
 
 function failureMark(output: Writable): string {
-  return colorsEnabled(output) ? '\u001b[38;2;255;95;135m✗\u001b[0m' : '✗';
+  const terminal = setupTerminal(output);
+  const value = terminal.unicode ? '✗' : 'x';
+  const color = terminal.colorLevel === 3 ? '38;2;255;95;135' : terminal.colorLevel === 2 ? '38;5;204' : '31';
+  return terminal.colorLevel > 0 ? `\u001b[${color}m${value}\u001b[0m` : value;
 }
 
-function colorsEnabled(output: Writable): boolean {
-  return Boolean((output as NodeJS.WriteStream).isTTY) && !process.env.NO_COLOR;
+function setupTerminal(output: Writable) {
+  const stream = output as NodeJS.WriteStream;
+  return resolveTerminalCapabilities(process.env, {isTTY: Boolean(stream.isTTY), colorDepth: stream.getColorDepth?.()});
+}
+
+function separator(output: Writable): string {
+  return setupTerminal(output).unicode ? '·' : '-';
 }
 
 function clearLine(): string {

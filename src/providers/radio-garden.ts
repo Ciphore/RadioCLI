@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import type {ResolvedStream, SearchOptions, Station} from '../types.js';
+import {withExternalResponse} from '../platform/network.js';
 
 const searchSchema = z
   .object({
@@ -34,14 +35,13 @@ export class RadioGardenProvider {
 
   async health(): Promise<string> {
     try {
-      const response = await fetchWithTimeout(`${this.baseUrl}/geo`, 5000, {
-        headers: {'User-Agent': 'radiocli/0.1'}
+      return await withExternalResponse(`${this.baseUrl}/geo`, {
+        timeoutMs: 5000,
+        init: {headers: {'User-Agent': 'radiocli/0.1'}}
+      }, response => {
+        if (response.status === 403) return 'blocked by edge protection';
+        return response.ok ? 'online' : `${response.status} ${response.statusText}`;
       });
-      if (response.status === 403) {
-        return 'blocked by edge protection';
-      }
-
-      return response.ok ? 'online' : `${response.status} ${response.statusText}`;
     } catch (error) {
       return error instanceof Error ? error.message : 'unavailable';
     }
@@ -51,15 +51,13 @@ export class RadioGardenProvider {
     const url = new URL(`${this.baseUrl}/search`);
     url.searchParams.set('q', query);
 
-    const response = await fetchWithTimeout(url, 9000, {
-      headers: {'User-Agent': 'radiocli/0.1', Accept: 'application/json'}
+    const parsed = await withExternalResponse(url, {
+      timeoutMs: 9000,
+      init: {headers: {'User-Agent': 'radiocli/0.1', Accept: 'application/json'}}
+    }, async response => {
+      if (!response.ok) throw new Error(`${this.label} search failed: ${response.status} ${response.statusText}`);
+      return searchSchema.parse(await response.json());
     });
-
-    if (!response.ok) {
-      throw new Error(`${this.label} search failed: ${response.status} ${response.statusText}`);
-    }
-
-    const parsed = searchSchema.parse(await response.json());
     return (parsed.hits ?? [])
       .map(hit => hit._source)
       .filter((source): source is NonNullable<typeof source> => source?.type === 'channel' && Boolean(source.url))
@@ -86,15 +84,5 @@ export class RadioGardenProvider {
       url: `${this.baseUrl}/ara/content/listen/${encodeURIComponent(station.id)}/channel.mp3`,
       name: station.name
     };
-  }
-}
-
-async function fetchWithTimeout(url: string | URL, timeoutMs: number, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {...init, signal: controller.signal});
-  } finally {
-    clearTimeout(timeout);
   }
 }

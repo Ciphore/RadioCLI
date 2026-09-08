@@ -1,7 +1,21 @@
-import {describe, expect, it} from 'vitest';
-import {parseRaopBrowseOutput, parseRaopLookupOutput} from './airplay-discovery.js';
+import * as childProcess from 'node:child_process';
+import {describe, expect, it, vi} from 'vitest';
+import * as commands from './command.js';
+import {discoverAirPlayDevices, parseRaopBrowseOutput, parseRaopLookupOutput} from './airplay-discovery.js';
+
+vi.mock('node:child_process', () => ({spawn: vi.fn(() => {throw new Error('discovery must remain offline');})}));
 
 describe('AirPlay RAOP discovery parsing', () => {
+  it('does not spawn multicast discovery in offline mode even when dns-sd exists', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const command = vi.spyOn(commands, 'commandExists').mockReturnValue(true);
+    const spawn = vi.mocked(childProcess.spawn);
+    try {
+      expect(await discoverAirPlayDevices({platform: 'darwin'})).toEqual([]);
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {spawn.mockClear(); command.mockRestore(); vi.unstubAllEnvs();}
+  });
+
   it('extracts RAOP instance names from dns-sd browse output', () => {
     expect(
       parseRaopBrowseOutput(`

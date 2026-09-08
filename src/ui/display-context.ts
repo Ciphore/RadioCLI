@@ -1,4 +1,5 @@
 import {createContext, useContext} from 'react';
+import {resolveTerminalCapabilities, type TerminalColorLevel, type TerminalEvidence} from '../platform/terminal.js';
 import {appBackground, panelBackground} from './theme.js';
 
 type DisplayBackgrounds = {
@@ -9,6 +10,8 @@ type DisplayBackgrounds = {
 export type DisplayMode = DisplayBackgrounds & {
   ascii: boolean;
   reduceMotion: boolean;
+  screenReader: boolean;
+  colorLevel: TerminalColorLevel;
 };
 
 type DisplaySettings = {
@@ -26,14 +29,15 @@ export function noColorRequested(env: NodeJS.ProcessEnv = process.env): boolean 
   return typeof env.NO_COLOR === 'string' && env.NO_COLOR.length > 0;
 }
 
-// Resolve the effective display mode from the user's settings and the NO_COLOR
-// environment so light terminals keep their own background.
-export function resolveDisplayMode(settings: DisplaySettings, env: NodeJS.ProcessEnv = process.env): DisplayMode {
-  const backgrounds = settings.transparentBackground || noColorRequested(env) ? transparentBackgrounds : opaqueBackgrounds;
-  return {...backgrounds, ascii: Boolean(settings.asciiMode), reduceMotion: Boolean(settings.reduceMotion)};
+// Sixteen-color palettes cannot safely reproduce our dark fills. Let those
+// terminals keep their own background while Ink quantizes the foregrounds.
+export function resolveDisplayMode(settings: DisplaySettings, env: NodeJS.ProcessEnv = process.env, evidence: TerminalEvidence = {}): DisplayMode {
+  const terminal = resolveTerminalCapabilities(env, {...settings, ...evidence});
+  const backgrounds = settings.transparentBackground || terminal.colorLevel < 2 ? transparentBackgrounds : opaqueBackgrounds;
+  return {...backgrounds, ascii: !terminal.unicode, reduceMotion: terminal.reduceMotion, screenReader: terminal.screenReader, colorLevel: terminal.colorLevel};
 }
 
-const defaultMode: DisplayMode = {...opaqueBackgrounds, ascii: false, reduceMotion: false};
+const defaultMode: DisplayMode = resolveDisplayMode({}, {});
 
 export const DisplayContext = createContext<DisplayMode>(defaultMode);
 

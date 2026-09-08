@@ -151,6 +151,21 @@ describe('CLI command dispatch', () => {
     } finally { spy.mockRestore(); }
   });
 
+  it('reports offline and constrained-terminal policy without writing state', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    vi.stubEnv('TERM', 'dumb');
+    vi.stubEnv('FORCE_COLOR', '3');
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.network).toMatchObject({status: 'offline', offline: true});
+      expect(report.terminal).toMatchObject({unicode: false, colorLevel: 0, reduceMotion: true, interactive: false});
+      expect(report.capabilities.unicode.status).toBe('unavailable');
+      expect(report.capabilities.color.status).toBe('unavailable');
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally {vi.unstubAllEnvs();}
+  });
+
   it('keeps doctor usable if an optional scheduler probe fails', async () => {
     const adapter = schedulers.createSchedulerAdapter();
     const spy = vi.spyOn(schedulers, 'createSchedulerAdapter').mockReturnValue({...adapter,

@@ -5,6 +5,35 @@ import {createSetupPlan, detectPackageManager, parseSetupArgs, runSetup, type Se
 const nothingInstalled: Record<SetupComponent, boolean> = {mpv: false, ffmpeg: false, vlc: false};
 
 describe('RadioCLI setup', () => {
+  it('prints an ASCII-safe setup plan in a dumb terminal without control sequences', async () => {
+    vi.stubEnv('TERM', 'dumb');
+    const output = Object.assign(new PassThrough(), {isTTY: true});
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    try {
+      await runSetup({platform: 'linux', osRelease: 'ID=debian', args: ['--dry-run', '--only=mpv'],
+        input: new PassThrough(), output, hasCommand: command => command === 'apt'});
+      expect(text).toContain('SETUP RECEIVER');
+      expect(text).not.toMatch(/[^\x00-\x7f]/);
+      expect(text).not.toContain('\u001b');
+    } finally {vi.unstubAllEnvs();}
+  });
+
+  it('caps setup colors at the terminal depth', async () => {
+    vi.stubEnv('TERM', 'xterm');
+    vi.stubEnv('FORCE_COLOR', undefined);
+    vi.stubEnv('NO_COLOR', undefined);
+    const output = Object.assign(new PassThrough(), {isTTY: true, getColorDepth: () => 4});
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    try {
+      await runSetup({platform: 'linux', osRelease: 'ID=debian', args: ['--dry-run', '--only=mpv'],
+        input: new PassThrough(), output, hasCommand: command => command === 'apt'});
+      expect(text).toContain('\u001b[32m');
+      expect(text).not.toContain('38;2;');
+    } finally {vi.unstubAllEnvs();}
+  });
+
   it('detects native package managers by platform and Linux family', () => {
     const available = new Set(['brew', 'winget', 'scoop', 'apt', 'dnf', 'pacman']);
     const hasCommand = (command: string): boolean => available.has(command);

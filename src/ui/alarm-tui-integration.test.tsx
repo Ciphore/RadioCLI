@@ -29,6 +29,10 @@ beforeEach(() => {
   // fixture size so every layout avoids host terminal commands such as tput.
   vi.stubEnv('COLUMNS', '100');
   vi.stubEnv('LINES', '24');
+  vi.stubEnv('LC_ALL', 'en_US.UTF-8');
+  vi.stubEnv('TERM', 'xterm-256color');
+  vi.stubEnv('RADIOCLI_ASCII', undefined);
+  vi.stubEnv('RADIOCLI_UNICODE', undefined);
   const testHome = mkdtempSync(join(tmpdir(), 'radiocli-alarm-tui-home-'));
   directories.push(testHome);
   vi.stubEnv('RADIOCLI_HOME', testHome);

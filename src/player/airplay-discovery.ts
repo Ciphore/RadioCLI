@@ -3,6 +3,8 @@ import {lookup} from 'node:dns/promises';
 import {networkInterfaces} from 'node:os';
 import type {AirPlayDevice} from '../types.js';
 import {commandExists} from './command.js';
+import {networkPolicy} from '../platform/network.js';
+import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 
 export type AirPlayDiscoveryOptions = {
   platform?: NodeJS.Platform;
@@ -24,7 +26,7 @@ export async function discoverAirPlayDevices({
   lookupConcurrency = defaultLookupConcurrency,
   maxOutputBytes = defaultMaxOutputBytes
 }: AirPlayDiscoveryOptions = {}): Promise<AirPlayDevice[]> {
-  if (platform !== 'darwin' || !commandExists('dns-sd')) {
+  if (networkPolicy().offline || !nativeAdapters(identifyPlatform({platform})).airPlay || !commandExists('dns-sd')) {
     return [];
   }
 

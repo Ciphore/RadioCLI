@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {fileURLToPath} from 'node:url';
-import {Box, Text, useApp, useStdin, useStdout, useWindowSize} from 'ink';
+import {Box, Text, useApp, useIsScreenReaderEnabled, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
@@ -20,6 +20,7 @@ import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
 import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
 import {isAirPlayBackendAvailable} from './airplay-settings.js';
+import {networkPolicy} from '../platform/network.js';
 import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
@@ -100,6 +101,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const {stdin} = useStdin();
   const {stdout} = useStdout();
   const {columns, rows} = useWindowSize();
+  const screenReader = useIsScreenReaderEnabled();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
   const alarmService = useMemo(() => providedAlarmService ? serializeAlarmTuiService(providedAlarmService) : createAlarmTuiService(), [providedAlarmService]);
@@ -118,6 +120,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('root');
   const [message, setMessage] = useState<string | null>(null);
   const [persistenceWarning, setPersistenceWarning] = useState<string | null>(null);
+  const [presenceWarning, setPresenceWarning] = useState<string | null>(null);
   const [footerMessage, setFooterMessage] = useState<string | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryFilter, setCountryFilter] = useState('');
@@ -197,8 +200,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
-    () => resolveDisplayMode(library.settings),
-    [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion]
+    () => resolveDisplayMode(library.settings, process.env, {screenReader, isTTY: stdout.isTTY, colorDepth: stdout.getColorDepth?.()}),
+    [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion, screenReader, stdout]
   );
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
   const diagnostics = player.diagnostics();
@@ -303,6 +306,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const layout = computeTerminalLayout(columns, rows, footerRows);
   const frameWidth = layout.frameWidth;
   const mouseReportingActive =
+    !displayMode.screenReader &&
+    process.env.TERM?.toLowerCase() !== 'dumb' &&
     !commandMode &&
     !capturingTransportAction &&
     !editingCountryFilter &&
@@ -314,7 +319,18 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     );
 
   useEffect(() => player.onChange(setPlayback), [player]);
-  useEffect(() => stdin.isTTY ? registerTuiPresence() : undefined, [stdin]);
+  useEffect(() => {
+    if (!stdin.isTTY) return;
+    try {
+      const unregister = registerTuiPresence();
+      return () => {
+        try {unregister();}
+        catch {console.error('RadioCLI could not remove its alarm-control presence marker. Stale markers are checked on the next launch.');}
+      };
+    } catch {
+      setPresenceWarning('Alarm controls cannot register this terminal in the runtime directory. Browsing and playback remain available.');
+    }
+  }, [stdin]);
 
   const playingStationRef = useRef<Station | null>(null);
   playingStationRef.current = playingStation;
@@ -386,7 +402,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   useEffect(() => {
     if (
       footerPlayback.state !== 'loading' ||
-      library.settings.reduceMotion ||
+      displayMode.reduceMotion ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -396,7 +412,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
     const timer = setInterval(() => setSpinnerFrame(value => (value + 1) % 1000), LOADING_SPINNER_MS);
     return () => clearInterval(timer);
-  }, [footerPlayback.state, library.settings.reduceMotion]);
+  }, [footerPlayback.state, displayMode.reduceMotion]);
 
   useEffect(() => {
     if (
@@ -463,7 +479,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
-    void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
+    const network = networkPolicy();
+    if (!network.offline && !network.lowBandwidth) {
+      void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
+    }
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
@@ -1382,6 +1401,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [updateSettings]);
 
   const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
+    if (networkPolicy().offline) {
+      setMessage('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.');
+      return [];
+    }
     try {
       const devices = await player.refreshAirPlayDevices();
       setAvailableAirPlayDevices(devices);
@@ -1831,10 +1854,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return respond(`${command.favorite ? 'Favorited' : 'Removed favorite'}: ${station.name}.`);
     }
     if (command.type === 'airplay-list') {
+      if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false, []);
       const devices = await refreshAirPlayTargets(false);
       return respond(devices.length ? `${devices.length} AirPlay receiver(s) found.` : 'No AirPlay receivers found.', true, devices);
     }
     if (command.type === 'airplay-select') {
+      if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false);
       const devices = await refreshAirPlayTargets(false);
       const device = devices.find(item => item.id === command.deviceId);
       if (!device) return respond('AirPlay receiver not found. Refresh and use an exact receiver ID.', false, devices);
@@ -2024,7 +2049,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const hasActiveMicroPlayback = Boolean(
     footerStation && (footerPlayback.state === 'playing' || footerPlayback.state === 'paused')
   );
-  const statusMessage = message ?? persistenceWarning;
+  const statusMessage = message ?? persistenceWarning ?? presenceWarning;
   const microFooter = footerMessage ?? statusMessage ?? (
     pageFooterOwnsCompactRow
       ? pageFooter
@@ -2052,7 +2077,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       screen={screen}
       playback={playback}
       receiverStyle={library.settings.receiverStyle}
-      reduceMotion={Boolean(library.settings.reduceMotion)}
+      reduceMotion={displayMode.reduceMotion}
     >
     <DisplayContext.Provider value={displayMode}>
     <Box

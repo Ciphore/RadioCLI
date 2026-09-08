@@ -1,6 +1,7 @@
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {createServer} from 'node:http';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {ProviderCache} from './cache.js';
 import {RadioBrowserProvider} from './radio-browser.js';
@@ -10,6 +11,8 @@ const roots: string[] = [];
 describe('RadioBrowserProvider', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
 
     for (const root of roots.splice(0)) {
       rmSync(root, {recursive: true, force: true});
@@ -211,6 +214,81 @@ describe('RadioBrowserProvider', () => {
     });
   });
 
+  it('uses stale cached startup results immediately in explicit offline mode', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const cache = cachedEntry('/json/stations/search?hidebroken=true&limit=1&order=clickcount&reverse=true', [
+      {stationuuid: 'offline-fm', name: 'Offline FM', url: 'https://stream.example/live.mp3'}
+    ], Date.now() - 60 * 60 * 1000);
+    const fetch = mockFetch(() => {throw new Error('Network must not be attempted.');});
+    const provider = new RadioBrowserProvider(['https://primary.example', 'https://secondary.example'], cache);
+    expect(await provider.popular(1)).toMatchObject([{id: 'offline-fm', streamUrl: 'https://stream.example/live.mp3'}]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports an offline cache miss without trying a mirror', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const fetch = mockFetch(() => jsonResponse([]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    await expect(provider.popular(1)).rejects.toThrow(/offline.*cache|cache.*offline/i);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not vote, locate, or resolve externally when offline and retains a supplied stream URL', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const fetch = mockFetch(() => {throw new Error('Network must not be attempted.');});
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    const station = {...radioBrowserStation('saved'), streamUrl: 'https://stream.example/live.mp3'};
+    expect(await provider.vote(station)).toBe(false);
+    expect(await provider.detectLocation()).toBeNull();
+    expect(await provider.resolve(station)).toEqual({url: station.streamUrl, name: station.name});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('avoids an uncached atlas in low-bandwidth mode while ordinary directory requests still work', async () => {
+    vi.stubEnv('RADIOCLI_LOW_BANDWIDTH', '1');
+    const fetch = mockFetch(() => jsonResponse([{stationuuid: 'small-list', name: 'Small list'}]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    await expect(provider.nearby({latitude: 48.8, longitude: 2.3, source: 'test'})).rejects.toThrow(/low.bandwidth.*cache|cache.*low.bandwidth/i);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await provider.popular(1)).toMatchObject([{id: 'small-list'}]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(await provider.search('small', {limit: 1})).toMatchObject([{id: 'small-list'}]);
+  });
+
+  it('uses a bounded stale atlas in low-bandwidth mode without refreshing it', async () => {
+    vi.stubEnv('RADIOCLI_LOW_BANDWIDTH', '1');
+    const cache = cachedEntry('/json/stations/search?has_geo_info=true&hidebroken=true&limit=100000&order=name', [
+      {stationuuid: 'cached-nearby', name: 'Cached nearby', geo_lat: 48.8, geo_long: 2.3}
+    ], Date.now() - 7 * 60 * 60 * 1000);
+    const fetch = mockFetch(() => jsonResponse([]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cache);
+    expect(await provider.nearby({latitude: 48.8, longitude: 2.3, source: 'test'}, 1)).toMatchObject([{id: 'cached-nearby'}]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  for (const host of ['127.0.0.1', '::1']) {
+    it(`uses native fetch to read a real ${host} directory endpoint`, async context => {
+      let requests = 0;
+      const server = createServer((_request, response) => {requests += 1;response.end(JSON.stringify([{name: 'Japan', iso_3166_1: 'jp', stationcount: 1}]));});
+      try {
+        await new Promise<void>((resolve, reject) => {server.once('error', reject);server.listen(0, host, resolve);});
+      } catch (error) {
+        if (host === '::1' && ['EAFNOSUPPORT', 'EPROTONOSUPPORT', 'EADDRNOTAVAIL'].includes((error as NodeJS.ErrnoException).code ?? '')) context.skip('The host does not provide IPv6 loopback.');
+        throw error;
+      }
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('No listener address.');
+        const provider = new RadioBrowserProvider([`http://${host === '::1' ? '[::1]' : host}:${address.port}`], cacheForTest());
+        expect(await provider.countries()).toEqual([{name: 'Japan', code: 'JP', stationCount: 1}]);
+        expect(requests).toBe(1);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    });
+  }
+
   it('loads country stations with limit and offset pagination', async () => {
     const fetch = mockFetch(url => {
       expect(url.pathname).toBe('/json/stations/search');
@@ -370,6 +448,12 @@ function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
 
 function cacheForTest(): ProviderCache {
   return new ProviderCache(cacheFileForTest());
+}
+
+function cachedEntry(key: string, value: unknown, createdAt: number): ProviderCache {
+  const file = cacheFileForTest();
+  writeFileSync(file, JSON.stringify({version: 1, entries: {[key]: {createdAt, value}}}));
+  return new ProviderCache(file);
 }
 
 function cacheFileForTest(): string {

@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {Station, ThemeName} from '../../types.js';
 import type {ExploreCursor} from '../app-state.js';
+import {formatExploreCursor} from '../app-state.js';
 import {StationList} from '../components/StationList.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from '../cosmo-world-map.js';
 import {computeExploreMapLayout} from '../explore-map-layout.js';
@@ -71,6 +72,7 @@ export function ExploreScreen({
           width={mapPanelWidth}
           height={split ? bodyRows : mapRows + 2}
           flexDirection="column"
+          aria-label={`World map cursor: ${formatExploreCursor(cursor)}`}
         >
           <Box marginLeft={mapOffsetX} flexDirection="column" flexShrink={0}>
             {map.map((row, index) => (

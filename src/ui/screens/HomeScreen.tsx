@@ -6,6 +6,8 @@ import {textMuted, themeAccent} from '../theme.js';
 import {homeItems} from '../screen-items.js';
 import type {LibraryState, ThemeName} from '../../types.js';
 import {displayWidth} from '../format.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type HomeProps = {
   selected: number;
@@ -14,6 +16,8 @@ type HomeProps = {
 };
 
 export function HomeScreen({selected, theme, library}: HomeProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const summary = `${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`;
   const titleWidth = Math.max(...homeItems.map(item => displayWidth(item.label))) + 2;
   return (
     <Box flexDirection="column">
@@ -39,7 +43,7 @@ export function HomeScreen({selected, theme, library}: HomeProps): React.ReactEl
       </Box>
       <Box marginTop={1}>
         <Text color={textMuted}>
-          {library.recent.length} recent · {library.favorites.length} favorites · {library.imported.length} imported
+          {ascii ? toAsciiSafe(summary) : summary}
         </Text>
       </Box>
     </Box>

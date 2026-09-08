@@ -12,6 +12,8 @@ import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
 import {textDim, textMuted, themeAccent} from '../theme.js';
 import {visibleWindow} from '../list-window.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type AirPlaySettingsScreenProps = {
   selected: number;
@@ -32,6 +34,8 @@ export function AirPlaySettingsScreen({
   width,
   height
 }: AirPlaySettingsScreenProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
   const availability = airPlayAvailability(backends, devices);
   const selectedDevice = selectedAirPlayDevice(settings, devices);
@@ -53,13 +57,13 @@ export function AirPlaySettingsScreen({
 
       <Box marginTop={1} flexDirection="column">
         <Text color={textMuted}>
-          Audio output: <Text color={accent}>{preferredOutput}</Text> · Streaming:{' '}
-          <Text color={availability.ready ? accent : 'yellow'}>{availability.ready ? 'ready' : 'unavailable'}</Text> · Receivers:{' '}
+          Audio output: <Text color={accent}>{preferredOutput}</Text>{a(' · Streaming: ')}
+          <Text color={availability.ready ? accent : 'yellow'}>{availability.ready ? 'ready' : 'unavailable'}</Text>{a(' · Receivers: ')}
           <Text color={accent}>{devices.length}</Text>
         </Text>
-        <Text color={availability.ready ? textMuted : 'yellow'}>{truncate(availability.detail, lineWidth)}</Text>
+        <Text color={availability.ready ? textMuted : 'yellow'}>{a(truncate(availability.detail, lineWidth))}</Text>
         <Text color={textMuted}>
-          Selected: <Text color={selectedDevice ? accent : textDim}>{truncate(selectedDevice?.name ?? 'none', Math.max(4, lineWidth - 10))}</Text>
+          Selected: <Text color={selectedDevice ? accent : textDim}>{a(truncate(selectedDevice?.name ?? 'none', Math.max(4, lineWidth - 10)))}</Text>
         </Text>
         {availability.ready && selectedDevice?.requiresPassword && !selectedDevice.local ? (
           <Text color={textMuted}>
@@ -68,7 +72,7 @@ export function AirPlaySettingsScreen({
         ) : null}
         {selectedMissing ? (
           <Text color="yellow">
-            Saved receiver is not visible: {truncate(settings.preferredAirPlayDevice ?? '', Math.max(8, lineWidth - 31))}
+            Saved receiver is not visible: {a(truncate(settings.preferredAirPlayDevice ?? '', Math.max(8, lineWidth - 31)))}
           </Text>
         ) : null}
       </Box>
@@ -91,10 +95,10 @@ export function AirPlaySettingsScreen({
                 <Box>
                   <Pointer active={active} />
                   <Text color={active ? accent : undefined} bold={active}>
-                    {name}
+                    {a(name)}
                   </Text>
                   {isSelected ? <Text color={accent}>{selectedLabel}</Text> : null}
-                  <Text color={textMuted}> · {detail}</Text>
+                  <Text color={textMuted}>{a(` · ${detail}`)}</Text>
                 </Box>
               );
             }}
@@ -103,7 +107,7 @@ export function AirPlaySettingsScreen({
           <Text color={textMuted}>No receivers discovered.</Text>
         )}
         <Text color={textDim}>
-          {canEnterCode ? 'Enter selects · c opens code entry · r refreshes receivers' : 'Enter selects · r refreshes receivers'}
+          {a(canEnterCode ? 'Enter selects · c opens code entry · r refreshes receivers' : 'Enter selects · r refreshes receivers')}
         </Text>
       </Box>
     </Box>

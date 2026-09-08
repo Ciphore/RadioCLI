@@ -25,6 +25,8 @@ import {platformCapabilities} from './platform/capabilities.js';
 import {hasGraphicalSession} from './platform/desktop.js';
 import {detectPackageManager} from './platform/packages.js';
 import {storageReadiness} from './platform/storage.js';
+import {resolveTerminalCapabilities} from './platform/terminal.js';
+import {networkDiagnostic} from './platform/network.js';
 
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
@@ -34,11 +36,7 @@ if (isDirectRun(process.argv[1], import.meta.url)) {
   if (args[0] === 'agent-ui') {
     const encoded = args[1];
     if (!encoded) throw new Error('Missing RadioCLI agent startup request.');
-    const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
-    render(<App initialAgentCommand={decodeAgentCommand(encoded)} />, {
-      exitOnCtrlC: false,
-      kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']}
-    });
+    await renderTui(encoded);
   } else if (args[0] === 'agent-host') {
     await runHeadlessAgentHost();
   } else if (args.length > 0) {
@@ -47,16 +45,28 @@ if (isDirectRun(process.argv[1], import.meta.url)) {
       process.exitCode = 1;
     });
   } else {
-    const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
-    render(<App />, {
-      // App owns Ctrl+C so it can confirm before performing a clean shutdown.
-      exitOnCtrlC: false,
-      kittyKeyboard: {
-        mode: 'auto',
-        flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']
-      }
-    });
+    await renderTui();
   }
+}
+
+async function renderTui(encodedCommand?: string): Promise<void> {
+  if (!process.stdin.isTTY) {
+    console.error('The interactive TUI needs terminal input. Use radiocli commands in a headless session, or connect with a terminal (for example, ssh -t).');
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+  const {configureTerminalRenderer} = await import('./ui/terminal-renderer.js');
+  const terminal = await configureTerminalRenderer(process.env, {isTTY: process.stdout.isTTY, colorDepth: process.stdout.getColorDepth?.()});
+  const [{render}, {App}] = await Promise.all([import('ink'), import('./ui/App.js')]);
+  render(<App initialAgentCommand={encodedCommand ? decodeAgentCommand(encodedCommand) : undefined} />, {
+    // App owns Ctrl+C so it can confirm before performing a clean shutdown.
+    exitOnCtrlC: false,
+    isScreenReaderEnabled: terminal.screenReader,
+    interactive: terminal.interactive ? undefined : false,
+    debug: !terminal.interactive,
+    kittyKeyboard: {mode: terminal.interactive ? 'auto' : 'disabled', flags: ['disambiguateEscapeCodes', 'reportEventTypes', 'reportAllKeysAsEscapeCodes']}
+  });
 }
 
 export async function runCommand(args: string[]): Promise<void> {
@@ -114,6 +124,7 @@ export async function runCommand(args: string[]): Promise<void> {
     for (const [name, capability] of Object.entries(report.capabilities)) {
       console.log(`capability_${name}=${capability.status} ${capability.message}`);
     }
+    console.log(`network=${report.network.status} ${report.network.message}`);
     return;
   }
 
@@ -293,6 +304,7 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
   );
   const airPlay = airPlaySenderHealth();
   const host = identifyPlatform();
+  const terminal = resolveTerminalCapabilities(process.env, {isTTY: Boolean(process.stdout.isTTY), colorDepth: process.stdout.getColorDepth?.()});
   let scheduler: SchedulerCapabilities | undefined;
   try {
     const adapter = createSchedulerAdapter();
@@ -311,7 +323,10 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
     graphicalSession: hasGraphicalSession(host),
     packageManager: detectPackageManager(process.platform, host.osRelease),
     storageWritable: libraryWritesAvailable(),
-    scheduler
+    scheduler,
+    unicode: terminal.unicode,
+    color: terminal.colorLevel > 0,
+    screenReader: terminal.screenReader
   });
   return {
     radioCliVersion: appVersion(),
@@ -320,6 +335,8 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
     architecture: process.arch,
     host: {id: host.id, arch: host.arch, endianness: host.endianness, release: host.release, libc: host.libc, isWsl: host.isWsl},
     capabilities,
+    terminal,
+    network: networkDiagnostic(),
     backends,
     commands,
     mpv: redactDiagnostic(mpvDiagnostic),

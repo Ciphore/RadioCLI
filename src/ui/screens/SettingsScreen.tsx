@@ -10,6 +10,8 @@ import {playbackBackendCapabilities} from '../../player/backend-install.js';
 import {airPlayReceiverSettingValue} from '../airplay-settings.js';
 import {audioOutputLabel, audioOutputSettingValue} from '../audio-output.js';
 import {updateStatusText} from '../../update-check.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type SettingsScreenProps = {
   page?: SettingsPage;
@@ -44,6 +46,8 @@ export function SettingsScreen({
   width,
   height
 }: SettingsScreenProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
   const lineWidth = Math.max(32, width - 4);
   const group = settingsGroup(page);
@@ -89,12 +93,12 @@ export function SettingsScreen({
                 <Pointer active={active} />
                 <Box width={labelWidth}>
                   <Text color={active ? accent : undefined} bold={active}>
-                    {truncate(label, labelWidth)}
+                    {a(truncate(label, labelWidth))}
                   </Text>
                 </Box>
                 <Box width={valueGap} />
                 <Box width={valueWidth}>
-                  <Text color={value ? accent : textMuted}>{truncate(value ?? '', valueWidth)}</Text>
+                  <Text color={value ? accent : textMuted}>{a(truncate(value ?? '', valueWidth))}</Text>
                 </Box>
               </Box>
             );
@@ -103,7 +107,7 @@ export function SettingsScreen({
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text color={textMuted} bold>Selected</Text>
-        <Text color={textMuted}>{truncate(detail, lineWidth)}</Text>
+        <Text color={textMuted}>{a(truncate(detail, lineWidth))}</Text>
       </Box>
     </Box>
   );

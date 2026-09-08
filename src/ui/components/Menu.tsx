@@ -12,9 +12,9 @@ export function Menu<T>({items, selected, keyFor, render}: MenuProps<T>): React.
   const activeIndex = items.length > 0 ? Math.min(Math.max(selected, 0), items.length - 1) : -1;
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" aria-role="list">
       {items.map((item, position) => (
-        <Box key={keyFor?.(item, position) ?? defaultMenuKey(item)}>
+        <Box key={keyFor?.(item, position) ?? defaultMenuKey(item)} aria-role="listitem" aria-state={{selected: position === activeIndex}}>
           {render(item, position, position === activeIndex)}
         </Box>
       ))}
@@ -23,7 +23,7 @@ export function Menu<T>({items, selected, keyFor, render}: MenuProps<T>): React.
 }
 
 export function Pointer({active}: {active: boolean}): React.ReactElement {
-  return <Text bold={active}>{active ? '> ' : '  '}</Text>;
+  return <Text bold={active} aria-hidden>{active ? '> ' : '  '}</Text>;
 }
 
 function defaultMenuKey(item: unknown): React.Key {

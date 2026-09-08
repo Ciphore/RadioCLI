@@ -32,7 +32,7 @@ export function ScreenHeader({title, width, theme, subtitle, right}: ScreenHeade
         <Text color={accent} bold>
           {a(safeTitle)}
         </Text>
-        <Text color={textDim}> {rule}</Text>
+        <Text color={textDim} aria-hidden> {rule}</Text>
         {rightText ? <Text color={textMuted}>{a(rightText)}</Text> : null}
       </Box>
       {subtitle ? <Text color={textMuted}>{a(truncate(subtitle, width))}</Text> : null}

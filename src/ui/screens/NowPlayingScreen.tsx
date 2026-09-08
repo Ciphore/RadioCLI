@@ -53,7 +53,7 @@ export function NowPlayingScreen({
   height
 }: NowPlayingProps): React.ReactElement {
   const pulse = useReceiverPulse();
-  const {panel: panelBackground, ascii} = useDisplay();
+  const {panel: panelBackground, ascii, screenReader} = useDisplay();
   // In ASCII mode route every rendered string through the glyph mapper so no
   // braille, block, box-drawing, or punctuation (·, ★) leaks to the terminal.
   const a = (value: string): string => (ascii ? toAsciiSafe(value) : value);
@@ -71,7 +71,7 @@ export function NowPlayingScreen({
     panelHeight - (showDiagnostics ? 10 : 5) - visualizerGutterRows,
     innerWidth
   );
-  const visualRows = buildVisualizer(receiverStyle, pulse, innerWidth, visualHeight, station, playback, theme);
+  const visualRows = screenReader ? [] : buildVisualizer(receiverStyle, pulse, innerWidth, visualHeight, station, playback, theme);
   const receiverState = playback.state.toUpperCase();
   const identityWidth = Math.max(8, innerWidth - displayWidth(receiverState) - 2);
   const stationIdentity = receiverStationIdentity(station, identityWidth);
@@ -105,13 +105,13 @@ export function NowPlayingScreen({
         height={panelHeight}
       >
         <Box justifyContent="space-between" width={innerWidth} flexShrink={0}>
-          <Box width={identityWidth} overflow="hidden">
+          <Box width={identityWidth} overflow="hidden" aria-label={`Station: ${station?.name ?? 'No station tuned'}${station ? `, ${stationLocation(station)}` : ''}`}>
             <Text color={accent} bold>{a(stationIdentity.name)}</Text>
             {stationIdentity.location ? <Text color={textMuted}>{a(` · ${stationIdentity.location}`)}</Text> : null}
           </Box>
-          <Text color={accent}>{receiverState}</Text>
+          <Text color={accent} aria-label={`Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}`}>{receiverState}</Text>
         </Box>
-        <Box marginTop={visualizerGutterRows} flexDirection="column" flexShrink={1} overflow="hidden">
+        {!screenReader ? <Box marginTop={visualizerGutterRows} flexDirection="column" flexShrink={1} overflow="hidden" aria-hidden>
           {renderRows.map((row, index) => (
             <Text key={index} color={row.segments ? undefined : row.color}>
               {row.segments
@@ -119,10 +119,10 @@ export function NowPlayingScreen({
                 : row.text}
             </Text>
           ))}
-        </Box>
+        </Box> : null}
         <Box marginTop={visualizerGutterRows} justifyContent="space-between" width={innerWidth} flexShrink={0}>
-          <Text color={metadata?.title ? accent : textMuted}>{a(metadataLine)}</Text>
-          <Text color={favorite ? 'yellow' : textMuted}>{a(favoriteText)}</Text>
+          <Text color={metadata?.title ? accent : textMuted} aria-label={metadata?.title ? `Track: ${metadata.title}` : undefined}>{a(metadataLine)}</Text>
+          <Text color={favorite ? 'yellow' : textMuted} aria-label={favorite ? 'Favorite' : 'Not a favorite'}>{a(favoriteText)}</Text>
         </Box>
         {showDiagnostics ? (
           <Box marginTop={1} flexDirection="column">
