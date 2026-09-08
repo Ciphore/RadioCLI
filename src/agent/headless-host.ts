@@ -12,21 +12,38 @@ export async function runHeadlessAgentHost(): Promise<void> {
   player.refreshDetectedBackends();
   let station: Station | null = null;
   let queue: Station[] = [];
+  let persistenceWarning: string | undefined;
 
-  const status = (): RadioSessionStatus => ({owner: 'headless', playback: player.getState(), station, queue, output: {
+  const persistHistory = (write: () => unknown): void => {
+    try {
+      write();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      const detail = typeof code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(code) ? ` (${code})` : '';
+      persistenceWarning = `Listening history was not saved${detail}. Check storage permissions or set RADIOCLI_HOME to a private writable directory.`;
+    }
+  };
+  const saveLibrary = (write: () => unknown): void => {
+    write();
+    // Optional writes can be no-ops, so only an explicit successful save clears
+    // a prior warning. Explicit failures still reject the control request.
+    persistenceWarning = undefined;
+  };
+
+  const status = (): RadioSessionStatus => ({owner: 'headless', playback: player.getState(), station, queue, persistenceWarning, output: {
     preferredBackend: store.snapshot().settings.preferredBackend,
     preferredAirPlayDevice: store.snapshot().settings.preferredAirPlayDevice
   }});
   const result = (message: string, ok = true, data?: RadioSessionResult['data']): RadioSessionResult => ({ok, message, status: status(), ...(data ? {data} : {})});
   const play = async (next: Station, nextQueue: Station[] = [next]): Promise<RadioSessionResult> => {
-    store.finishActiveListeningSession();
+    persistHistory(() => store.finishActiveListeningSession());
     await player.stop();
     const resolved = await providers.resolve(next);
     await player.play(next, resolved.url);
     station = next;
     queue = nextQueue.length ? nextQueue : [next];
-    store.addRecent(next);
-    store.startListeningSession(next);
+    persistHistory(() => store.addRecent(next));
+    persistHistory(() => store.startListeningSession(next));
     return result(`Playing ${next.name}.`);
   };
 
@@ -38,16 +55,16 @@ export async function runHeadlessAgentHost(): Promise<void> {
     }
     if (command.type === 'pause') {
       const control = await player.pause();
-      if (control.ok) store.finishActiveListeningSession();
+      if (control.ok) persistHistory(() => store.finishActiveListeningSession());
       return result(control.message ?? 'Paused.', control.ok);
     }
     if (command.type === 'resume') {
       const control = await player.resume();
-      if (control.ok && station) store.startListeningSession(station);
+      if (control.ok && station) persistHistory(() => store.startListeningSession(station!));
       return result(control.message ?? 'Resumed.', control.ok);
     }
     if (command.type === 'stop') {
-      store.finishActiveListeningSession();
+      persistHistory(() => store.finishActiveListeningSession());
       await player.stop();
       station = null;
       queue = [];
@@ -55,7 +72,7 @@ export async function runHeadlessAgentHost(): Promise<void> {
       return result('Stopped RadioCLI.');
     }
     if (command.type === 'alarm-preempt') {
-      store.finishActiveListeningSession();
+      persistHistory(() => store.finishActiveListeningSession());
       await player.stop();
       station = null;
       queue = [];
@@ -63,7 +80,7 @@ export async function runHeadlessAgentHost(): Promise<void> {
     }
     if (command.type === 'set-volume') {
       const control = await player.setVolume(command.volume);
-      if (control.ok) store.updateSettings({volume: player.getState().volume});
+      if (control.ok) saveLibrary(() => store.updateSettings({volume: player.getState().volume}));
       return result(control.message ?? `Volume ${player.getState().volume}.`, control.ok);
     }
     if (command.type === 'set-muted') { const control = await player.setMuted(command.muted); return result(control.message ?? (command.muted ? 'Muted.' : 'Unmuted.'), control.ok); }
@@ -71,7 +88,7 @@ export async function runHeadlessAgentHost(): Promise<void> {
       const target = command.station ?? station;
       if (!target) return result('No active station to favorite.', false);
       const current = store.isFavorite(target);
-      if (current !== command.favorite) store.toggleFavorite(target);
+      if (current !== command.favorite) saveLibrary(() => store.toggleFavorite(target));
       if (command.favorite && !current && store.snapshot().settings.shareDirectoryVotes) void providers.vote(target);
       return result(`${command.favorite ? 'Favorited' : 'Removed favorite'}: ${target.name}.`);
     }
@@ -85,8 +102,10 @@ export async function runHeadlessAgentHost(): Promise<void> {
       if (!device) return result('AirPlay receiver not found. Refresh and use an exact receiver ID.', false, devices);
       if (device.local) return switchToLocal();
       if (!detectPlaybackBackends().includes('airplay')) return result('AirPlay playback is unavailable; run radiocli doctor.', false);
-      store.updateSettings({preferredAirPlayDevice: device.id});
-      store.updateSettings({preferredBackend: 'airplay'});
+      saveLibrary(() => {
+        store.updateSettings({preferredAirPlayDevice: device.id});
+        store.updateSettings({preferredBackend: 'airplay'});
+      });
       if (station && ['playing', 'paused', 'loading'].includes(player.getState().state)) return play(station, queue);
       return result(`Audio output set to AirPlay receiver ${device.name}.`);
     }
@@ -96,7 +115,7 @@ export async function runHeadlessAgentHost(): Promise<void> {
       return result(control.message ?? 'AirPlay code sent.', control.ok);
     }
     if (command.type === 'update-settings') {
-      store.updateSettings(command.settings);
+      saveLibrary(() => store.updateSettings(command.settings));
       return result('RadioCLI settings updated.');
     }
     const currentIndex = station ? queue.findIndex(item => stationKey(item) === stationKey(station!)) : -1;
@@ -109,18 +128,18 @@ export async function runHeadlessAgentHost(): Promise<void> {
     const backends = detectPlaybackBackends();
     const backend = backends.includes('mpv') ? 'mpv' : backends.includes('ffplay') ? 'ffplay' : backends.includes('vlc') ? 'vlc' : null;
     if (!backend) return result('No local playback backend is available. Run radiocli setup to install mpv.', false);
-    store.updateSettings({preferredBackend: backend});
+    saveLibrary(() => store.updateSettings({preferredBackend: backend}));
     if (station && ['playing', 'paused', 'loading'].includes(player.getState().state)) return play(station, queue);
     return result(`Audio output set to this device (${backend}).`);
   };
 
   const session = await startRadioSession(handle);
   const checkpoint = setInterval(() => {
-    if (player.getState().state === 'playing') store.checkpointActiveListeningSession();
+    if (player.getState().state === 'playing') persistHistory(() => store.checkpointActiveListeningSession());
   }, 30_000);
   const shutdown = async () => {
     clearInterval(checkpoint);
-    store.finishActiveListeningSession();
+    persistHistory(() => store.finishActiveListeningSession());
     await player.stop();
     await session.close();
   };

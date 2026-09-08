@@ -37,6 +37,59 @@ describe('alarm runner',()=>{
 
   it('keeps playing when automatic terminal controls cannot open',async()=>{const record=vi.fn();const d=deps({openControls:vi.fn(async()=>{throw new Error('no terminal');}),health:{record} as never});expect((await runAlarm('a',scheduledAt,d)).status).toBe('dismissed');await Promise.resolve();expect(record).toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false,message:expect.stringMatching(/controls could not open.*no terminal/i)}));});
 
+  it.each([
+    'Requested RadioCLI alarm controls; TUI startup is unverified.',
+    'Requested RadioCLI alarm controls, but the TUI did not become ready before verification timed out.'
+  ])('preserves an unsuccessful controls result while playback continues: %s',async message=>{
+    const record=vi.fn();const update=vi.fn();
+    const d=deps({createSession:vi.fn(async()=>({update,close:vi.fn(async()=>{})})),openControls:vi.fn(async()=>({opened:false,requested:true,terminal:'darwin:apple-terminal',message})),health:{record} as never});
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('played');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({state:'playing'}));expect(d.wait).toHaveBeenCalledWith(60_000);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({alarmId:'a',occurrenceAt:'2030-01-01T08:00:00.000Z',component:'runner',healthy:false,message:expect.stringContaining(message)}));
+  });
+
+  it.each([
+    {opened:false,terminal:'existing-tui',message:'An existing RadioCLI TUI will show the ringing controls.'},
+    {opened:true,requested:true,terminal:'darwin:apple-terminal',message:'RadioCLI alarm controls are ready in the saved terminal.'}
+  ])('keeps confirmed or existing controls healthy: $terminal',async result=>{
+    const record=vi.fn();const d=deps({openControls:vi.fn(async()=>result),health:{record} as never});
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('dismissed');
+    expect(record).not.toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false}));
+  });
+
+  it.each(['addRecent','startListeningSession','checkpointActiveListeningSession','finishActiveListeningSession'] as const)('continues published playback after optional %s history writes fail',async operation=>{
+    const base=deps();const events:string[]=[];const record=vi.fn();
+    const d=deps({
+      store:{...base.store,[operation]:vi.fn(()=>{throw new Error(`${operation}: EACCES`);})},
+      player:{...base.player,play:vi.fn(async()=>{events.push('play');}),stop:vi.fn(async()=>{events.push('stop');})},
+      createSession:vi.fn(async()=>({update:vi.fn(status=>{if(status.state==='playing')events.push('published');}),close:vi.fn(async()=>{})})),
+      wait:vi.fn(async()=>{events.push('wait');}),health:{record} as never
+    });
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('played');
+    expect(events).toEqual(['play','published','wait','stop']);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({alarmId:'a',occurrenceAt:'2030-01-01T08:00:00.000Z',component:'runner',healthy:false,message:expect.stringContaining(`${operation}: EACCES`)}));
+    expect(d.store.recordAlarmOutcome).toHaveBeenCalledWith('a',expect.objectContaining({status:'played'}),{clearNextOverride:true});
+    if(operation==='addRecent')expect(d.store.startListeningSession).toHaveBeenCalled();
+    if(operation==='startListeningSession'){expect(d.store.checkpointActiveListeningSession).not.toHaveBeenCalled();expect(d.store.finishActiveListeningSession).not.toHaveBeenCalled();}
+    if(operation==='checkpointActiveListeningSession')expect(d.store.finishActiveListeningSession).toHaveBeenCalled();
+  });
+
+  it.each(['recordAlarmOutcome','toggleAlarm'] as const)('reports required %s persistence failures separately from optional history',async operation=>{
+    const base=deps();const record=vi.fn();const d=deps({store:{...base.store,[operation]:vi.fn(()=>{throw new Error(`${operation}: EACCES`);})},health:{record} as never});
+    await runAlarm('a',scheduledAt,d);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false,active:false,message:expect.stringMatching(new RegExp(`alarm.*sav.*${operation}: EACCES`,'i'))}));
+    if(operation==='recordAlarmOutcome')expect(d.store.toggleAlarm).not.toHaveBeenCalled();
+  });
+
+  it('retains an unverified controls warning when optional history finalization also fails',async()=>{
+    const base=deps();const record=vi.fn();const message='Requested controls; TUI startup is unverified.';
+    const d=deps({store:{...base.store,finishActiveListeningSession:vi.fn(()=>{throw new Error('history EACCES');})},openControls:vi.fn(async()=>({opened:false,requested:true,terminal:'darwin:apple-terminal',message})),health:{record} as never});
+    await runAlarm('a',scheduledAt,d);
+    const lastRunnerEntry=record.mock.calls.map(([entry])=>entry).filter(entry=>entry.component==='runner').at(-1);
+    expect(lastRunnerEntry).toMatchObject({healthy:false,message:expect.stringContaining(message)});
+    expect(lastRunnerEntry.message).toContain('history EACCES');
+  });
+
   it('retries primary once then uses only the explicit fallback',async()=>{
     const play=vi.fn().mockRejectedValueOnce(new Error('bad')).mockRejectedValueOnce(new Error('bad')).mockResolvedValue(undefined);
     const d=deps({player:{play,stop:vi.fn(async()=>{}),setVolume:vi.fn(async()=>({ok:true})),getState:vi.fn(()=>({backend:'mpv'}))}});

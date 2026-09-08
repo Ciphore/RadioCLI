@@ -9,6 +9,7 @@ import {assessScheduledOccurrence,NATIVE_DISPATCH_TOLERANCE_MS,nextOccurrenceFor
 import {startActiveAlarmSession,type ActiveAlarmHandlers,type ActiveAlarmServer,type ActiveAlarmStatus} from './active-session.js';
 import type {AlarmRuntimeHealthStore} from './runtime-health.js';
 import type {SystemVolumeController,SystemVolumeLease} from './system-volume.js';
+import type {AlarmTerminalLaunchResult} from './terminal-launcher.js';
 
 type RunnerStore={
   getAlarm(id:string):Alarm|undefined;
@@ -27,7 +28,7 @@ export type AlarmRunnerDeps={
   now():Date; store:RunnerStore; providers:RunnerProvider; player:RunnerPlayer; scheduler:RunnerScheduler; inhibitor:PowerInhibitor;
   acquireLock(alarmId:string,scheduledAt:string):((completed?:boolean)=>void)|null;
   createSession(status:ActiveAlarmStatus,handlers:ActiveAlarmHandlers):Promise<ActiveAlarmServer>;
-  openControls?(status:ActiveAlarmStatus):Promise<unknown>;
+  openControls?(status:ActiveAlarmStatus):Promise<AlarmTerminalLaunchResult|void>;
   preemptInteractivePlayback?():Promise<void>;
   wait(milliseconds:number):Promise<void>;
   subscribeSignals?(handler:()=>void):()=>void;
@@ -40,7 +41,9 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
   if(!/(?:Z|[+-]\d{2}:\d{2})$/.test(scheduledAtText))throw new Error('Scheduled alarm occurrence must be an absolute date.');
   const scheduledAt=new Date(scheduledAtText);if(!Number.isFinite(scheduledAt.getTime()))throw new Error('Scheduled alarm occurrence must be an absolute date.');
   const releaseLock=deps.acquireLock(alarmId,scheduledAt.toISOString());if(!releaseLock){const current=deps.store.getAlarm(alarmId);if(current)try{await deps.scheduler.sync(current);}catch{}return{duplicate:true,message:'This alarm occurrence is already running or completed.'};}
-  let alarm=deps.store.getAlarm(alarmId);let outcome:AlarmRunRecord|undefined;let session:ActiveAlarmServer|undefined;let lease:Awaited<ReturnType<PowerInhibitor['acquire']>>|undefined;let systemVolumeLease:SystemVolumeLease|undefined;let listening=false;let firedAt:Date|undefined;
+  let alarm=deps.store.getAlarm(alarmId);let outcome:AlarmRunRecord|undefined;let session:ActiveAlarmServer|undefined;let lease:Awaited<ReturnType<PowerInhibitor['acquire']>>|undefined;let systemVolumeLease:SystemVolumeLease|undefined;let listening=false;let historyStarted=false;let firedAt:Date|undefined;
+  const runnerWarnings=new Set<string>();
+  const recordRunnerWarning=(message:string)=>{runnerWarnings.add(message);try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:listening,message:[...runnerWarnings].join(' ')});}catch{}};
   let preserveNextOverride=false;
   let preserveSystemVolume=false;
   let validTerminalOccurrence=false;
@@ -74,10 +77,12 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     if(lastError)throw lastError;
     firedAt=deps.now();
     try{const acquiring=deps.inhibitor.acquire('RadioCLI alarm playback');void acquiring.then(acquired=>{if(signalReceived)void acquired.release().catch(()=>undefined);}).catch(()=>{});const acquired=await Promise.race([acquiring.then(value=>({value})),earlySignal.then(()=>({signal:true as const}))]);if('signal'in acquired){outcome=finish('dismissed','Alarm interrupted while sleep protection was starting.');return{status:'dismissed',message:outcome.message};}lease=acquired.value;deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:true,active:true,message:'Sleep inhibition active while playing.'});void lease.unexpectedExit?.then(error=>{try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:false,message:`Playback continues after sleep protection exited: ${error.message}`});}catch{}}).catch(()=>{});}catch(error){deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:false,message:`Playback continues without sleep protection: ${errorMessage(error)}`});}
-    const startedAt=deps.now();deps.store.addRecent(resolvedStation);deps.store.startListeningSession(resolvedStation,startedAt);listening=true;
+    const startedAt=deps.now();listening=true;
+    try{deps.store.addRecent(resolvedStation);}catch(error){recordRunnerWarning(`Recent listening history could not be saved: ${errorMessage(error)}`);}
+    try{deps.store.startListeningSession(resolvedStation,startedAt);historyStarted=true;}catch(error){recordRunnerWarning(`Listening history could not be started: ${errorMessage(error)}`);}
     const activeStatus:ActiveAlarmStatus={alarmId,scheduledAt:scheduledAt.toISOString(),stationName:resolvedStation.name,station:resolvedStation,startedAt:startedAt.toISOString(),state:'playing'};
     session.update(activeStatus);
-    void deps.openControls?.(activeStatus).catch(error=>{try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:true,message:`Alarm is playing, but RadioCLI controls could not open automatically: ${errorMessage(error)}`});}catch{}});
+    void deps.openControls?.(activeStatus).then(result=>{if(result&&!result.opened&&result.terminal!=='existing-tui')recordRunnerWarning(`RadioCLI controls are unavailable or unverified: ${result.message}`);}).catch(error=>{recordRunnerWarning(`RadioCLI controls could not open automatically: ${errorMessage(error)}`);});
     onPlaybackSignal=()=>{action='signal';resolveAction('signal');};if(signalReceived)onPlaybackSignal();
     {
       const supportsFade=deps.player.getState().backend==='mpv';
@@ -89,13 +94,17 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     return{status:outcome.status,message:outcome.message};
   }catch(error){outcome=finish('failed',errorMessage(error));return{status:'failed',message:outcome.message};}
   finally{
+    listening=false;
     unsubscribeSignals?.();
     try{await deps.player.stop();}catch{}
     if(!preserveSystemVolume)try{await systemVolumeLease?.release();}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Previous system output volume could not be restored: ${errorMessage(error)}`});}catch{}}
-    if(listening){try{deps.store.checkpointActiveListeningSession(deps.now());deps.store.finishActiveListeningSession(deps.now());}catch{}}
+    if(historyStarted){
+      try{deps.store.checkpointActiveListeningSession(deps.now());}catch(error){recordRunnerWarning(`Listening history could not be checkpointed: ${errorMessage(error)}`);}
+      try{deps.store.finishActiveListeningSession(deps.now());}catch(error){recordRunnerWarning(`Listening history could not be finished: ${errorMessage(error)}`);}
+    }
     try{await lease?.release();if(lease)deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:true,active:false,message:'Playback sleep inhibition released.'});}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:true,message:`Unable to verify inhibitor release: ${errorMessage(error)}`});}catch{}}
     try{await session?.close();}catch{}
-    if(alarm&&outcome){try{deps.store.recordAlarmOutcome(alarmId,outcome,{clearNextOverride:validTerminalOccurrence&&!preserveNextOverride});const latest=deps.store.getAlarm(alarmId);if(alarm.schedule.type==='once'&&latest?.schedule.type==='once'&&latest.schedule.at===alarm.schedule.at&&validTerminalOccurrence&&!preserveNextOverride)deps.store.toggleAlarm(alarmId,false);}catch{}}
+    if(alarm&&outcome){try{deps.store.recordAlarmOutcome(alarmId,outcome,{clearNextOverride:validTerminalOccurrence&&!preserveNextOverride});const latest=deps.store.getAlarm(alarmId);if(alarm.schedule.type==='once'&&latest?.schedule.type==='once'&&latest.schedule.at===alarm.schedule.at&&validTerminalOccurrence&&!preserveNextOverride)deps.store.toggleAlarm(alarmId,false);}catch(error){recordRunnerWarning(`Alarm outcome or completion state could not be saved: ${errorMessage(error)}`);}}
     alarm=deps.store.getAlarm(alarmId);if(alarm)try{if(deps.scheduler.syncClaimed)await deps.scheduler.syncClaimed(alarm,scheduledAt);else await deps.scheduler.sync(alarm);}catch{}
     try{releaseLock(completeLock);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Occurrence lock cleanup failed: ${errorMessage(error)}`});}catch{}}
     if(completeLock)try{await deps.scheduler.completeOccurrence?.(alarmId,scheduledAt);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'scheduler',healthy:false,message:`Completed launch job cleanup failed: ${errorMessage(error)}`});}catch{}}

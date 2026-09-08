@@ -7,6 +7,7 @@ import type {AirPlayDevice, AppSettings, PlaybackState, Station} from '../types.
 import {isLoopbackHost, listenLoopback, type LoopbackHost} from '../platform/loopback.js';
 
 export type RadioSessionStatus = {
+  persistenceWarning?: string;
   owner: 'tui' | 'headless';
   playback: PlaybackState;
   station: Station | null;
