@@ -1,16 +1,17 @@
-import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageManagerNeedsRoot, packageManagerNotes, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
+import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
 export {detectPackageManager};
 export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
 import {realpathSync} from 'node:fs';
 import {createInterface} from 'node:readline/promises';
 import type {Readable, Writable} from 'node:stream';
-import {clearCommandCache, commandExists} from './player/command.js';
+import {clearCommandCache, commandExists, resolveCommand} from './player/command.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
 import {resolveTerminalCapabilities} from './platform/terminal.js';
+import {identifyPlatform, type PlatformProfile} from './platform/runtime.js';
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -24,6 +25,7 @@ export type SetupPlan = {
 type SetupOptions = {
   platform?: NodeJS.Platform;
   osRelease?: string;
+  env?: NodeJS.ProcessEnv;
   args?: string[];
   input?: Readable;
   output?: Writable;
@@ -47,15 +49,18 @@ const components: SetupComponent[] = ['mpv', 'ffmpeg', 'vlc'];
 export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const platform = options.platform ?? process.platform;
   const osRelease = options.osRelease ?? readLinuxOsRelease(platform);
+  const env = options.env ?? process.env;
+  const host = identifyPlatform({platform, osRelease, env});
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const hasCommand = options.hasCommand ?? commandExists;
   const parsed = parseSetupArgs(options.args ?? []);
+  if (parsed.packageManager) validateNativePackageManager(parsed.packageManager, host);
   const installed = detectInstalledComponents(hasCommand);
-  const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand);
+  const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand, env);
 
   writeHeader(output);
-  output.write(`System  ${platformLabel(platform, osRelease)} ${separator(output)} Node ${process.version}\n`);
+  output.write(`System  ${platformLabel(platform, osRelease, env)} ${separator(output)} Node ${process.version}\n`);
   output.write(`Manager ${packageManager ?? 'not detected'}\n\n`);
 
   let selected = parsed.only ?? defaultComponents(platform, parsed.all);
@@ -76,9 +81,9 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   const isRoot = (options.getUid ?? process.getuid)?.() === 0;
   const elevation = isRoot ? null : hasCommand('sudo') ? 'sudo' : hasCommand('doas') ? 'doas' : 'sudo';
-  const plan = createSetupPlan({platform, osRelease, packageManager, installed, selected, elevation});
+  const plan = createSetupPlan({platform, osRelease, env, packageManager, installed, selected, elevation});
   printPlan(plan, output);
-  for (const note of packageManagerNotes(packageManager)) output.write(`  Note: ${note}\n`);
+  for (const note of packageManagerNotes(packageManager, host)) output.write(`  Note: ${note}\n`);
 
   const missing = plan.selected.filter(component => !plan.installed[component]);
 
@@ -106,12 +111,14 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   const manual = missing.filter(component => !plan.commands.some(command => command.component === component));
   if (manual.length) throw new Error(`No verified automatic installation command for ${manual.join(', ')} with ${plan.packageManager}. Install these components manually or select --only=mpv.`);
+  if (plan.packageManager === 'termux-pkg' && isRoot) throw new Error('Run setup as the normal Termux app user. Termux pkg refuses root execution.');
   if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !hasCommand(elevation!)) {
     throw new Error('System package installation requires root, sudo, or doas. Review the dry-run plan and install prerequisites with your administrator.');
   }
 
-  if (parsed.packageManager && !hasCommand(parsed.packageManager)) {
-    throw new Error(`Requested package manager is not available: ${parsed.packageManager}.`);
+  if (parsed.packageManager && !hasCommand(packageManagerProgram(parsed.packageManager))) {
+    const program = packageManagerProgram(parsed.packageManager);
+    throw new Error(`Requested package manager is not available: ${parsed.packageManager}${program !== parsed.packageManager ? ` (${program})` : ''}.`);
   }
 
   if (!parsed.yes && isInteractive(input, output)) {
@@ -126,7 +133,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   if (plan.commands.some(command => command.program === 'sudo')) {
     output.write('\nRadioCLI needs administrator approval for the system package manager.\n');
-    await runVisibleCommand('sudo', ['-v']);
+    await runVisibleCommand(resolveCommand('sudo') ?? 'sudo', ['-v']);
   }
 
   const execute = options.runCommand ?? ((command, destination) => runInstallCommand(command, destination, platform));
@@ -144,6 +151,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 export function createSetupPlan({
   platform,
   osRelease = '',
+  env = process.env,
   packageManager,
   installed,
   selected,
@@ -151,11 +159,13 @@ export function createSetupPlan({
 }: {
   platform: NodeJS.Platform;
   osRelease?: string;
+  env?: NodeJS.ProcessEnv;
   packageManager: SetupPackageManager | null;
   installed: Record<SetupComponent, boolean>;
   selected: SetupComponent[];
   elevation?: 'sudo' | 'doas' | null;
 }): SetupPlan {
+  if (packageManager) validateNativePackageManager(packageManager, identifyPlatform({platform, osRelease, env}));
   const uniqueSelected = components.filter(component => selected.includes(component));
   const missing = uniqueSelected.filter(component => !installed[component]);
   const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component, {elevation})).filter((command): command is SetupCommand => command !== null) : [];
@@ -171,12 +181,23 @@ export function createSetupPlan({
 
   return {
     platform,
-    platformLabel: platformLabel(platform, osRelease),
+    platformLabel: platformLabel(platform, osRelease, env),
     packageManager,
     installed,
     selected: uniqueSelected,
     commands
   };
+}
+
+function validateNativePackageManager(manager: SetupPackageManager, host: PlatformProfile): void {
+  const required = host.id === 'termux' ? 'termux-pkg' : host.id === 'haiku' ? 'pkgman' : host.id === 'sunos' ? 'pkgin' : null;
+  if ((required && manager !== required)
+    || (manager === 'termux-pkg' && host.id !== 'termux')
+    || (manager === 'pkgman' && host.id !== 'haiku')
+    || (manager === 'pkg' && host.id !== 'freebsd')
+    || ['aix', 'android', 'unknown'].includes(host.id)) {
+    throw new Error(`No verified ${manager} playback package recipe for ${host.id}.${required ? ` Use --package-manager=${required}.` : ' Install a native player manually and run radiocli doctor.'}`);
+  }
 }
 
 export function parseSetupArgs(args: string[]): ParsedSetupArgs {
@@ -333,7 +354,7 @@ async function runInstallCommand(command: SetupCommand, output: Writable, platfo
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const invocation = packageCommandInvocation(command, platform);
+      const invocation = packageCommandInvocation(command, platform, resolveCommand);
       const child = spawn(invocation.program, invocation.args, {shell: false, stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
       child.stdout?.on('data', chunk => { stdout = tail(`${stdout}${String(chunk)}`); });
       child.stderr?.on('data', chunk => { stderr = tail(`${stderr}${String(chunk)}`); });

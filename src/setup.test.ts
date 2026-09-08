@@ -188,6 +188,124 @@ describe('RadioCLI setup', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, manager: 'pkg', label: 'Android / Termux', expected: 'pkg install -y mpv'},
+    {platform: 'linux' as const, env: {PREFIX: '/data/data/com.termux/files/usr'}, manager: 'pkg', label: 'Android / Termux', expected: 'pkg install -y mpv'},
+    {platform: 'haiku' as const, env: {}, manager: 'pkgman', label: 'Haiku', expected: 'pkgman install -y mpv'},
+    {platform: 'sunos' as const, env: {}, manager: 'pkgin', label: 'Solaris / illumos', expected: 'pkgin -y install mpv'}
+  ])('previews the verified $platform installation without running it', async ({platform, env, manager, label, expected}) => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const execute = vi.fn(async () => undefined);
+    await runSetup({platform, env, args: ['--dry-run', '--only=mpv'], input: new PassThrough(), output,
+      hasCommand: command => command === manager, getUid: () => 0, runCommand: execute});
+    expect(text).toContain(label);
+    expect(text).toContain(expected);
+    expect(text).toContain('Dry run complete');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, manager: 'termux-pkg', executable: 'pkg', uid: 10123, expected: 'pkg install -y mpv'},
+    {platform: 'haiku' as const, env: {}, manager: 'pkgman', executable: 'pkgman', uid: 1000, expected: 'pkgman install -y mpv'},
+    {platform: 'sunos' as const, env: {}, manager: 'pkgin', executable: 'pkgin', uid: 0, expected: 'pkgin -y install mpv'}
+  ])('runs the explicitly approved $manager command with its native privilege model', async ({platform, env, manager, executable, uid, expected}) => {
+    const execute = vi.fn(async (_command: {display: string}) => undefined);
+    await runSetup({platform, env, args: ['--yes', '--only=mpv', `--package-manager=${manager}`], input: new PassThrough(), output: new PassThrough(),
+      hasCommand: command => command === executable, getUid: () => uid, runCommand: execute});
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({display: expected});
+  });
+
+  it('requires approval before running Termux pkg and rejects root execution', async () => {
+    const execute = vi.fn(async () => undefined);
+    const options = {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, input: new PassThrough(), output: new PassThrough(),
+      hasCommand: (command: string) => command === 'pkg', runCommand: execute};
+    await expect(runSetup({...options, args: ['--only=mpv'], getUid: () => 10123})).rejects.toThrow('Use --yes');
+    await expect(runSetup({...options, args: ['--yes', '--only=mpv'], getUid: () => 0})).rejects.toThrow('normal Termux app user');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('checks the native pkg executable for an explicit Termux manager selection', async () => {
+    const execute = vi.fn(async () => undefined);
+    await expect(runSetup({platform: 'android', env: {TERMUX_VERSION: '0.118.3'}, args: ['--yes', '--only=mpv', '--package-manager=termux-pkg'],
+      input: new PassThrough(), output: new PassThrough(), hasCommand: () => false, getUid: () => 10123, runCommand: execute
+    })).rejects.toThrow('Requested package manager is not available: termux-pkg (pkg)');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, manager: 'pkg'},
+    {platform: 'freebsd' as const, env: {}, manager: 'termux-pkg'},
+    {platform: 'sunos' as const, env: {}, manager: 'pkg'},
+    {platform: 'aix' as const, env: {}, manager: 'dnf'}
+  ])('rejects the wrong native recipe for $manager on $platform before even previewing an install', async ({platform, env, manager}) => {
+    const execute = vi.fn(async () => undefined);
+    await expect(runSetup({platform, env, args: ['--dry-run', '--only=mpv', `--package-manager=${manager}`],
+      input: new PassThrough(), output: new PassThrough(), hasCommand: () => true, getUid: () => 0, runCommand: execute
+    })).rejects.toThrow('No verified');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, manager: 'pkg', only: 'ffmpeg', note: 'x11-repo'},
+    {platform: 'haiku' as const, env: {}, manager: 'pkgman', only: 'vlc', note: 'Node 20'},
+    {platform: 'sunos' as const, env: {}, manager: 'pkgin', only: 'ffmpeg', note: 'RADIOCLI_FFPLAY_PATH'}
+  ])('keeps unverified $platform components manual', async ({platform, env, manager, only, note}) => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const execute = vi.fn(async () => undefined);
+    const options = {platform, env, input: new PassThrough(), output, hasCommand: (command: string) => command === manager, getUid: () => 1000, runCommand: execute};
+    await runSetup({...options, args: ['--dry-run', `--only=${only}`]});
+    expect(text).toContain('manual installation required');
+    expect(text).toContain(note);
+    await expect(runSetup({...options, args: ['--yes', `--only=${only}`]})).rejects.toThrow('No verified automatic installation command');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('shows the Haiku tools package and current Node catalog blocker together', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    await runSetup({platform: 'haiku', env: {}, args: ['--dry-run', '--only=ffmpeg'], input: new PassThrough(), output,
+      hasCommand: command => command === 'pkgman'});
+    expect(text).toContain('pkgman install -y ffmpeg8_tools');
+    expect(text).toMatch(/Node 20.*Node 22/);
+    expect(text).not.toContain('sudo pkgman');
+  });
+
+  it('prints actionable manual AIX guidance even with a DNF command on PATH', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const execute = vi.fn(async () => undefined);
+    const options = {platform: 'aix' as const, env: {}, input: new PassThrough(), output,
+      hasCommand: (command: string) => command === 'dnf', runCommand: execute};
+    await runSetup({...options, args: ['--dry-run', '--only=mpv']});
+    expect(text).toContain('RADIOCLI_MPV_PATH');
+    expect(text).not.toContain('dnf install');
+    await expect(runSetup({...options, args: ['--yes', '--only=mpv']})).rejects.toThrow('No supported system package manager');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {platform: 'android' as const, env: {TERMUX_VERSION: '0.118.3'}, manager: 'pkg', uid: 10123},
+    {platform: 'haiku' as const, env: {}, manager: 'pkgman', uid: 1000},
+    {platform: 'sunos' as const, env: {}, manager: 'pkgin', uid: 0}
+  ])('reports a native $manager failure without claiming setup completed', async ({platform, env, manager, uid}) => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const execute = vi.fn(async () => {throw new Error(`${manager}: package catalog unavailable`);});
+    await expect(runSetup({platform, env, args: ['--yes', '--only=mpv'], input: new PassThrough(), output,
+      hasCommand: command => command === manager, getUid: () => uid, runCommand: execute
+    })).rejects.toThrow('package catalog unavailable');
+    expect(execute).toHaveBeenCalledOnce();
+    expect(text).not.toContain('Setup complete');
+  });
+
   it('runs selected installers sequentially and prints final verification', async () => {
     const output = new PassThrough();
     let text = '';

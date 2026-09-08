@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process';
 import {accessSync, constants, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {posix, win32} from 'node:path';
+import {identifyPlatform} from './runtime.js';
 
 export type CommandDiscovery = 'path' | 'configured-path' | 'package-manager-shim' | 'application-directory' | 'windows-registry' | 'missing';
 
@@ -35,7 +36,7 @@ export function resolveCommandDetails(
   overrides?: Partial<CommandResolutionOptions>
 ): CommandResolution {
   const variable = overrideVariable(command);
-  const cacheKey = [command, process.env.PATH, process.env.PATHEXT, variable ? process.env[variable] : undefined].join('\0');
+  const cacheKey = [command, process.env.PATH, process.env.PATHEXT, process.env.PREFIX, process.env.TERMUX_VERSION, variable ? process.env[variable] : undefined].join('\0');
   if (!overrides) {
     const cached = commandCache.get(cacheKey);
     if (cached && Date.now() - cached.checkedAt < commandCacheTtlMs) return cached.resolution;
@@ -142,12 +143,21 @@ function isRunnable(path: string, platform: NodeJS.Platform): boolean {
 }
 
 function knownBinaryDirs({platform, env, home}: CommandResolutionOptions): string[] {
+  if (identifyPlatform({platform, env}).id === 'termux') {
+    // Use the running app's prefix, including alternate Android user installs.
+    // Generic /usr paths can refer to a different libc inside a proot environment.
+    const prefix = env.PREFIX;
+    return prefix && posix.isAbsolute(prefix) && !/[\0\r\n]/.test(prefix) ? [posix.join(prefix, 'bin')] : [];
+  }
   if (platform === 'darwin') {
     return ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/opt/local/bin', '/sw/bin', posix.join(home, '.local', 'bin')];
   }
 
   if (platform === 'freebsd' || platform === 'openbsd') return ['/usr/local/bin', '/usr/bin'];
   if (platform === 'netbsd') return ['/usr/pkg/bin', '/usr/local/bin', '/usr/bin'];
+  if (platform === 'sunos') return ['/opt/local/bin', '/usr/pkg/bin', '/usr/local/bin', '/usr/bin'];
+  if (platform === 'haiku') return [posix.join(home, 'config', 'non-packaged', 'bin'), posix.join(home, 'config', 'bin'), '/boot/system/non-packaged/bin', '/boot/system/bin'];
+  if (platform === 'aix') return ['/opt/freeware/bin', '/usr/local/bin', '/usr/bin'];
 
   if (platform === 'win32') {
     const dirs: string[] = [];

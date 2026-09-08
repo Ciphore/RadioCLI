@@ -288,7 +288,9 @@ Usage:
   radiocli setup --mcp --headless-agent  Opt out of external terminal windows
   radiocli setup --no-mcp                Disable and remove agent MCP entries
   radiocli setup --package-manager <pm>  Use brew, winget, scoop, choco,
-                                         apt, dnf, pacman, apk, or zypper
+                                         apt, dnf, pacman, apk, zypper,
+                                         pkg (FreeBSD), pkg_add, pkgin,
+                                         termux-pkg (Termux), or pkgman (Haiku)
 `);
 }
 
@@ -315,7 +317,8 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
   const integrationCommands = [
     'launchctl', 'schtasks.exe', 'systemctl', 'caffeinate', 'systemd-inhibit',
     'powershell.exe', 'pwsh.exe', 'osascript', 'wpctl', 'pactl', 'amixer',
-    'open', 'explorer', 'xdg-open', 'pbcopy', 'clip', 'wl-copy', 'xclip', 'xsel'
+    'open', 'explorer', 'xdg-open', 'pbcopy', 'clip', 'wl-copy', 'xclip', 'xsel',
+    'termux-open-url', 'termux-clipboard-set'
   ].filter(command => resolveCommand(command) !== null);
   const capabilities = platformCapabilities(host, {
     backends,

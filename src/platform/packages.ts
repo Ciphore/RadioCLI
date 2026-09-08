@@ -1,9 +1,10 @@
 import {existsSync, readFileSync} from 'node:fs';
 import {commandExists} from './executables.js';
 import {powershellCommand} from './shell.js';
+import {identifyPlatform, type PlatformProfile} from './runtime.js';
 
 export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
-export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper' | 'pkg' | 'pkg_add' | 'pkgin';
+export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper' | 'pkg' | 'pkg_add' | 'pkgin' | 'termux-pkg' | 'pkgman';
 
 export type SetupCommand = {
   component: SetupComponent | null;
@@ -13,25 +14,43 @@ export type SetupCommand = {
   display: string;
 };
 
-export const packageManagers: SetupPackageManager[] = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin'];
+export const packageManagers: SetupPackageManager[] = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'];
+
+/** FreeBSD pkg and Termux pkg have distinct recipes and privilege models. */
+export function packageManagerProgram(manager: SetupPackageManager): string {
+  return manager === 'termux-pkg' ? 'pkg' : manager;
+}
 
 /** Package names/options are selected from the recipes below, never shell input. */
-export function packageCommandInvocation(command: SetupCommand, platform: NodeJS.Platform): {program: string; args: string[]} {
+export function packageCommandInvocation(
+  command: SetupCommand,
+  platform: NodeJS.Platform,
+  resolve: (command: string) => string | null = () => null
+): {program: string; args: string[]} {
+  const program = resolve(command.program) ?? command.program;
+  const args = (command.program === 'sudo' || command.program === 'doas') && command.args[0]
+    ? [resolve(command.args[0]) ?? command.args[0], ...command.args.slice(1)]
+    : command.args;
   return platform === 'win32'
-    ? {program: 'powershell.exe', args: powershellCommand([command.program, ...command.args])}
-    : {program: command.program, args: command.args};
+    ? {program: resolve('powershell.exe') ?? 'powershell.exe', args: powershellCommand([program, ...args])}
+    : {program, args};
 }
 
 export function detectPackageManager(
   platform: NodeJS.Platform,
   osRelease: string,
-  hasCommand: (command: string) => boolean = commandExists
+  hasCommand: (command: string) => boolean = commandExists,
+  env: NodeJS.ProcessEnv = process.env
 ): SetupPackageManager | null {
+  const host = identifyPlatform({platform, osRelease, env});
+  if (host.id === 'termux') return hasCommand('pkg') ? 'termux-pkg' : null;
   if (platform === 'darwin') return hasCommand('brew') ? 'brew' : null;
   if (platform === 'win32') return firstAvailable(['winget', 'scoop', 'choco'], hasCommand);
   if (platform === 'freebsd') return hasCommand('pkg') ? 'pkg' : null;
   if (platform === 'openbsd') return hasCommand('pkg_add') ? 'pkg_add' : null;
-  if (platform === 'netbsd') return hasCommand('pkgin') ? 'pkgin' : null;
+  // pkg on Solaris/illumos is IPS, not the FreeBSD installer.
+  if (platform === 'netbsd' || platform === 'sunos') return hasCommand('pkgin') ? 'pkgin' : null;
+  if (platform === 'haiku') return hasCommand('pkgman') ? 'pkgman' : null;
   if (platform !== 'linux') return null;
 
   const ids = linuxReleaseIds(osRelease);
@@ -68,11 +87,15 @@ export function packageInstallCommand(
     pkg_add: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
     // pkgsrc FFmpeg/ffplay packages and executables carry a major version.
     // Choose an available matching pair manually instead of guessing a catalog.
-    pkgin: {mpv: 'mpv', vlc: 'vlc'}
+    pkgin: {mpv: 'mpv', vlc: 'vlc'},
+    // Termux's main ffmpeg package omits ffplay. Enabling x11-repo and its
+    // display/audio services is an explicit manual step, not a setup side effect.
+    'termux-pkg': {mpv: 'mpv'},
+    pkgman: {mpv: 'mpv', ffmpeg: 'ffmpeg8_tools'}
   };
   const packageName = packages[manager][component];
   if (!packageName) return null;
-  let program: string = manager;
+  let program = packageManagerProgram(manager);
   let args: string[];
 
   if (manager === 'brew') args = ['install', component === 'vlc' ? '--cask' : packageName, ...(component === 'vlc' ? [packageName] : [])];
@@ -84,7 +107,7 @@ export function packageInstallCommand(
   else if (manager === 'pacman') args = ['-S', '--needed', '--noconfirm', packageName];
   else if (manager === 'apk') args = ['add', packageName];
   else if (manager === 'zypper') args = ['--non-interactive', 'install', packageName];
-  else if (manager === 'pkg') args = ['install', '-y', packageName];
+  else if (manager === 'pkg' || manager === 'termux-pkg' || manager === 'pkgman') args = ['install', '-y', packageName];
   else if (manager === 'pkg_add') args = ['-I', packageName];
   else args = ['-y', 'install', packageName];
 
@@ -96,18 +119,36 @@ export function packageInstallCommand(
 }
 
 export function packageManagerNeedsRoot(manager: SetupPackageManager): boolean {
-  return !['brew', 'winget', 'scoop', 'choco'].includes(manager);
+  return !['brew', 'winget', 'scoop', 'choco', 'termux-pkg', 'pkgman'].includes(manager);
 }
 
-export function packageManagerNotes(manager: SetupPackageManager | null): string[] {
+export function packageManagerNotes(manager: SetupPackageManager | null, host: PlatformProfile = identifyPlatform()): string[] {
+  if (manager === 'termux-pkg' || (!manager && host.id === 'termux')) return [
+    'Termux pkg runs as the normal app user, without sudo or root. Use --package-manager=termux-pkg to select this recipe explicitly.',
+    'The Termux ffmpeg package does not include ffplay. The separate ffplay package needs x11-repo and a configured display/audio environment; mpv is the recommended audio player.',
+    'Android clipboard integration requires the termux-api package and a compatible Termux:API app; helper execution can still fail if Android denies access.'
+  ];
+  if (manager === 'pkgman' || (!manager && host.id === 'haiku')) return [
+    'The verified HaikuPorts runtime recipe provides Node 20, below RadioCLI\'s Node 22 minimum. These playback recipes do not resolve that runtime blocker; a separate working Node 22+ port is required.',
+    'Haiku ffmpeg8_tools provides ffmpeg and ffplay. A secondary-architecture install may require explicit RADIOCLI_FFMPEG_PATH and RADIOCLI_FFPLAY_PATH values.'
+  ];
+  if (host.id === 'aix') return ['There is no verified AIX mpv or ffplay package recipe. Provision a working native player manually and set RADIOCLI_MPV_PATH or RADIOCLI_FFPLAY_PATH; IBM Toolbox DNF availability does not establish a playback package.'];
   if (manager === 'pkg') return ['FreeBSD ffmpeg provides ffplay only when built with SDL; verify the executable separately.'];
-  if (manager === 'pkgin') return ['pkgsrc uses versioned FFmpeg/ffplay packages. Choose a matching available pair and set RADIOCLI_FFPLAY_PATH to the absolute ffplay executable.'];
+  if (manager === 'pkgin' || host.id === 'sunos') return [
+    ...(host.id === 'sunos' ? ['Solaris/illumos setup uses an existing pkgsrc/pkgin installation. IPS pkg is a different tool and is not used by this recipe.'] : []),
+    'pkgsrc uses versioned FFmpeg/ffplay packages. Choose a matching available pair and set RADIOCLI_FFPLAY_PATH to the absolute ffplay executable.'
+  ];
   return [];
 }
 
-export function platformLabel(platform: NodeJS.Platform, osRelease: string): string {
+export function platformLabel(platform: NodeJS.Platform, osRelease: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (identifyPlatform({platform, osRelease, env}).id === 'termux') return 'Android / Termux';
   if (platform === 'darwin') return `${process.arch === 'arm64' ? 'macOS Apple Silicon' : 'macOS'}`;
   if (platform === 'win32') return 'Windows';
+  if (platform === 'haiku') return 'Haiku';
+  if (platform === 'sunos') return 'Solaris / illumos';
+  if (platform === 'aix') return 'AIX';
+  if (platform === 'android') return 'Android';
   if (platform === 'linux') return osReleaseValue(osRelease, 'PRETTY_NAME') || 'Linux';
   return platform;
 }
@@ -150,7 +191,8 @@ function hasAny(values: Set<string>, candidates: string[]): boolean {
   return candidates.some(candidate => values.has(candidate));
 }
 
-export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
+export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env): string {
+  if (identifyPlatform({platform, osRelease, env}).id === 'termux') return 'pkg install -y mpv';
   if (platform === 'darwin') {
     return 'brew install mpv';
   }
@@ -161,7 +203,9 @@ export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, 
 
   if (platform === 'freebsd') return 'pkg install -y mpv (as root, or use sudo/doas)';
   if (platform === 'openbsd') return 'doas pkg_add -I mpv';
-  if (platform === 'netbsd') return 'pkgin -y install mpv (as root, or use sudo/doas)';
+  if (platform === 'netbsd' || platform === 'sunos') return 'pkgin -y install mpv (with pkgsrc configured, as root or using sudo/doas)';
+  if (platform === 'haiku') return 'pkgman install -y mpv';
+  if (platform === 'aix') return 'manual native player required; no verified AIX mpv package recipe (set RADIOCLI_MPV_PATH)';
 
   if (platform !== 'linux') {
     return 'install mpv with your system package manager';
@@ -191,7 +235,8 @@ export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, 
   return 'install mpv with your system package manager';
 }
 
-export function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
+export function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env): string {
+  if (identifyPlatform({platform, osRelease, env}).id === 'termux') return 'enable x11-repo manually, then pkg install -y ffplay (requires configured display/audio); use mpv for audio';
   if (platform === 'darwin') {
     return 'brew install ffmpeg';
   }
@@ -202,7 +247,9 @@ export function ffplayInstallCommand(platform: NodeJS.Platform = process.platfor
 
   if (platform === 'freebsd') return 'pkg install -y ffmpeg; ffplay requires the SDL build option';
   if (platform === 'openbsd') return 'doas pkg_add -I ffmpeg';
-  if (platform === 'netbsd') return 'install a matching pkgsrc ffmpegN/ffplayN pair; set RADIOCLI_FFPLAY_PATH';
+  if (platform === 'netbsd' || platform === 'sunos') return 'install a matching pkgsrc ffmpegN/ffplayN pair; set RADIOCLI_FFPLAY_PATH';
+  if (platform === 'haiku') return 'pkgman install -y ffmpeg8_tools';
+  if (platform === 'aix') return 'manual native player required; no verified AIX ffplay package recipe (set RADIOCLI_FFPLAY_PATH)';
 
   if (platform !== 'linux') {
     return 'install FFmpeg with your system package manager';

@@ -13,9 +13,36 @@ afterEach(() => {
 
 describe('safe executable configuration and permissions', () => {
   it.each([
-    ['freebsd', '/usr/local/bin/mpv'], ['openbsd', '/usr/local/bin/mpv'], ['netbsd', '/usr/pkg/bin/mpv']
+    ['freebsd', '/usr/local/bin/mpv'], ['openbsd', '/usr/local/bin/mpv'], ['netbsd', '/usr/pkg/bin/mpv'],
+    ['sunos', '/opt/local/bin/mpv'], ['sunos', '/usr/pkg/bin/mpv'], ['haiku', '/boot/system/bin/mpv'],
+    ['haiku', '/boot/home/config/bin/mpv'], ['haiku', '/boot/home/config/non-packaged/bin/mpv']
   ] as const)('finds the %s package prefix when an inherited PATH is incomplete', (platform, path) => {
-    expect(resolveCommandDetails('mpv', {platform, env: {PATH: '/bin'}, isRunnable: candidate => candidate === path})).toMatchObject({path});
+    expect(resolveCommandDetails('mpv', {platform, env: {PATH: '/bin'}, home: '/boot/home', isRunnable: candidate => candidate === path})).toMatchObject({path, discovery: 'package-manager-shim'});
+  });
+
+  it.each(['android', 'linux'] as const)('finds native Termux commands using PREFIX on %s', platform => {
+    const prefix = '/data/user/10/com.termux/files/usr';
+    const path = `${prefix}/bin/mpv`;
+    expect(resolveCommandDetails('mpv', {platform, env: {PATH: '/system/bin', PREFIX: prefix}, isRunnable: candidate => candidate === path})).toEqual({path, discovery: 'package-manager-shim'});
+  });
+
+  it('prefers the inherited PATH to the Termux prefix', () => {
+    const path = '/private/player/bin/mpv';
+    expect(resolveCommandDetails('mpv', {platform: 'android', env: {PATH: '/private/player/bin', TERMUX_VERSION: '0.118.3', PREFIX: '/data/data/com.termux/files/usr'},
+      isRunnable: candidate => [path, '/data/data/com.termux/files/usr/bin/mpv'].includes(candidate)})).toEqual({path, discovery: 'path'});
+  });
+
+  it.each([undefined, 'relative/usr', '/data/data/com.termux/files/usr\n'])('does not guess a Termux prefix from %s or fall back to glibc paths', prefix => {
+    expect(resolveCommandDetails('mpv', {platform: 'android', env: {TERMUX_VERSION: '0.118.3', PREFIX: prefix}, isRunnable: () => true})).toEqual({path: null, discovery: 'missing'});
+  });
+
+  it('ignores an unrelated PREFIX on ordinary Linux', () => {
+    expect(resolveCommandDetails('mpv', {platform: 'linux', env: {PREFIX: '/opt/custom'}, isRunnable: candidate => candidate === '/opt/custom/bin/mpv'})).toEqual({path: null, discovery: 'missing'});
+  });
+
+  it('finds an installed AIX Toolbox executable without inferring playback package availability', () => {
+    const path = '/opt/freeware/bin/python3';
+    expect(resolveCommandDetails('python3', {platform: 'aix', env: {PATH: '/usr/bin'}, isRunnable: candidate => candidate === path})).toEqual({path, discovery: 'package-manager-shim'});
   });
   it('treats a configured path with spaces and Unicode as a single executable', () => {
     const path = '/opt/Radio 日本/player mpv';

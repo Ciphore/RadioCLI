@@ -14,5 +14,23 @@ describe('portable desktop command plans', () => {
     const host = identifyPlatform({platform: 'futureos', env: {}});
     expect(browserCommands(host)).toEqual([]);
     expect(clipboardCandidates(host)).toEqual([]);
+    expect(hasGraphicalSession(host, {DISPLAY: ':0'})).toBe(false);
+  });
+
+  it.each(['android', 'linux'])('plans native Termux browser and stdin clipboard helpers on %s', platform => {
+    const env = {TERMUX_VERSION: '0.118.3'};
+    const host = identifyPlatform({platform, env});
+    expect(browserCommands(host)).toEqual([{command: 'termux-open-url', args: []}]);
+    expect(clipboardCandidates(host)).toEqual([{command: 'termux-clipboard-set', args: []}]);
+    expect(hasGraphicalSession(host, env)).toBe(true);
+    expect(hasGraphicalSession(host, {...env, SSH_CONNECTION: 'remote'})).toBe(false);
+    expect(hasGraphicalSession(host, {...env, SSH_TTY: '/dev/pts/1', DISPLAY: ':0'})).toBe(false);
+  });
+
+  it.each(['android', 'haiku', 'sunos', 'aix'])('does not infer desktop integration for %s from a DISPLAY value', platform => {
+    const host = identifyPlatform({platform, env: {}});
+    expect(browserCommands(host)).toEqual([]);
+    expect(clipboardCandidates(host)).toEqual([]);
+    expect(hasGraphicalSession(host, {DISPLAY: ':0'})).toBe(false);
   });
 });
