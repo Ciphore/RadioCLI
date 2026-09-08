@@ -12,6 +12,7 @@ import * as updates from '../update-check.js';
 import * as session from '../agent/session.js';
 import * as presence from '../alarms/tui-presence.js';
 import * as systemActions from './system-actions.js';
+import * as pageFooter from './page-footer.js';
 import {JsonLibraryStore} from '../storage/store.js';
 import type {Alarm, IcyNowPlaying, PlaybackState, Station} from '../types.js';
 import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
@@ -44,6 +45,20 @@ beforeEach(() => {
   }));
   vi.spyOn(session, 'startRadioSession').mockResolvedValue({close: async () => undefined});
   vi.spyOn(presence, 'registerTuiPresence').mockReturnValue(() => undefined);
+  // These keyboard journeys repeat the same expensive footer layout many times.
+  // Keep the real layout for every distinct input; its wrapping and appearance
+  // also have dedicated page-footer and visual-baseline coverage.
+  const layoutFooter = pageFooter.balancedFooterLegendRows;
+  const footerLayouts = new Map<string, string[]>();
+  vi.spyOn(pageFooter, 'balancedFooterLegendRows').mockImplementation((...args) => {
+    const key = JSON.stringify(args);
+    let rows = footerLayouts.get(key);
+    if (!rows) {
+      rows = layoutFooter(...args);
+      footerLayouts.set(key, rows);
+    }
+    return [...rows];
+  });
 });
 afterEach(() => {
   pendingInputs.length = 0;

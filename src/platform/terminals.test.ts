@@ -69,11 +69,29 @@ describe('graphical terminal invocation plans',()=>{
   });
   it.skipIf(process.platform!=='win32')('opens real Windows console TTY handles and preserves literal argv and environment',async()=>{
     const root=fixture();const cli=join(root,"Radio %PATH%! & ' 单播.cjs");const output=join(root,'console-result.json');
+    const preload=join(root,'console-preload.cjs');const stages=join(root,'console-stages.jsonl');
+    // Observe both the Node bootstrap and CLI without touching standard handles
+    // or logging argv contents. Monitoring leaves normal exception handling intact.
+    writeFileSync(preload,[
+      "const fs=require('node:fs')",
+      `const stage=process.argv[1]===${JSON.stringify(cli)}?'cli':'bootstrap'`,
+      `function record(event){try{fs.appendFileSync(${JSON.stringify(stages)},JSON.stringify({...event,pid:process.pid,stage})+'\\n','utf8')}catch{}}`,
+      "record({event:'start',argumentLengths:process.argv.map(value=>value.length)})",
+      "process.once('exit',code=>record({event:'exit',code}))",
+      "process.on('uncaughtExceptionMonitor',(error,origin)=>record({event:'uncaught',origin,code:error.code??null,message:String(error.message).slice(0,2_000)}))"
+    ].join(';'));
+    const nodeOptions=[process.env.NODE_OPTIONS,`--require ${JSON.stringify(preload)}`].filter(Boolean).join(' ');
     // File output observes the actual TTY child without redirecting its stdio.
-    writeFileSync(cli,"const fs=require('node:fs');const output=process.argv[2];fs.writeFileSync(output+'.tmp',JSON.stringify({stdin:process.stdin.isTTY===true,stdout:process.stdout.isTTY===true,stderr:process.stderr.isTTY===true,args:process.argv.slice(3),home:process.env.RADIOCLI_HOME,mpv:process.env.RADIOCLI_MPV_PATH}),'utf8');fs.renameSync(output+'.tmp',output)");
+    writeFileSync(cli,[
+      "const fs=require('node:fs');const output=process.argv[2]",
+      "fs.writeFileSync(output+'.started','started','utf8')",
+      'const result={args:process.argv.slice(3),home:process.env.RADIOCLI_HOME,mpv:process.env.RADIOCLI_MPV_PATH}',
+      "for(const name of ['stdin','stdout','stderr']){try{result[name]=process[name].isTTY===true}catch(error){result[name]={code:error.code??null,message:error.message}}}",
+      "fs.writeFileSync(output+'.tmp',JSON.stringify(result),'utf8');fs.renameSync(output+'.tmp',output)"
+    ].join(';'));
     const home='C:\\Data %PATH%! & "quote" \' 单播';const mpv="C:\\Players %PATH%! & ' 单播\\mpv.exe";const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
     const diagnostic:{commandCharacters:number;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,spawned:false,code:null,signal:null,stdout:'',stderr:''};
-    await launchTerminalCommand({platform:'win32',env:{...process.env,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
+    await launchTerminalCommand({platform:'win32',env:{...process.env,NODE_OPTIONS:nodeOptions,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
       diagnostic.commandCharacters=[command,...args].reduce((length,value)=>length+value.length+3,1);
       // Capture only the outer launcher; Start-Process still creates the child
       // with its own unredirected console handles. Never log inherited env.
@@ -87,7 +105,8 @@ describe('graphical terminal invocation plans',()=>{
     }}).catch(error=>{throw new Error(`Windows console launcher failed: ${JSON.stringify(diagnostic)}`,{cause:error});});
     const deadline=Date.now()+10_000;
     while(!existsSync(output)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
-    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify(diagnostic)}`).toBe(true);
+    const nodeStages=existsSync(stages)?readFileSync(stages,'utf8').slice(-8_000):'';
+    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages})}`).toBe(true);
     expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
   },15_000);
   it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{

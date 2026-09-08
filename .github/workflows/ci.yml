@@ -333,10 +333,20 @@ jobs:
           arch: x86_64
           copyback: false
           prepare: |
+            set -eu
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            # The minimal guest omits X11 libraries required by pkgsrc mpv,
+            # even for null audio/video. Install the matching official OS set.
+            # Digest: NetBSD-10.1/amd64/binary/sets/SHA512 on cdn.NetBSD.org.
+            radiocli_xbase=$(mktemp /tmp/radiocli-xbase.XXXXXX)
+            trap 'rm -f "$radiocli_xbase"' EXIT
+            ftp -q 60 -o "$radiocli_xbase" https://cdn.NetBSD.org/pub/NetBSD/NetBSD-10.1/amd64/binary/sets/xbase.tar.xz
+            test "$(cksum -a SHA512 -q "$radiocli_xbase")" = b6ac2195f91d7ae395ec2734c9ae2a4727014629fbdc94562531225e0d51e3b2705047e8440fcf75e1dacdcecb3cb980df7a82f838c12ad5274ba8ce95e49b72
+            tar -xpf "$radiocli_xbase" -C /
             /usr/sbin/pkg_add pkgin
             pkgin -y update
             pkgin -y install 'nodejs>=22<23' mpv
+            mpv --version
           run: |
             set -eu
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
