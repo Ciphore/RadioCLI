@@ -6,7 +6,7 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {createTerminalLaunch,detectGraphicalTerminal,launchTerminalCommand,waitForLaunch} from './terminals.js';
 
 const roots:string[]=[];
-afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
+afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
 const resolve=(command:string)=>command;
 function fixture(){const root=mkdtempSync(join(process.cwd(),'.radiocli-terminals-'));roots.push(root);return root;}
 function terminalPath(root:string,name:string){return posix.join(basename(root),name);}
@@ -120,10 +120,13 @@ describe('graphical terminal invocation plans',()=>{
       return child;
     }}).catch(error=>{throw new Error(`Windows console launcher failed: ${JSON.stringify(diagnostic)}`,{cause:error});});
     const deadline=Date.now()+10_000;
-    while(!existsSync(output)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
+    // The result precedes Node's exit hooks and the final PowerShell diagnostic.
+    // Wait for both writers before removing the fixture on Windows.
+    const completed=()=>existsSync(output)&&existsSync(powershellStages)&&/native-exit 0\r?\n/.test(readFileSync(powershellStages,'utf8'));
+    while(!completed()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
     const nodeStages=existsSync(stages)?readFileSync(stages,'utf8').slice(-8_000):'';
     const powershellStage=existsSync(powershellStages)?readFileSync(powershellStages,'utf8').slice(-4_000):'';
-    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages,powershellStage})}`).toBe(true);
+    expect(completed(),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages,powershellStage})}`).toBe(true);
     expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
   },15_000);
   it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{

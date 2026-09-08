@@ -52,15 +52,18 @@ export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv 
   assert.ok(existsSync(tarball), `Packed tarball is missing: ${tarball}`);
   assert.ok(Number(process.versions.node.split('.')[0]) >= 22, 'Packed runtime checks require Node.js 22 or newer.');
   if (process.env.RADIOCLI_EXPECTED_ARCH) assert.equal(process.arch, process.env.RADIOCLI_EXPECTED_ARCH, 'The packed runtime must match the requested native runner architecture.');
-  const temporary = mkdtempSync(join(tmpdir(), 'radiocli packed & 日本 '));
+  const temporary = mkdtempSync(join(tmpdir(), 'radiocli packed & # % 日本 '));
   const project = join(temporary, 'project');
   const home = join(temporary, 'state');
   mkdirSync(project);
   mkdirSync(home);
   const env = smokeEnvironment(home);
   const networkLog = join(temporary, 'unexpected-network.log');
-  const guard = join(temporary, 'network-guard.mjs');
-  writeFileSync(guard, `import {appendFileSync} from 'node:fs';\nglobalThis.fetch = () => { appendFileSync(process.env.RADIOCLI_SMOKE_NETWORK_LOG, 'fetch attempted\\n'); return Promise.reject(new Error('Packed smoke forbids live network requests.')); };\n`);
+  const guardPath = join(temporary, 'network-guard.mjs');
+  // --import uses ESM URL resolution: drive letters and URL delimiters must
+  // remain file-path data on Windows and on POSIX paths containing # or %.
+  const guard = pathToFileURL(guardPath).href;
+  writeFileSync(guardPath, `import {appendFileSync} from 'node:fs';\nglobalThis.fetch = () => { appendFileSync(process.env.RADIOCLI_SMOKE_NETWORK_LOG, 'fetch attempted\\n'); return Promise.reject(new Error('Packed smoke forbids live network requests.')); };\n`);
   env.RADIOCLI_SMOKE_NETWORK_LOG = networkLog;
   try {
     writeFileSync(join(project, 'package.json'), '{"private":true,"type":"module"}\n');
