@@ -17,8 +17,10 @@ describe('PowerShell command transport',()=>{
 
   it.skipIf(process.platform!=='win32')('preserves special data-home characters under native Windows PowerShell',async()=>{
     const powershell=resolveCommandDetails('powershell.exe').path;expect(powershell).not.toBeNull();const home='C:\\Data %PATH%! & "quoted" \' 单播';
-    const args=powershellCommand([process.execPath,'-e',"process.stdout.write(process.env.RADIOCLI_HOME)"],{RADIOCLI_HOME:home});
+    // Keep captured output ASCII so this checks environment transport without
+    // depending on the Windows console's separate legacy code-page behavior.
+    const args=powershellCommand([process.execPath,'-e',"process.stdout.write(Buffer.from(process.env.RADIOCLI_HOME,'utf8').toString('base64'))"],{RADIOCLI_HOME:home});
     const result=await new Promise<{code:number;stdout:string;stderr:string}>((resolve,reject)=>{const child=spawn(powershell!,args,{stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='';let stderr='';child.stdout.on('data',chunk=>stdout+=String(chunk));child.stderr.on('data',chunk=>stderr+=String(chunk));child.once('error',reject);child.once('close',code=>resolve({code:code??1,stdout,stderr}));});
-    expect(result).toEqual({code:0,stdout:home,stderr:''});
+    expect(result.code).toBe(0);expect(result.stderr).toBe('');expect(Buffer.from(result.stdout,'base64').toString('utf8')).toBe(home);
   });
 });
