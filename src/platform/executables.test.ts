@@ -12,6 +12,11 @@ afterEach(() => {
 });
 
 describe('safe executable configuration and permissions', () => {
+  it.each([
+    ['freebsd', '/usr/local/bin/mpv'], ['openbsd', '/usr/local/bin/mpv'], ['netbsd', '/usr/pkg/bin/mpv']
+  ] as const)('finds the %s package prefix when an inherited PATH is incomplete', (platform, path) => {
+    expect(resolveCommandDetails('mpv', {platform, env: {PATH: '/bin'}, isRunnable: candidate => candidate === path})).toMatchObject({path});
+  });
   it('treats a configured path with spaces and Unicode as a single executable', () => {
     const path = '/opt/Radio 日本/player mpv';
     expect(resolveCommandDetails('mpv', {platform: 'linux', env: {PATH: '/usr/bin', RADIOCLI_MPV_PATH: path}, isRunnable: candidate => candidate === path})).toEqual({path, discovery: 'configured-path'});

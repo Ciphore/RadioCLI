@@ -146,6 +146,9 @@ function knownBinaryDirs({platform, env, home}: CommandResolutionOptions): strin
     return ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/opt/local/bin', '/sw/bin', posix.join(home, '.local', 'bin')];
   }
 
+  if (platform === 'freebsd' || platform === 'openbsd') return ['/usr/local/bin', '/usr/bin'];
+  if (platform === 'netbsd') return ['/usr/pkg/bin', '/usr/local/bin', '/usr/bin'];
+
   if (platform === 'win32') {
     const dirs: string[] = [];
     if (env.LOCALAPPDATA) dirs.push(win32.join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links'));

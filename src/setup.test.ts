@@ -122,6 +122,43 @@ describe('RadioCLI setup', () => {
     expect(text).toContain('Agent integration: would be enabled and installed for detected MCP clients.');
   });
 
+  it.each([
+    {platform: 'freebsd' as const, manager: 'pkg', uid: 0, commands: ['pkg'], expected: 'pkg install -y mpv'},
+    {platform: 'openbsd' as const, manager: 'pkg_add', uid: 1000, commands: ['pkg_add', 'doas'], expected: 'doas pkg_add -I mpv'},
+    {platform: 'linux' as const, manager: 'apk', uid: 0, commands: ['apk'], expected: 'apk add mpv'}
+  ])('executes the reviewed $manager privilege plan', async ({platform, manager, uid, commands, expected}) => {
+    const execute = vi.fn(async (_command: {display: string}) => undefined);
+    await runSetup({platform, osRelease: 'ID=alpine', args: ['--yes', '--only=mpv', `--package-manager=${manager}`],
+      input: new PassThrough(), output: new PassThrough(), hasCommand: command => commands.includes(command),
+      getUid: () => uid, runCommand: execute});
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({display: expected});
+  });
+
+  it('rejects installation when a privileged package tool has no usable privilege helper', async () => {
+    const execute = vi.fn(async () => undefined);
+    await expect(runSetup({platform: 'freebsd', args: ['--yes', '--only=mpv'], getUid: () => 1000,
+      input: new PassThrough(), output: new PassThrough(), hasCommand: command => command === 'pkg', runCommand: execute
+    })).rejects.toThrow('requires root, sudo, or doas');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('shows a manual pkgsrc FFmpeg plan without invoking a guessed package', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => { text += String(chunk); });
+    const execute = vi.fn(async () => undefined);
+    await runSetup({platform: 'netbsd', args: ['--dry-run', '--only=ffmpeg'], getUid: () => 0,
+      input: new PassThrough(), output, hasCommand: command => command === 'pkgin', runCommand: execute});
+    expect(text).toContain('manual installation required');
+    expect(text).toContain('RADIOCLI_FFPLAY_PATH');
+    expect(execute).not.toHaveBeenCalled();
+    await expect(runSetup({platform: 'netbsd', args: ['--yes', '--only=ffmpeg'], getUid: () => 0,
+      input: new PassThrough(), output, hasCommand: command => command === 'pkgin', runCommand: execute
+    })).rejects.toThrow('No verified automatic installation command');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('runs selected installers sequentially and prints final verification', async () => {
     const output = new PassThrough();
     let text = '';

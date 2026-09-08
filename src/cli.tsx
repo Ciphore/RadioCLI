@@ -13,6 +13,7 @@ import {airPlaySenderHealth} from './player/airplay-sender-health.js';
 import {appVersion} from './version.js';
 import {checkForUpdate, installUpdate, updateCommandForInstall} from './update-check.js';
 import {runAlarmCommand} from './alarms/cli.js';
+import {createSchedulerAdapter, type SchedulerCapabilities} from './alarms/scheduler.js';
 import {runSetup} from './setup.js';
 import {runAgentCliCommand, runMcpCommand} from './agent/cli.js';
 import {decodeAgentCommand} from './agent/service.js';
@@ -102,7 +103,7 @@ export async function runCommand(args: string[]): Promise<void> {
   if (command === 'doctor') {
     const backends = detectPlaybackBackends();
     const mpvDiagnostic = diagnoseCommand('mpv');
-    const report = doctorReport(backends, mpvDiagnostic);
+    const report = await doctorReport(backends, mpvDiagnostic);
     if (rest.includes('--json')) {
       console.log(JSON.stringify(report, null, 2));
       return;
@@ -286,12 +287,19 @@ function printPlaybackBackendStatus(backends: string[]): void {
   }
 }
 
-function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
+async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
   const commands = Object.fromEntries(
     ['mpv', 'ffplay', 'vlc', 'cvlc', 'ffmpeg', 'dns-sd'].map(command => [command, redactHome(resolveCommand(command))])
   );
   const airPlay = airPlaySenderHealth();
   const host = identifyPlatform();
+  let scheduler: SchedulerCapabilities | undefined;
+  try {
+    const adapter = createSchedulerAdapter();
+    scheduler = await adapter.probeCapabilities?.();
+  } catch {
+    scheduler = {supported: false, exactWake: false, catchUpAfterWake: false, message: 'The optional scheduler probe failed. Run radiocli alarm doctor for repair guidance.'};
+  }
   const integrationCommands = [
     'launchctl', 'schtasks.exe', 'systemctl', 'caffeinate', 'systemd-inhibit',
     'powershell.exe', 'pwsh.exe', 'osascript', 'wpctl', 'pactl', 'amixer',
@@ -302,7 +310,8 @@ function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
     commands: integrationCommands,
     graphicalSession: hasGraphicalSession(host),
     packageManager: detectPackageManager(process.platform, host.osRelease),
-    storageWritable: libraryWritesAvailable()
+    storageWritable: libraryWritesAvailable(),
+    scheduler
   });
   return {
     radioCliVersion: appVersion(),

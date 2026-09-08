@@ -1,4 +1,4 @@
-import {componentLabel, detectPackageManager, packageInstallCommand, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
+import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageManagerNeedsRoot, packageManagerNotes, packageManagers, platformLabel, readLinuxOsRelease, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
 export {detectPackageManager};
 export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
@@ -28,6 +28,7 @@ type SetupOptions = {
   output?: Writable;
   hasCommand?: (command: string) => boolean;
   runCommand?: (command: SetupCommand, output: Writable) => Promise<void>;
+  getUid?: () => number | undefined;
 };
 
 type ParsedSetupArgs = {
@@ -72,8 +73,11 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     agentUi = await promptYesNo(input, output, `  Open the RadioCLI TUI for agent playback${note}`, true);
   }
 
-  const plan = createSetupPlan({platform, osRelease, packageManager, installed, selected});
+  const isRoot = (options.getUid ?? process.getuid)?.() === 0;
+  const elevation = isRoot ? null : hasCommand('sudo') ? 'sudo' : hasCommand('doas') ? 'doas' : 'sudo';
+  const plan = createSetupPlan({platform, osRelease, packageManager, installed, selected, elevation});
   printPlan(plan, output);
+  for (const note of packageManagerNotes(packageManager)) output.write(`  Note: ${note}\n`);
 
   const missing = plan.selected.filter(component => !plan.installed[component]);
 
@@ -99,6 +103,12 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     return;
   }
 
+  const manual = missing.filter(component => !plan.commands.some(command => command.component === component));
+  if (manual.length) throw new Error(`No verified automatic installation command for ${manual.join(', ')} with ${plan.packageManager}. Install these components manually or select --only=mpv.`);
+  if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !hasCommand(elevation!)) {
+    throw new Error('System package installation requires root, sudo, or doas. Review the dry-run plan and install prerequisites with your administrator.');
+  }
+
   if (parsed.packageManager && !hasCommand(parsed.packageManager)) {
     throw new Error(`Requested package manager is not available: ${parsed.packageManager}.`);
   }
@@ -118,7 +128,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     await runVisibleCommand('sudo', ['-v']);
   }
 
-  const execute = options.runCommand ?? runInstallCommand;
+  const execute = options.runCommand ?? ((command, destination) => runInstallCommand(command, destination, platform));
   output.write('\nInstalling\n');
   for (const command of plan.commands) {
     await execute(command, output);
@@ -135,17 +145,19 @@ export function createSetupPlan({
   osRelease = '',
   packageManager,
   installed,
-  selected
+  selected,
+  elevation = 'sudo'
 }: {
   platform: NodeJS.Platform;
   osRelease?: string;
   packageManager: SetupPackageManager | null;
   installed: Record<SetupComponent, boolean>;
   selected: SetupComponent[];
+  elevation?: 'sudo' | 'doas' | null;
 }): SetupPlan {
   const uniqueSelected = components.filter(component => selected.includes(component));
   const missing = uniqueSelected.filter(component => !installed[component]);
-  const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component)) : [];
+  const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component, {elevation})).filter((command): command is SetupCommand => command !== null) : [];
   if (packageManager === 'scoop' && missing.some(component => component === 'mpv' || component === 'vlc')) {
     commands.unshift({
       component: null,
@@ -301,7 +313,7 @@ function printPlan(plan: SetupPlan, output: Writable): void {
   if (plan.selected.length === 0) output.write('  No components selected\n');
 }
 
-async function runInstallCommand(command: SetupCommand, output: Writable): Promise<void> {
+async function runInstallCommand(command: SetupCommand, output: Writable, platform: NodeJS.Platform): Promise<void> {
   const interactive = Boolean((output as NodeJS.WriteStream).isTTY);
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
@@ -319,7 +331,8 @@ async function runInstallCommand(command: SetupCommand, output: Writable): Promi
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(command.program, command.args, {stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
+      const invocation = packageCommandInvocation(command, platform);
+      const child = spawn(invocation.program, invocation.args, {shell: false, stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
       child.stdout?.on('data', chunk => { stdout = tail(`${stdout}${String(chunk)}`); });
       child.stderr?.on('data', chunk => { stderr = tail(`${stderr}${String(chunk)}`); });
       child.once('error', reject);

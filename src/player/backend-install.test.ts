@@ -18,6 +18,12 @@ describe('playback backend install guidance', () => {
     expect(mpvInstallCommand('win32')).toBe('winget install --id shinchiro.mpv -e');
   });
 
+  it.each([
+    ['freebsd', 'pkg install -y mpv'], ['openbsd', 'doas pkg_add -I mpv'], ['netbsd', 'pkgin -y install mpv']
+  ] as const)('describes the explicit %s mpv installation path', (platform, command) => {
+    expect(mpvInstallCommand(platform)).toContain(command);
+  });
+
   it('reports npm and native playback responsibilities separately', () => {
     expect(playbackBackendStatusLines([], 'darwin')).toEqual([
       'playback=missing',

@@ -6,14 +6,14 @@ export type SystemCommand = {command: string; args: string[]};
 export function browserCommands(host: PlatformProfile = identifyPlatform()): SystemCommand[] {
   if (host.id === 'darwin') return [{command: 'open', args: []}];
   if (host.id === 'win32') return [{command: 'explorer', args: []}];
-  if (host.id === 'linux') return [{command: 'xdg-open', args: []}];
+  if (['linux', 'freebsd', 'openbsd', 'netbsd'].includes(host.id)) return [{command: 'xdg-open', args: []}];
   return [];
 }
 
 export function clipboardCandidates(host: PlatformProfile = identifyPlatform()): SystemCommand[] {
   if (host.id === 'darwin') return [{command: 'pbcopy', args: []}];
   if (host.id === 'win32') return [{command: 'clip', args: []}];
-  if (host.id === 'linux') return [
+  if (['linux', 'freebsd', 'openbsd', 'netbsd'].includes(host.id)) return [
     {command: 'wl-copy', args: []},
     {command: 'xclip', args: ['-selection', 'clipboard']},
     {command: 'xsel', args: ['--clipboard', '--input']}

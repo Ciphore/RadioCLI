@@ -1,4 +1,5 @@
-import {hasAny, linuxReleaseIds, readLinuxOsRelease} from '../platform/packages.js';
+import {ffplayInstallCommand, mpvInstallCommand, readLinuxOsRelease} from '../platform/packages.js';
+export {mpvInstallCommand};
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 import {commandExists} from './command.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
@@ -167,78 +168,4 @@ export function playbackBackendStatusLines(
     'controls_hint=install mpv for playback and controls',
     ...lines
   ];
-}
-
-export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
-  if (platform === 'darwin') {
-    return 'brew install mpv';
-  }
-
-  if (platform === 'win32') {
-    return 'winget install --id shinchiro.mpv -e';
-  }
-
-  if (platform !== 'linux') {
-    return 'install mpv with your system package manager';
-  }
-
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install mpv';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install mpv';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S mpv';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add mpv';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install mpv';
-  }
-
-  return 'install mpv with your system package manager';
-}
-
-function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
-  if (platform === 'darwin') {
-    return 'brew install ffmpeg';
-  }
-
-  if (platform === 'win32') {
-    return 'winget install --id Gyan.FFmpeg -e';
-  }
-
-  if (platform !== 'linux') {
-    return 'install FFmpeg with your system package manager';
-  }
-
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install ffmpeg';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install ffmpeg';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S ffmpeg';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add ffmpeg';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install ffmpeg';
-  }
-
-  return 'install FFmpeg with your system package manager';
 }

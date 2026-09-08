@@ -8,6 +8,7 @@ import {detectPlaybackBackends} from './player/backend-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
 import * as platformPaths from './platform/paths.js';
+import * as schedulers from './alarms/scheduler.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -134,6 +135,29 @@ describe('CLI command dispatch', () => {
       const report = JSON.parse(logs.join('\n'));
       expect(report.capabilities.storage.status).toBe('unavailable');
       expect(existsSync(join(radioCliHome, 'absent.json'))).toBe(false);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('reports an inaccessible user scheduler while preserving unrelated diagnostics', async () => {
+    const adapter = schedulers.createSchedulerAdapter();
+    const spy = vi.spyOn(schedulers, 'createSchedulerAdapter').mockReturnValue({...adapter,
+      probeCapabilities: async () => ({supported: false, message: 'No active systemd user manager.', catchUpAfterWake: false, exactWake: false})});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.capabilities.backgroundScheduling).toMatchObject({status: 'unavailable', message: 'No active systemd user manager.'});
+      expect(report.capabilities.storage.status).toBe('available');
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('keeps doctor usable if an optional scheduler probe fails', async () => {
+    const adapter = schedulers.createSchedulerAdapter();
+    const spy = vi.spyOn(schedulers, 'createSchedulerAdapter').mockReturnValue({...adapter,
+      probeCapabilities: async () => { throw new Error('probe failed'); }});
+    try {
+      await runCommand(['doctor', '--json']);
+      expect(JSON.parse(logs.join('\n')).capabilities.backgroundScheduling.status).toBe('unavailable');
     } finally { spy.mockRestore(); }
   });
 

@@ -43,6 +43,10 @@ describe('platform identity and adapter policy', () => {
     expect(nativeAdapters(host('win32'))).toMatchObject({scheduler: 'task-scheduler', inhibitor: 'windows', volume: 'windows', terminal: 'windows', airPlay: false, ipc: 'named-pipe', posixPermissions: false});
   });
 
+  it.each(['freebsd', 'openbsd', 'netbsd'])('selects a graphical terminal family independently of scheduling on %s', platform => {
+    expect(nativeAdapters(identifyPlatform({platform, env: {}}))).toMatchObject({terminal: 'unix', scheduler: null, inhibitor: null});
+  });
+
   it('keeps unknown runtimes explicit rather than calling them Linux', () => {
     const host = identifyPlatform({platform: 'future-os', arch: 'future-cpu', nodeVersion: '24.20.0', env: {}});
     expect(host).toMatchObject({id: 'unknown', platform: 'future-os', arch: 'future-cpu', nodeMajor: 24});
