@@ -9,6 +9,8 @@ import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
 import * as platformPaths from './platform/paths.js';
 import * as schedulers from './alarms/scheduler.js';
+import * as support from './platform/support.js';
+import {identifyPlatform} from './platform/runtime.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -174,6 +176,22 @@ describe('CLI command dispatch', () => {
       await runCommand(['doctor', '--json']);
       expect(JSON.parse(logs.join('\n')).capabilities.backgroundScheduling.status).toBe('unavailable');
     } finally { spy.mockRestore(); }
+  });
+
+  it.each(['first-class', 'supported', 'experimental', 'unsupported'] as const)('preserves the %s support assessment in JSON and text doctor output', async tier => {
+    const assessment = support.assessPlatformSupport(identifyPlatform());
+    const spy = vi.spyOn(support, 'assessPlatformSupport').mockReturnValue({...assessment, tier});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.support.tier).toBe(tier);
+      expect(report.support.evidence).toEqual(assessment.evidence);
+      expect(report.backends).toEqual([]);
+      logs.length = 0;
+      await runCommand(['doctor']);
+      expect(logs.join('\n')).toContain(`support_tier=${tier}`);
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally {spy.mockRestore();}
   });
 
   it('rejects unknown commands with the help hint', async () => {

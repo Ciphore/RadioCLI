@@ -27,6 +27,7 @@ import {detectPackageManager} from './platform/packages.js';
 import {storageReadiness} from './platform/storage.js';
 import {resolveTerminalCapabilities} from './platform/terminal.js';
 import {networkDiagnostic} from './platform/network.js';
+import {assessPlatformSupport} from './platform/support.js';
 
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
@@ -125,6 +126,8 @@ export async function runCommand(args: string[]): Promise<void> {
       console.log(`capability_${name}=${capability.status} ${capability.message}`);
     }
     console.log(`network=${report.network.status} ${report.network.message}`);
+    console.log(`support_tier=${report.support.tier} runtime=${report.support.runtime.status}`);
+    for (const reason of report.support.reasons) console.log(`support_note=${reason}`);
     return;
   }
 
@@ -336,7 +339,8 @@ async function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic
     nodeVersion: process.version,
     platform: process.platform,
     architecture: process.arch,
-    host: {id: host.id, arch: host.arch, endianness: host.endianness, release: host.release, libc: host.libc, isWsl: host.isWsl},
+    host: {id: host.id, arch: host.arch, armVersion: host.armVersion, endianness: host.endianness, release: host.release, libc: host.libc, isWsl: host.isWsl},
+    support: assessPlatformSupport(host),
     capabilities,
     terminal,
     network: networkDiagnostic(),

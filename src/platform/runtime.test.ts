@@ -25,6 +25,12 @@ describe('platform identity and adapter policy', () => {
     expect(identifyPlatform({platform: 'linux', release: '6.6', libc: 'musl', env: {}})).toMatchObject({isWsl: false, libc: 'musl'});
   });
 
+  it('records explicit ARM ISA evidence without assuming every arm runtime is ARMv7', () => {
+    expect(identifyPlatform({platform: 'linux', arch: 'arm', armVersion: 7, env: {}})).toMatchObject({arch: 'arm', armVersion: 7});
+    expect(identifyPlatform({platform: 'linux', arch: 'arm', armVersion: null, env: {}}).armVersion).toBeNull();
+    expect(identifyPlatform({platform: 'linux', arch: 'arm64', armVersion: 7, env: {}}).armVersion).toBeNull();
+  });
+
   it('does not invent a native service for BSD, Termux, Haiku, illumos, or AIX', () => {
     for (const platform of ['freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const) {
       const policy = nativeAdapters(identifyPlatform({platform, env: {}}));

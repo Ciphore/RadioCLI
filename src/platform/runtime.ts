@@ -8,6 +8,7 @@ export type PlatformProfile = {
   id: PlatformId;
   platform: string;
   arch: string;
+  armVersion: number | null;
   endianness: 'LE' | 'BE';
   release: string;
   nodeVersion: string;
@@ -20,6 +21,7 @@ export type PlatformProfile = {
 type PlatformInput = {
   platform?: string;
   arch?: string;
+  armVersion?: number | null;
   endianness?: 'LE' | 'BE';
   release?: string;
   nodeVersion?: string;
@@ -38,10 +40,14 @@ export function identifyPlatform(input: PlatformInput = {}): PlatformProfile {
   const id: PlatformId = termux ? 'termux' : knownPlatforms.has(platform) ? platform as PlatformId : 'unknown';
   const kernelRelease = input.release ?? release();
   const nodeVersion = (input.nodeVersion ?? process.versions.node).replace(/^v/, '');
+  const arch = input.arch ?? process.arch;
+  const armVersion = input.armVersion !== undefined ? input.armVersion
+    : platform === process.platform && arch === process.arch ? Number(Reflect.get(process.config.variables, 'arm_version')) : null;
   return {
     id,
     platform,
-    arch: input.arch ?? process.arch,
+    arch,
+    armVersion: arch === 'arm' && armVersion !== null && Number.isInteger(armVersion) && armVersion > 0 ? armVersion : null,
     endianness: input.endianness ?? endianness(),
     release: kernelRelease,
     nodeVersion,
