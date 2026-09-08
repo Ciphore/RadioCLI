@@ -1,6 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import {Text} from 'ink';
 import {displayWidth, sliceDisplay, truncate} from '../format.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type AdaptiveMarqueeProps = {
   text: string;
@@ -13,14 +15,15 @@ const edgePauseMs = 1000;
 const stepMs = 180;
 
 export function AdaptiveMarquee({text, width, active, reduceMotion}: AdaptiveMarqueeProps): React.ReactElement {
+  const {ascii, reduceMotion: terminalReduceMotion} = useDisplay();
   const safeWidth = Math.max(0, width);
   const maxOffset = Math.max(0, displayWidth(text) - safeWidth);
-  const animated = active && !reduceMotion && maxOffset > 0;
+  const animated = active && !reduceMotion && !terminalReduceMotion && maxOffset > 0;
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     setOffset(0);
-  }, [active, reduceMotion, safeWidth, text]);
+  }, [active, reduceMotion, terminalReduceMotion, safeWidth, text]);
 
   useEffect(() => {
     if (!animated) return;
@@ -34,5 +37,5 @@ export function AdaptiveMarquee({text, width, active, reduceMotion}: AdaptiveMar
   const visible = animated
     ? sliceDisplay(text, Math.min(offset, maxOffset), safeWidth)
     : truncate(text, safeWidth);
-  return <Text>{visible}</Text>;
+  return <Text aria-label={text}>{ascii ? toAsciiSafe(visible) : visible}</Text>;
 }

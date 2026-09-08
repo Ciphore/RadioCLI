@@ -7,6 +7,7 @@ import {Menu, Pointer} from './Menu.js';
 import {visibleWindow} from '../list-window.js';
 import {useDisplay} from '../display-context.js';
 import {AdaptiveMarquee} from './AdaptiveMarquee.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type StationListProps = {
   stations: Station[];
@@ -31,12 +32,13 @@ export function StationList({
   emptyHint = 'Try another view or clear active filters.',
   showCount = true
 }: StationListProps): React.ReactElement {
-  const {reduceMotion} = useDisplay();
+  const {reduceMotion, ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   if (stations.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text color={textMuted}>{emptyTitle}</Text>
-        <Text color={textMuted}>{emptyHint}</Text>
+        <Text color={textMuted}>{a(emptyTitle)}</Text>
+        <Text color={textMuted}>{a(emptyHint)}</Text>
       </Box>
     );
   }
@@ -72,7 +74,7 @@ export function StationList({
                     reduceMotion={reduceMotion}
                   />
                 </Text>
-                {favorite ? <Text color="yellow"> ★</Text> : null}
+                {favorite ? <Text color="yellow" aria-label="Favorite">{a(' ★')}</Text> : null}
               </Box>
             );
           }
@@ -90,10 +92,10 @@ export function StationList({
                     <AdaptiveMarquee text={station.name} width={stationNameWidth} active={active} reduceMotion={reduceMotion} />
                   </Text>
                 </Box>
-                {favorite ? <Text color="yellow"> ★</Text> : null}
+                {favorite ? <Text color="yellow" aria-label="Favorite">{a(' ★')}</Text> : null}
               </Box>
               <Text color={active ? themeAccent(theme) : textMuted}>
-                {truncate(active ? selectedMetadata : standardMetadata, metaWidth)}
+                {a(truncate(active ? selectedMetadata : standardMetadata, metaWidth))}
               </Text>
             </Box>
           );

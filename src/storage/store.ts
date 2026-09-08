@@ -1,3 +1,5 @@
+import {platformPaths} from '../platform/paths.js';
+import {assertStorageWritable} from '../platform/storage.js';
 import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
@@ -19,7 +21,6 @@ import {
   type UpdateCheckState
 } from '../types.js';
 import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
-import {backupBadFile} from '../providers/cache.js';
 import {migrateReceiverStyle} from '../ui/visualizers/receiver-style-registry.js';
 
 const stationSchema: z.ZodType<Station> = z
@@ -282,7 +283,7 @@ export class JsonLibraryStore {
   private readonly now: () => Date;
 
   constructor(
-    filePath = defaultStorePath(),
+    filePath = defaultLibraryPath(),
     options: {idGenerator?: () => string; now?: () => Date} = {}
   ) {
     this.filePath = filePath;
@@ -623,14 +624,24 @@ export class JsonLibraryStore {
   }
 
   private read(): LibraryState {
-    if (!existsSync(this.filePath)) {
-      return defaultState();
+    let contents: string;
+    try {
+      contents = readFileSync(this.filePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return defaultState();
+      throw storageError('read the RadioCLI library', error);
     }
 
     try {
-      return migrateLibraryState(librarySchema.parse(JSON.parse(readFileSync(this.filePath, 'utf8'))));
+      return migrateLibraryState(librarySchema.parse(JSON.parse(contents)));
     } catch {
-      backupBadFile(this.filePath);
+      try {
+        assertStorageWritable(this.filePath);
+        renameSync(this.filePath, `${this.filePath}.bad-${Date.now()}-${randomUUID()}`);
+      } catch (error) {
+        // Reset only after preserving the original bytes. A failed read never reaches here.
+        throw storageError('preserve the corrupt RadioCLI library', error);
+      }
       return defaultState();
     }
   }
@@ -649,8 +660,13 @@ export class JsonLibraryStore {
   }
 
   private write(state: LibraryState): void {
-    mkdirSync(dirname(this.filePath), {recursive: true, mode: 0o700});
-    writeJsonAtomically(this.filePath, libraryStateForDisk(state));
+    try {
+      assertStorageWritable(this.filePath);
+      mkdirSync(dirname(this.filePath), {recursive: true, mode: 0o700});
+      writeJsonAtomically(this.filePath, libraryStateForDisk(state));
+    } catch (error) {
+      throw storageError('write the RadioCLI library', error);
+    }
   }
 }
 
@@ -697,38 +713,20 @@ function recoverActiveListeningSessionInState(state: LibraryState): LibraryState
   return finishActiveListeningSessionInState(state, new Date(recoveredEnd));
 }
 
-function defaultStorePath(): string {
-  if (process.env.RADIOCLI_HOME) {
-    return join(process.env.RADIOCLI_HOME, 'radiocli.json');
+export function defaultLibraryPath(): string {
+  const {library, legacyLibrary} = platformPaths();
+  for (const filePath of [library, legacyLibrary]) {
+    try {
+      statSync(filePath);
+      return filePath;
+    } catch (error) {
+      // A permission failure must not select an older library or empty defaults.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw storageError('read the RadioCLI library', error);
+      }
+    }
   }
-
-  if (process.env.RADIO_ATLAS_HOME) {
-    return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas.json');
-  }
-
-  const currentPath = currentDefaultStorePath();
-  const legacyPath = legacyDefaultStorePath();
-  return existsSync(currentPath) || !existsSync(legacyPath) ? currentPath : legacyPath;
-}
-
-function currentDefaultStorePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radiocli', 'radiocli.json');
-  }
-
-  if (process.platform === 'win32') {
-    return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'RadioCLI', 'radiocli.json');
-  }
-
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'radiocli', 'radiocli.json');
-}
-
-function legacyDefaultStorePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radio-atlas', 'radio-atlas.json');
-  }
-
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'radio-atlas', 'radio-atlas.json');
+  return library;
 }
 
 function resolveUserPath(requestedPath: string): string {
@@ -809,44 +807,74 @@ function libraryStateForDisk(state: LibraryState): LibraryState {
 }
 
 function writeJsonAtomically(filePath: string, value: unknown): void {
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {encoding: 'utf8', mode: 0o600});
-    renameSync(tempPath, filePath);
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
     if (process.platform !== 'win32') {
-      chmodSync(filePath, 0o600);
+      chmodSync(tempPath, 0o600);
     }
+    // No fallible persistence steps follow the atomic replacement.
+    renameSync(tempPath, filePath);
   } catch (error) {
-    rmSync(tempPath, {force: true});
-    throw error;
+    try { rmSync(tempPath, {force: true}); } catch { /* Preserve the original write failure. */ }
+    throw storageError('write RadioCLI data', error);
   }
 }
 
 function acquireStoreLock(filePath: string): () => void {
   const lockPath = `${filePath}.lock`;
-  mkdirSync(dirname(filePath), {recursive: true, mode: 0o700});
+  try {
+    assertStorageWritable(filePath);
+    mkdirSync(dirname(filePath), {recursive: true, mode: 0o700});
+  } catch (error) {
+    throw storageError('write the RadioCLI library', error);
+  }
   const deadline = Date.now() + 1000;
   while (true) {
     try {
       mkdirSync(lockPath, {mode: 0o700});
-      return () => rmSync(lockPath, {recursive: true, force: true});
+      return () => {
+        // The write has already succeeded or failed. Lock cleanup cannot reverse that result.
+        try { rmSync(lockPath, {recursive: true, force: true}); } catch { /* Stale locks expire below. */ }
+      };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST') throw error;
+      if (code !== 'EEXIST') throw storageError('lock the RadioCLI library', error);
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > 10_000) {
           rmSync(lockPath, {recursive: true, force: true});
-          continue;
         }
-      } catch {
-        continue;
+      } catch (lockError) {
+        if ((lockError as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw storageError('lock the RadioCLI library', lockError);
+        }
       }
       if (Date.now() >= deadline) {
-        throw new Error(`RadioCLI library is busy: ${filePath}`);
+        throw storageError('lock the RadioCLI library', Object.assign(new Error('Another writer holds the library lock.'), {code: 'EBUSY', cause: error}));
       }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }
+}
+
+class LibraryStorageError extends Error {
+  readonly code?: string;
+  readonly errno?: number;
+
+  constructor(operation: string, cause: unknown) {
+    const code = (cause as NodeJS.ErrnoException | undefined)?.code;
+    const detail = typeof code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(code) ? ` (${code})` : '';
+    super(code === 'EBUSY'
+      ? 'The RadioCLI library is busy. Retry after the other writer finishes, or set RADIOCLI_HOME to a private writable directory.'
+      : `Unable to ${operation}${detail}. Check storage permissions or set RADIOCLI_HOME to a private writable directory.`, {cause});
+    this.name = 'LibraryStorageError';
+    this.code = code;
+    this.errno = (cause as NodeJS.ErrnoException | undefined)?.errno;
+  }
+}
+
+function storageError(operation: string, cause: unknown): LibraryStorageError {
+  return cause instanceof LibraryStorageError ? cause : new LibraryStorageError(operation, cause);
 }
 
 function mergeLibraryChanges(base: LibraryState, disk: LibraryState, next: LibraryState): LibraryState {

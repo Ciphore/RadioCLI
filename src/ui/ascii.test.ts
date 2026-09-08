@@ -29,6 +29,7 @@ describe('toAsciiSafe', () => {
     expect(toAsciiSafe('·•●')).toBe('.o@');
     expect(toAsciiSafe('a · b')).toBe('a . b');
     expect(toAsciiSafe('Loading…')).toBe('Loading.');
+    expect(toAsciiSafe('∘ ◆ “radio” ‘track’')).toBe('o * "radio" \'track\'');
   });
 
   it('preserves direction in visualizer geometry', () => {
@@ -37,5 +38,6 @@ describe('toAsciiSafe', () => {
 
   it('preserves international station names', () => {
     expect(toAsciiSafe('Rádio 東京')).toBe('Rádio 東京');
+    expect(toAsciiSafe('Cafe\u0301 / Český / हिन्दी / العربية')).toBe('Cafe\u0301 / Český / हिन्दी / العربية');
   });
 });

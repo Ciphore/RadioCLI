@@ -175,6 +175,39 @@ export function useAlarmTui(params: Params): AlarmTuiController {
     await refreshRuntime();
   }, [refreshRuntime, service, setMessage]);
 
+  const deleteAlarm = useCallback(async (alarm: Alarm) => {
+    let phase: 'disable' | 'native' | 'definition' = 'disable';
+    let message: string;
+    try {
+      // Persist the safe state before touching native jobs. A failed cleanup
+      // can then be retried without another write in the error handler.
+      const disabled = store.toggleAlarm(alarm.id, false);
+      const disabledSnapshot = store.snapshot();
+      alarmStateRef.current = disabledSnapshot.alarms;
+      setLibrary(disabledSnapshot);
+      phase = 'native';
+      await service.remove(disabled);
+      phase = 'definition';
+      store.removeAlarm(alarm.id);
+      const snapshot = store.snapshot();
+      alarmStateRef.current = snapshot.alarms;
+      setLibrary(snapshot);
+      setSelected(value => clamp(value, snapshot.alarms.length + 1));
+      message = `Deleted ${alarm.label}.`;
+    } catch (error) {
+      message = phase === 'disable'
+        ? `Delete canceled: ${messageOf(error)}. Alarm and native jobs unchanged.`
+        : phase === 'native'
+          ? `Delete cleanup failed: ${messageOf(error)}. ${alarm.label} was kept disabled; press r to repair.`
+          : `Native cleanup completed. Save failed: ${messageOf(error)}. ${alarm.label} was kept disabled; retry deletion.`;
+    } finally {
+      busyAlarmIdsRef.current.delete(alarm.id);
+      setBusyAlarmIds(new Set(busyAlarmIdsRef.current));
+    }
+    await refreshRuntime();
+    setMessage(message);
+  }, [refreshRuntime, service, setLibrary, setMessage, setSelected, store]);
+
   const saveDraft = useCallback(() => {
     if (!draft || savingRef.current) return;
     const error = validateAlarmDraft(draft);
@@ -248,13 +281,8 @@ export function useAlarmTui(params: Params): AlarmTuiController {
         if(alarmIsActive){setMessage(`Dismiss or snooze ${alarm.label} before deleting it; current playback was left untouched.`);return true;}
         if (deletingIdRef.current !== alarm.id) { deletingIdRef.current = alarm.id; setDeletingId(alarm.id); setMessage(`Press x again to delete “${alarm.label}”.`); return true; }
         deletingIdRef.current = undefined; setDeletingId(undefined); busyAlarmIdsRef.current.add(alarm.id); setBusyAlarmIds(new Set(busyAlarmIdsRef.current));
-        void service.remove(alarm).then(() => {
-          if (store.getAlarm(alarm.id)) store.removeAlarm(alarm.id); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); setSelected(value => clamp(value, snapshot.alarms.length + 1)); setMessage(`Deleted ${alarm.label}.`);
-        }).catch(error => {
-          const existing = store.getAlarm(alarm.id);
-          if (existing) { const disabled = store.toggleAlarm(alarm.id, false); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); setMessage(`Delete cleanup failed; ${disabled.label} was kept disabled so Repair can retry: ${messageOf(error)}`); }
-          else setMessage(`Delete cleanup failed after the local alarm disappeared: ${messageOf(error)}`);
-        }).finally(() => { busyAlarmIdsRef.current.delete(alarm.id); setBusyAlarmIds(new Set(busyAlarmIdsRef.current)); void refreshRuntime(); }); return true;
+        void deleteAlarm(alarm).catch(error => setMessage(`Unexpected alarm deletion failure: ${messageOf(error)}`));
+        return true;
       }
       if (input !== 'x') { deletingIdRef.current = undefined; setDeletingId(undefined); }
       if (input === 't' && alarm) { void previewStation(alarm.station).then(() => setMessage(`Test-tuning ${alarm.station.name}; no alarm state changed.`)).catch(error => setMessage(`Test tune failed: ${messageOf(error)}`)); return true; }
@@ -361,7 +389,7 @@ export function useAlarmTui(params: Params): AlarmTuiController {
       return true;
     }
     return false;
-  }, [activeAlarms, deletingId, draft, editSelected, editingField, editorControl, editorField, go, library.alarms, openForStation, pickerChoices, pickerFallback, previewStation, refreshActive, refreshRuntime, runVerification, saveDraft, screen, selected, service, setLibrary, setMessage, setSelected, snoozeMinutes, store, syncPersisted, timeSegment, verification, visibleFields, weekdayIndex]);
+  }, [activeAlarms, deleteAlarm, deletingId, draft, editSelected, editingField, editorControl, editorField, go, library.alarms, openForStation, pickerChoices, pickerFallback, previewStation, refreshActive, refreshRuntime, runVerification, saveDraft, screen, selected, service, setLibrary, setMessage, setSelected, snoozeMinutes, store, syncPersisted, timeSegment, verification, visibleFields, weekdayIndex]);
 
   const openActive = useCallback(() => {
     if (!activeAlarms.length) { setMessage('No alarm is currently playing.'); return; }

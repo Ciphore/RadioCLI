@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {fileURLToPath} from 'node:url';
-import {Box, Text, useApp, useStdin, useStdout, useWindowSize} from 'ink';
+import {Box, Text, useApp, useIsScreenReaderEnabled, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
 import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
@@ -20,8 +20,10 @@ import {useAppInput} from './use-app-input.js';
 import {useCommandExecutor} from './use-command-executor.js';
 import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
 import {isAirPlayBackendAvailable} from './airplay-settings.js';
+import {networkPolicy} from '../platform/network.js';
 import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
+import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {appVersion} from '../version.js';
 import {automaticUpdateChecksAllowed, checkForUpdate, installUpdate, shouldCheckForUpdate, updateAvailableForVersion, updateCommandForInstall} from '../update-check.js';
 import {helpItemCount} from './help-content.js';
@@ -99,6 +101,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const {stdin} = useStdin();
   const {stdout} = useStdout();
   const {columns, rows} = useWindowSize();
+  const screenReader = useIsScreenReaderEnabled();
   const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
   const alarmService = useMemo(() => providedAlarmService ? serializeAlarmTuiService(providedAlarmService) : createAlarmTuiService(), [providedAlarmService]);
@@ -116,6 +119,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [selected, setSelected] = useState(0);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('root');
   const [message, setMessage] = useState<string | null>(null);
+  const [persistenceWarning, setPersistenceWarning] = useState<string | null>(null);
+  const [presenceWarning, setPresenceWarning] = useState<string | null>(null);
   const [footerMessage, setFooterMessage] = useState<string | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryFilter, setCountryFilter] = useState('');
@@ -139,6 +144,22 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [capturingTransportAction, setCapturingTransportAction] = useState<MediaTransportAction | null>(null);
+  const reportActionError = useCallback((error: unknown) => {
+    setMessage(sanitizeTerminalText(error instanceof Error ? error.message : String(error)) ?? 'Could not complete this action.');
+  }, []);
+  // Optional history cannot change the result of playback or navigation. Keep
+  // its warning until an explicit save succeeds; a no-op checkpoint proves nothing.
+  const persistLibrary = useCallback((write: () => LibraryState): LibraryState | undefined => {
+    try {
+      const nextLibrary = write();
+      setLibrary(nextLibrary);
+      return nextLibrary;
+    } catch (error) {
+      const detail = sanitizeTerminalText(error instanceof Error ? error.message : String(error));
+      setPersistenceWarning(`Library not saved. Set RADIOCLI_HOME to a writable directory.${detail ? ` ${detail}` : ''}`);
+      return undefined;
+    }
+  }, []);
   const announcedUpdateRef = useRef(false);
   const automaticUpdateCheckStartedRef = useRef(false);
   const installingUpdateRef = useRef(false);
@@ -179,8 +200,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
-    () => resolveDisplayMode(library.settings),
-    [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion]
+    () => resolveDisplayMode(library.settings, process.env, {screenReader, isTTY: Boolean(stdout.isTTY), colorDepth: stdout.getColorDepth?.()}),
+    [library.settings.transparentBackground, library.settings.asciiMode, library.settings.reduceMotion, screenReader, stdout]
   );
   const favoriteKeys = useMemo(() => new Set(library.favorites.map(stationKey)), [library.favorites]);
   const diagnostics = player.diagnostics();
@@ -285,6 +306,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const layout = computeTerminalLayout(columns, rows, footerRows);
   const frameWidth = layout.frameWidth;
   const mouseReportingActive =
+    !displayMode.screenReader &&
+    process.env.TERM?.toLowerCase() !== 'dumb' &&
     !commandMode &&
     !capturingTransportAction &&
     !editingCountryFilter &&
@@ -296,7 +319,18 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     );
 
   useEffect(() => player.onChange(setPlayback), [player]);
-  useEffect(() => stdin.isTTY ? registerTuiPresence() : undefined, [stdin]);
+  useEffect(() => {
+    if (!stdin.isTTY) return;
+    try {
+      const unregister = registerTuiPresence();
+      return () => {
+        try {unregister();}
+        catch {console.error('RadioCLI could not remove its alarm-control presence marker. Stale markers are checked on the next launch.');}
+      };
+    } catch {
+      setPresenceWarning('Alarm controls cannot register this terminal in the runtime directory. Browsing and playback remain available.');
+    }
+  }, [stdin]);
 
   const playingStationRef = useRef<Station | null>(null);
   playingStationRef.current = playingStation;
@@ -310,26 +344,26 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       const key = stationKey(station);
       if (activeListeningStationRef.current !== key) {
         activeListeningStationRef.current = key;
-        setLibrary(store.startListeningSession(station));
+        persistLibrary(() => store.startListeningSession(station));
       }
       return;
     }
 
     if (activeListeningStationRef.current) {
       activeListeningStationRef.current = null;
-      setLibrary(store.finishActiveListeningSession());
+      persistLibrary(() => store.finishActiveListeningSession());
     }
-  }, [playback.ready, playback.state, playingStation, store]);
+  }, [persistLibrary, playback.ready, playback.state, playingStation, store]);
 
   useEffect(() => {
     if (playback.state !== 'playing' || !playback.ready || !playingStation) {
       return;
     }
     const timer = setInterval(() => {
-      setLibrary(store.checkpointActiveListeningSession());
+      persistLibrary(() => store.checkpointActiveListeningSession());
     }, LISTENING_HEARTBEAT_MS);
     return () => clearInterval(timer);
-  }, [playback.ready, playback.state, playingStation, store]);
+  }, [persistLibrary, playback.ready, playback.state, playingStation, store]);
 
   useEffect(
     () =>
@@ -340,10 +374,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           const trackKey = `${stationKey(station)}:${metadata.title}`;
           if (lastRecordedTrackRef.current === trackKey) return;
           lastRecordedTrackRef.current = trackKey;
-          setLibrary(store.recordTrack(station, metadata.title));
+          persistLibrary(() => store.recordTrack(station, metadata.title!));
         }
       }),
-    [player, store]
+    [persistLibrary, player, store]
   );
 
   useEffect(() => {
@@ -368,7 +402,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   useEffect(() => {
     if (
       footerPlayback.state !== 'loading' ||
-      library.settings.reduceMotion ||
+      displayMode.reduceMotion ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -378,7 +412,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
     const timer = setInterval(() => setSpinnerFrame(value => (value + 1) % 1000), LOADING_SPINNER_MS);
     return () => clearInterval(timer);
-  }, [footerPlayback.state, library.settings.reduceMotion]);
+  }, [footerPlayback.state, displayMode.reduceMotion]);
 
   useEffect(() => {
     if (
@@ -427,25 +461,28 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const delayMs = sleepUntil - Date.now();
     if (delayMs <= 0) {
       tuneRequestRef.current += 1;
-      setLibrary(store.finishActiveListeningSession());
-      void player.stop();
+      persistLibrary(() => store.finishActiveListeningSession());
+      void player.stop().catch(reportActionError);
       setSleepUntil(null);
       return;
     }
 
     const timer = setTimeout(() => {
       tuneRequestRef.current += 1;
-      setLibrary(store.finishActiveListeningSession());
-      void player.stop();
+      persistLibrary(() => store.finishActiveListeningSession());
+      void player.stop().catch(reportActionError);
       setSleepUntil(null);
     }, delayMs);
     return () => clearTimeout(timer);
-  }, [player, sleepUntil, store]);
+  }, [persistLibrary, player, reportActionError, sleepUntil, store]);
 
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
-    void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
+    const network = networkPolicy();
+    if (!network.offline && !network.lowBandwidth) {
+      void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
+    }
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
@@ -461,9 +498,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const refreshUpdateCheck = useCallback(async () => {
     const updateCheck = await updateChecker({currentVersion: installedVersion});
-    setLibrary(store.updateCheckState(updateCheck));
+    persistLibrary(() => store.updateCheckState(updateCheck));
     return updateCheck;
-  }, [installedVersion, store, updateChecker]);
+  }, [installedVersion, persistLibrary, store, updateChecker]);
 
   useEffect(() => {
     if (
@@ -484,12 +521,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         announcedUpdateRef.current = true;
         setMessage(`Update available: v${updateCheck.latestVersion} · run :update`);
       }
+    }).catch(error => {
+      if (!cancelled) reportActionError(error);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [library.settings.automaticUpdateChecks, refreshUpdateCheck]);
+  }, [library.settings.automaticUpdateChecks, refreshUpdateCheck, reportActionError]);
 
   const setStationContextFor = useCallback((key: StationContextKey, context: StationContext) => {
     setStationContexts(current => ({...current, [key]: context}));
@@ -507,6 +546,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       const nextLibrary = store.updateSettings(settings);
       settingsRef.current = nextLibrary.settings;
       setLibrary(nextLibrary);
+      setPersistenceWarning(null);
       return nextLibrary;
     },
     [store]
@@ -523,9 +563,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return;
     }
 
-    updateSettings({preferredBackend});
-    setMessage(`${selectedAirPlayDevice.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
-  }, [availableBackends, selectedAirPlayDevice, updateSettings]);
+    try {
+      updateSettings({preferredBackend});
+      setMessage(`${selectedAirPlayDevice.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
+    } catch (error) {
+      reportActionError(error);
+    }
+  }, [availableBackends, reportActionError, selectedAirPlayDevice, updateSettings]);
 
   const updateMediaKeys = useCallback(
     (mediaKeys: AppSettings['mediaKeys']) => {
@@ -617,14 +661,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const shutdown = useCallback(() => {
     tuneRequestRef.current += 1;
-    store.finishActiveListeningSession();
-    player.stop().finally(exit);
-  }, [exit, player, store]);
+    persistLibrary(() => store.finishActiveListeningSession());
+    void player.stop().catch(reportActionError).finally(exit);
+  }, [exit, persistLibrary, player, reportActionError, store]);
 
   useEffect(() => {
     const finishForSignal = () => {
-      store.finishActiveListeningSession();
-      void player.stop().finally(() => process.exit(0));
+      persistLibrary(() => store.finishActiveListeningSession());
+      void player.stop().catch(reportActionError).finally(() => process.exit(0));
     };
     process.once('SIGTERM', finishForSignal);
     process.once('SIGHUP', finishForSignal);
@@ -632,7 +676,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       process.off('SIGTERM', finishForSignal);
       process.off('SIGHUP', finishForSignal);
     };
-  }, [player, store]);
+  }, [persistLibrary, player, reportActionError, store]);
 
   const showStationContext = useCallback(
     (context: StationContext, next: Screen = 'stations', options: NavigationOptions = {}) => {
@@ -855,7 +899,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         });
         selectedByScreenRef.current.search = 0;
         lastSubmittedSearchRef.current = query.trim();
-        setLibrary(store.addSearch(query));
+        persistLibrary(() => store.addSearch(query));
         searchHistoryRef.current = {cursor: -1, draft: ''};
         setSelected(0);
         setEditingSearch(true);
@@ -866,7 +910,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         if (requestId === searchRequestRef.current) setLoadingStations(false);
       }
     },
-    [filters, providers, searchQuery, setStationContextFor, store]
+    [filters, persistLibrary, providers, searchQuery, setStationContextFor, store]
   );
 
   const loadMoreSearchResults = useCallback(async () => {
@@ -1088,8 +1132,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         setPlayingStation(station);
         setTuningStation(null);
         playbackQueueRef.current = queue;
-        const nextLibrary = store.addRecent(station);
-        if (screenRef.current === 'library') {
+        const nextLibrary = persistLibrary(() => store.addRecent(station));
+        if (nextLibrary && screenRef.current === 'library') {
           const nextLibraryStations = applyStationFilters(buildLibraryStations(nextLibrary), filters);
           const nextLibraryIndex = nextLibraryStations.findIndex(item => stationMatches(item, station));
           if (nextLibraryIndex >= 0) {
@@ -1098,7 +1142,6 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           }
         }
 
-        setLibrary(nextLibrary);
         if (options.openNowPlaying) {
           go('now-playing');
         }
@@ -1125,7 +1168,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         setMessage(message);
       }
     },
-    [filters, go, player, providers, queueFromCurrentList, rememberQueueSelection, stationMatches, store]
+    [filters, go, persistLibrary, player, providers, queueFromCurrentList, rememberQueueSelection, stationMatches, store]
   );
 
   // Resume the most recent station on launch when opted in, like a radio
@@ -1188,6 +1231,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
       const wasFavorite = store.isFavorite(station);
       setLibrary(store.toggleFavorite(station));
+      setPersistenceWarning(null);
       const favoriteMessage = `${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`;
       if (screenRef.current === 'library') {
         showTransientFooterMessage(favoriteMessage);
@@ -1196,10 +1240,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       }
       if (!wasFavorite && settingsRef.current.shareDirectoryVotes) {
         // Best-effort upvote back to the directory; never blocks favoriting.
-        void providers.vote(station);
+        void providers.vote(station).catch(reportActionError);
       }
     },
-    [providers, showTransientFooterMessage, store]
+    [providers, reportActionError, showTransientFooterMessage, store]
   );
 
   const showControlResult = useCallback((result: PlaybackControlResult) => {
@@ -1208,16 +1252,22 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
   }, []);
 
-  const openStationHomepage = useCallback((station: Station | null) => {
+  const openStationHomepage = useCallback(async (station: Station | null) => {
     if (!station?.homepage) {
       setMessage('This station has no homepage.');
       return;
     }
 
+    const url = safeExternalHttpUrl(station.homepage);
+    if (!url) {
+      setMessage('This station has no valid HTTP(S) homepage.');
+      return;
+    }
+
     setMessage(
-      openExternal(station.homepage)
+      await openExternal(url)
         ? `Opening homepage: ${station.name}`
-        : 'That station homepage is not a valid HTTP(S) URL.'
+        : `Could not open a browser in this session. Homepage: ${sanitizeTerminalText(url) ?? ''}`
     );
   }, []);
 
@@ -1233,13 +1283,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         url = await providers.resolve(station).then(resolved => resolved.url).catch(() => undefined);
       }
 
-      if (!url) {
-        setMessage(`No stream URL available for ${station.name}.`);
+      const safeUrl = url ? safeMediaTarget(url) : null;
+      if (!safeUrl) {
+        setMessage(`No safe stream URL available for ${station.name}.`);
         return;
       }
 
-      const copied = copyToClipboard(url);
-      setMessage(copied ? `Copied stream URL: ${station.name}` : `Stream URL: ${url}`);
+      const copied = await copyToClipboard(safeUrl);
+      setMessage(copied ? `Copied stream URL: ${station.name}` : `Stream URL: ${sanitizeTerminalText(safeUrl) ?? ''}`);
     },
     [providers]
   );
@@ -1269,9 +1320,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           updateSettings({volume: player.getState().volume});
         }
         showControlResult(result);
-      });
+      }).catch(reportActionError);
     },
-    [player, showControlResult, updateSettings]
+    [player, reportActionError, showControlResult, updateSettings]
   );
 
   const adjustVolume = useCallback(
@@ -1283,18 +1334,18 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           updateSettings({volume: player.getState().volume});
         }
         showControlResult(result);
-      });
+      }).catch(reportActionError);
     },
-    [player, showControlResult, updateSettings]
+    [player, reportActionError, showControlResult, updateSettings]
   );
 
   const toggleMute = useCallback(() => {
-    void player.toggleMute().then(showControlResult);
-  }, [player, showControlResult]);
+    void player.toggleMute().then(showControlResult).catch(reportActionError);
+  }, [player, reportActionError, showControlResult]);
 
   const togglePause = useCallback(() => {
-    void player.togglePause().then(showControlResult);
-  }, [player, showControlResult]);
+    void player.togglePause().then(showControlResult).catch(reportActionError);
+  }, [player, reportActionError, showControlResult]);
 
   const showTransientMessage = useCallback((nextMessage: string) => {
     if (transientMessageTimerRef.current) {
@@ -1350,6 +1401,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [updateSettings]);
 
   const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
+    if (networkPolicy().offline) {
+      setMessage('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.');
+      return [];
+    }
     try {
       const devices = await player.refreshAirPlayDevices();
       setAvailableAirPlayDevices(devices);
@@ -1619,7 +1674,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
 
     const command = updateCommandForInstall();
-    const copied = copyToClipboard(command.command);
+    const copied = await copyToClipboard(command.command);
     const latestVersion = store.snapshot().updateCheck?.latestVersion ?? updateCheck?.latestVersion;
     const prefix = latestVersion ? `Latest v${latestVersion}. ` : '';
     const method = command.method === 'homebrew' ? 'Homebrew' : command.method === 'npm' ? 'npm' : 'your install method';
@@ -1682,6 +1737,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     loadCountry,
     openAirPlaySettings,
     openLibrary,
+    persistLibrary,
     player,
     playingStation,
     providers,
@@ -1766,7 +1822,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     if (command.type === 'resume') { const control = await player.resume(); return respond(control.message ?? 'Resumed.', control.ok); }
     if (command.type === 'stop') {
       tuneRequestRef.current += 1;
-      setLibrary(store.finishActiveListeningSession());
+      persistLibrary(() => store.finishActiveListeningSession());
       await player.stop();
       playingStationRef.current = null;
       setPlayingStation(null);
@@ -1776,7 +1832,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
     if (command.type === 'alarm-preempt') {
       tuneRequestRef.current += 1;
-      setLibrary(store.finishActiveListeningSession());
+      persistLibrary(() => store.finishActiveListeningSession());
       await player.stop();
       playingStationRef.current = null;
       setPlayingStation(null);
@@ -1798,10 +1854,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return respond(`${command.favorite ? 'Favorited' : 'Removed favorite'}: ${station.name}.`);
     }
     if (command.type === 'airplay-list') {
+      if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false, []);
       const devices = await refreshAirPlayTargets(false);
       return respond(devices.length ? `${devices.length} AirPlay receiver(s) found.` : 'No AirPlay receivers found.', true, devices);
     }
     if (command.type === 'airplay-select') {
+      if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false);
       const devices = await refreshAirPlayTargets(false);
       const device = devices.find(item => item.id === command.deviceId);
       if (!device) return respond('AirPlay receiver not found. Refresh and use an exact receiver ID.', false, devices);
@@ -1991,7 +2049,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const hasActiveMicroPlayback = Boolean(
     footerStation && (footerPlayback.state === 'playing' || footerPlayback.state === 'paused')
   );
-  const microFooter = footerMessage ?? message ?? (
+  const statusMessage = message ?? persistenceWarning ?? presenceWarning;
+  const microFooter = footerMessage ?? statusMessage ?? (
     pageFooterOwnsCompactRow
       ? pageFooter
       : footerPlayback.state === 'loading' && playbackFooter
@@ -2002,13 +2061,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   );
   const compactGlobalFooter = '←/→ tabs · ? help · q quit';
   const versionReserve = versionIndicatorWidth(installedVersion, library.updateCheck) + 2;
-  const fullStatusRows = fullStatusFooterRows(screen, message, footerMessage, playbackFooter);
+  const fullStatusRows = fullStatusFooterRows(screen, statusMessage, footerMessage, playbackFooter);
   const fullLegendRows = balancedFooterLegendRows(pageFooter, globalFooter, frameWidth, 2, versionReserve);
-  const compactStatus = footerMessage ?? message ?? playbackFooter;
+  const compactStatus = footerMessage ?? statusMessage ?? playbackFooter;
   const compactLegendRowCount = Math.max(1, layout.footerRows - (compactStatus ? 1 : 0));
   const compactLegendRows = balancedFooterLegendRows(pageFooter, compactGlobalFooter, frameWidth, compactLegendRowCount, versionReserve);
   const microLegendWidth = Math.max(1,frameWidth-versionReserve);
-  const microLegend = commandMode || capturingTransportAction || footerMessage || message
+  const microLegend = commandMode || capturingTransportAction || footerMessage || statusMessage
     ? microFooter
     : microShortcutFooterText(microFooter, microLegendWidth);
   const footerText = (value: string): string => displayMode.ascii ? toAsciiSafe(value) : value;
@@ -2018,7 +2077,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       screen={screen}
       playback={playback}
       receiverStyle={library.settings.receiverStyle}
-      reduceMotion={Boolean(library.settings.reduceMotion)}
+      reduceMotion={displayMode.reduceMotion}
     >
     <DisplayContext.Provider value={displayMode}>
     <Box
@@ -2090,10 +2149,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
           </>
         ) : (
           <>
-            {layout.mode === 'micro' ? <Box><Text color={commandMode || capturingTransportAction || footerMessage || message ? themeAccent(theme) : textMuted}>
+            {layout.mode === 'micro' ? <Box><Text color={commandMode || capturingTransportAction || footerMessage || statusMessage ? themeAccent(theme) : textMuted}>
               {footerText(truncate(microLegend, microLegendWidth))}
             </Text><Box flexGrow={1}/><VersionIndicator currentVersion={installedVersion} updateCheck={library.updateCheck} theme={theme}/></Box> : <>
-              {compactStatus ? <Text color={footerMessage || message ? themeAccent(theme) : textMuted}>{footerText(truncate(compactStatus, frameWidth))}</Text> : null}
+              {compactStatus ? <Text color={footerMessage || statusMessage ? themeAccent(theme) : textMuted}>{footerText(truncate(compactStatus, frameWidth))}</Text> : null}
               {compactLegendRows.map((row, index) => index===compactLegendRows.length-1?<Box key={`legend-${index}`}><Text color={textDim}>{footerText(row)}</Text><Box flexGrow={1}/><VersionIndicator currentVersion={installedVersion} updateCheck={library.updateCheck} theme={theme}/></Box>:<Text key={`legend-${index}`} color={index === 0 ? textMuted : textDim}>{footerText(row)}</Text>)}
             </>}
           </>

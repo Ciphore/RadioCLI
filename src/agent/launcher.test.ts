@@ -1,0 +1,44 @@
+import {EventEmitter} from 'node:events';
+import {spawn as nodeSpawn,type ChildProcess,type SpawnOptions} from 'node:child_process';
+import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
+import {launchRadioTui} from './launcher.js';
+
+vi.mock('node:child_process',async importOriginal=>({...await importOriginal<typeof import('node:child_process')>(),spawn:vi.fn()}));
+const calls:Array<{command:string;args:readonly string[];options?:SpawnOptions}>=[];
+const spawn=vi.fn((command:string,args:readonly string[],options?:SpawnOptions)=>{calls.push({command,args,options});const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();queueMicrotask(()=>{child.emit('spawn');child.emit('close',0);});return child;});
+beforeEach(()=>{calls.length=0;spawn.mockClear();vi.mocked(nodeSpawn).mockImplementation(spawn as unknown as typeof nodeSpawn);});
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllEnvs();});
+function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): {command: string; args: string[]} {
+  const encodedScript = args[args.indexOf('-EncodedCommand') + 1];
+  const script = Buffer.from(encodedScript!, 'base64').toString('utf16le');
+  const encoded = /FromBase64String\('([^']+)'\)/.exec(script)?.[1];
+  const key = /GetEnvironmentVariable\('([^']+)'/.exec(script)?.[1];
+  const source = encoded ? Buffer.from(encoded, 'base64').toString('utf8') : environment[key!];
+  expect(source).toBeDefined();
+  const invocation = JSON.parse(source!) as {command: string; args: string[]};
+  return invocation.args.includes('-EncodedCommand') ? nodeInvocation(invocation.args) : invocation;
+}
+
+describe('agent graphical launcher',()=>{
+  it.each(['win32:console','win32:windows-terminal'])('encodes hostile paths and the data home without cmd interpolation in %s',async terminal=>{
+    const home='C:\\Data %PATH%! & "quoted" \' 单播';const nodePath='C:\\Node %TEMP%! & 单播\\node.exe';const cliPath='C:\\Radio %PATH%! & 单播\\cli.js';
+    await launchRadioTui(nodePath,cliPath,'encoded-agent-command',{platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:terminal,RADIOCLI_HOME:home},spawn,resolve:command=>command});
+    const call=calls[0]!;expect(call.command).not.toBe('cmd.exe');const encoded=call.args[call.args.indexOf('-EncodedCommand')+1];expect(call.args).toContain('-EncodedCommand');
+    const script=Buffer.from(encoded!,'base64').toString('utf16le');
+    const invocation=nodeInvocation(call.args,call.options?.env);expect(invocation.command).toBe(nodePath);
+    const payload=JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8'));
+    expect(payload).toEqual({args:[cliPath,'agent-ui','encoded-agent-command'],environment:{RADIOCLI_HOME:home}});expect(script).not.toContain(home);expect(script).not.toContain(cliPath);
+  });
+
+  it('surfaces an immediate native launcher failure after spawn',async()=>{
+    const launch=vi.fn(()=>{const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();queueMicrotask(()=>{child.emit('spawn');child.emit('close',1);});return child;});vi.mocked(nodeSpawn).mockImplementation(launch as typeof nodeSpawn);
+    await expect(launchRadioTui('/node','/cli.js','encoded',{platform:'darwin',env:{RADIOCLI_ALARM_TERMINAL:'darwin:apple-terminal'},spawn:launch,resolve:command=>command})).rejects.toThrow(/terminal.*exit|launcher.*exit/i);
+  });
+
+  it('does not launch a graphical terminal in a headless Unix session',async()=>{await expect(launchRadioTui('/node','/cli.js','encoded',{platform:'linux',env:{RADIOCLI_ALARM_TERMINAL:'linux:/usr/bin/kitty'},spawn,resolve:command=>command})).rejects.toThrow(/graphical|display|headless/i);expect(spawn).not.toHaveBeenCalled();});
+  it.each(['freebsd','openbsd','netbsd'] as const)('requests the same agent session command in a supported %s desktop',async platform=>{
+    await launchRadioTui('/node','/cli.js','encoded',{platform,env:{DISPLAY:':0',TERMINAL:'xterm'},spawn,resolve:command=>command==='xterm'?'/usr/local/bin/xterm':undefined});
+    expect(calls[0]!.command).toBe('/usr/local/bin/xterm');expect(calls[0]!.args.slice(0,3)).toEqual(['-e','/node','-e']);
+    expect(JSON.parse(Buffer.from(calls[0]!.args.at(-1)!,'base64url').toString('utf8'))).toEqual({args:['/cli.js','agent-ui','encoded'],environment:{}});
+  });
+});

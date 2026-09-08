@@ -1,16 +1,16 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {existsSync, unlinkSync} from 'node:fs';
-import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import type {AirPlayDevice, AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
 import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
-import {resolveCommand} from './command.js';
+import {resolveCommand} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 import {encodeWorkerStart, parseWorkerMessage, serializeWorkerMessage, type AirPlayWorkerCommand, type AirPlayWorkerEvent} from './airplay-worker-protocol.js';
 import {safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {MpvIpcClient} from './mpv-ipc-client.js';
+import {mpvIpcPath} from '../platform/ipc.js';
 
 export type PlayerEvent = (state: PlaybackState) => void;
 export type MetadataEvent = (metadata: IcyNowPlaying) => void;
@@ -443,7 +443,7 @@ export class PlayerController {
   }
 
   private playWithMpv(url: string, initialTitle: string): void {
-    this.ipcPath = createMpvIpcPath();
+    this.ipcPath = mpvIpcPath();
     this.mpvIpcClient = new MpvIpcClient(this.ipcPath);
     this.mpvSessionId += 1;
     this.confirmedMpvVolume = clampVolume(this.getSettings().volume);
@@ -1038,18 +1038,6 @@ export class PlayerController {
       listener(state);
     }
   }
-}
-
-export function createMpvIpcPath(
-  platform: NodeJS.Platform = process.platform,
-  pid = process.pid,
-  timestamp = Date.now()
-): string {
-  if (platform === 'win32') {
-    return `\\\\.\\pipe\\radiocli-${pid}-${timestamp}`;
-  }
-
-  return join(tmpdir(), `radiocli-${pid}-${timestamp}.sock`);
 }
 
 function airPlayWorkerPath(): string {

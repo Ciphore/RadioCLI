@@ -37,6 +37,59 @@ describe('alarm runner',()=>{
 
   it('keeps playing when automatic terminal controls cannot open',async()=>{const record=vi.fn();const d=deps({openControls:vi.fn(async()=>{throw new Error('no terminal');}),health:{record} as never});expect((await runAlarm('a',scheduledAt,d)).status).toBe('dismissed');await Promise.resolve();expect(record).toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false,message:expect.stringMatching(/controls could not open.*no terminal/i)}));});
 
+  it.each([
+    'Requested RadioCLI alarm controls; TUI startup is unverified.',
+    'Requested RadioCLI alarm controls, but the TUI did not become ready before verification timed out.'
+  ])('preserves an unsuccessful controls result while playback continues: %s',async message=>{
+    const record=vi.fn();const update=vi.fn();
+    const d=deps({createSession:vi.fn(async()=>({update,close:vi.fn(async()=>{})})),openControls:vi.fn(async()=>({opened:false,requested:true,terminal:'darwin:apple-terminal',message})),health:{record} as never});
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('played');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({state:'playing'}));expect(d.wait).toHaveBeenCalledWith(60_000);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({alarmId:'a',occurrenceAt:'2030-01-01T08:00:00.000Z',component:'runner',healthy:false,message:expect.stringContaining(message)}));
+  });
+
+  it.each([
+    {opened:false,terminal:'existing-tui',message:'An existing RadioCLI TUI will show the ringing controls.'},
+    {opened:true,requested:true,terminal:'darwin:apple-terminal',message:'RadioCLI alarm controls are ready in the saved terminal.'}
+  ])('keeps confirmed or existing controls healthy: $terminal',async result=>{
+    const record=vi.fn();const d=deps({openControls:vi.fn(async()=>result),health:{record} as never});
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('dismissed');
+    expect(record).not.toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false}));
+  });
+
+  it.each(['addRecent','startListeningSession','checkpointActiveListeningSession','finishActiveListeningSession'] as const)('continues published playback after optional %s history writes fail',async operation=>{
+    const base=deps();const events:string[]=[];const record=vi.fn();
+    const d=deps({
+      store:{...base.store,[operation]:vi.fn(()=>{throw new Error(`${operation}: EACCES`);})},
+      player:{...base.player,play:vi.fn(async()=>{events.push('play');}),stop:vi.fn(async()=>{events.push('stop');})},
+      createSession:vi.fn(async()=>({update:vi.fn(status=>{if(status.state==='playing')events.push('published');}),close:vi.fn(async()=>{})})),
+      wait:vi.fn(async()=>{events.push('wait');}),health:{record} as never
+    });
+    expect((await runAlarm('a',scheduledAt,d)).status).toBe('played');
+    expect(events).toEqual(['play','published','wait','stop']);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({alarmId:'a',occurrenceAt:'2030-01-01T08:00:00.000Z',component:'runner',healthy:false,message:expect.stringContaining(`${operation}: EACCES`)}));
+    expect(d.store.recordAlarmOutcome).toHaveBeenCalledWith('a',expect.objectContaining({status:'played'}),{clearNextOverride:true});
+    if(operation==='addRecent')expect(d.store.startListeningSession).toHaveBeenCalled();
+    if(operation==='startListeningSession'){expect(d.store.checkpointActiveListeningSession).not.toHaveBeenCalled();expect(d.store.finishActiveListeningSession).not.toHaveBeenCalled();}
+    if(operation==='checkpointActiveListeningSession')expect(d.store.finishActiveListeningSession).toHaveBeenCalled();
+  });
+
+  it.each(['recordAlarmOutcome','toggleAlarm'] as const)('reports required %s persistence failures separately from optional history',async operation=>{
+    const base=deps();const record=vi.fn();const d=deps({store:{...base.store,[operation]:vi.fn(()=>{throw new Error(`${operation}: EACCES`);})},health:{record} as never});
+    await runAlarm('a',scheduledAt,d);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({component:'runner',healthy:false,active:false,message:expect.stringMatching(new RegExp(`alarm.*sav.*${operation}: EACCES`,'i'))}));
+    if(operation==='recordAlarmOutcome')expect(d.store.toggleAlarm).not.toHaveBeenCalled();
+  });
+
+  it('retains an unverified controls warning when optional history finalization also fails',async()=>{
+    const base=deps();const record=vi.fn();const message='Requested controls; TUI startup is unverified.';
+    const d=deps({store:{...base.store,finishActiveListeningSession:vi.fn(()=>{throw new Error('history EACCES');})},openControls:vi.fn(async()=>({opened:false,requested:true,terminal:'darwin:apple-terminal',message})),health:{record} as never});
+    await runAlarm('a',scheduledAt,d);
+    const lastRunnerEntry=record.mock.calls.map(([entry])=>entry).filter(entry=>entry.component==='runner').at(-1);
+    expect(lastRunnerEntry).toMatchObject({healthy:false,message:expect.stringContaining(message)});
+    expect(lastRunnerEntry.message).toContain('history EACCES');
+  });
+
   it('retries primary once then uses only the explicit fallback',async()=>{
     const play=vi.fn().mockRejectedValueOnce(new Error('bad')).mockRejectedValueOnce(new Error('bad')).mockResolvedValue(undefined);
     const d=deps({player:{play,stop:vi.fn(async()=>{}),setVolume:vi.fn(async()=>({ok:true})),getState:vi.fn(()=>({backend:'mpv'}))}});
@@ -76,6 +129,25 @@ describe('alarm runner',()=>{
 
   it('does not disable a valid one-time alarm when launched early',async()=>{const d=deps({now:()=>new Date('2030-01-01T07:59:00Z')});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('failed');expect(d.store.toggleAlarm).not.toHaveBeenCalled();});
 
+  it('does not complete a future native occurrence after an early invocation',async()=>{const completeOccurrence=vi.fn(async()=>{});const d=deps({now:()=>new Date('2030-01-01T07:59:00Z'),scheduler:{sync:vi.fn(async()=>null),completeOccurrence}});await runAlarm('a',scheduledAt,d);expect(completeOccurrence).not.toHaveBeenCalled();});
+
+  it.each([['early','2030-01-01T08:10:00Z'],['stale','2030-01-01T08:00:00Z']] as const)('preserves a future snooze override after an ignored %s invocation',async(_kind,invocation)=>{const snoozed={...alarm,nextOverride:{at:'2030-01-01T08:10:00Z',reason:'snooze' as const,createdAt:'2030-01-01T08:00:00Z'}};const d=deps({now:()=>new Date('2030-01-01T08:05:00Z'),store:{...deps().store,getAlarm:vi.fn(()=>snoozed)}});await runAlarm('a',invocation,d);expect(d.store.recordAlarmOutcome).toHaveBeenCalledWith('a',expect.any(Object),{clearNextOverride:false});expect(d.player.play).not.toHaveBeenCalled();});
+
+  it('allows the real occurrence to run after an early native dispatch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-early-occurrence-'));
+    try {
+      let current = new Date('2030-01-01T07:59:00Z');
+      const d = deps({now: () => current, acquireLock: (id, at) => acquireOccurrenceLock(id, at, root)});
+      expect((await runAlarm('a', scheduledAt, d)).status).toBe('failed');
+      expect(d.player.play).not.toHaveBeenCalled();
+      current = new Date('2030-01-01T08:00:00Z');
+      expect((await runAlarm('a', scheduledAt, d)).duplicate).not.toBe(true);
+      expect(d.player.play).toHaveBeenCalledOnce();
+      expect((await runAlarm('a', scheduledAt, d)).duplicate).toBe(true);
+      expect(d.player.play).toHaveBeenCalledOnce();
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
+
   it('records a valid but overdue occurrence as missed and disables one-time alarms',async()=>{const d=deps({now:()=>new Date('2030-01-01T08:20:00Z')});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('missed');expect(d.store.toggleAlarm).toHaveBeenCalledWith('a',false);});
 
   it('records normal stop-after completion as played',async()=>{const d=deps({createSession:vi.fn(async()=>({update:vi.fn(),close:vi.fn(async()=>{})}))});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(d.store.toggleAlarm).toHaveBeenCalledWith('a',false);});
@@ -94,7 +166,31 @@ describe('alarm runner',()=>{
 
   it('reconciles the next daily occurrence before keep-playing can run indefinitely',async()=>{const recurring:Alarm={...alarm,schedule:{type:'recurring',time:'08:00',weekdays:[1,2,3,4,5,6,7],timezone:'UTC'}};let signal:()=>void=()=>{};const sync=vi.fn(async()=>null);const d=deps({store:{...deps().store,getAlarm:vi.fn(()=>recurring)},scheduler:{sync},createSession:vi.fn(async(_status,handlers)=>{handlers.onKeepPlaying();return{update:vi.fn(),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{})),subscribeSignals:handler=>{signal=handler;return vi.fn();}});const running=runAlarm('a',scheduledAt,d);for(let attempt=0;attempt<10&&sync.mock.calls.length===0;attempt+=1)await Promise.resolve();expect(sync).toHaveBeenCalledWith(recurring);signal();await running;});
 
-  it('hands playback to the interactive player without restoring the alarm output level',async()=>{const release=vi.fn(async()=>{});const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(status,handlers)=>{expect(status.station).toEqual(station);return{update:vi.fn(change=>{if(change.state==='playing')queueMicrotask(()=>handlers.onHandoff?.());}),close:vi.fn(async()=>{})};})});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(result.message).toContain('Handed off');expect(release).not.toHaveBeenCalled();expect(d.player.stop).toHaveBeenCalled();});
+  it('hands playback to the interactive player and releases shared ownership while preserving output',async()=>{const release=vi.fn(async()=>{});const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(status,handlers)=>{expect(status.station).toEqual(station);return{update:vi.fn(change=>{if(change.state==='playing')queueMicrotask(()=>handlers.onHandoff?.());}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{}))});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('played');expect(result.message).toContain('Handed off');expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});expect(d.player.stop).toHaveBeenCalled();});
+
+  it('does not accept a handoff if preserving shared output ownership fails',async()=>{
+    let handlers:Parameters<AlarmRunnerDeps['createSession']>[1]|undefined;
+    let playing:()=>void=()=>{};const started=new Promise<void>(resolve=>{playing=resolve;});
+    const release=vi.fn().mockRejectedValueOnce(new Error('ownership disk full')).mockResolvedValue(undefined);
+    const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(_status,value)=>{handlers=value;return{update:vi.fn(change=>{if(change.state==='playing')playing();}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>new Promise<never>(()=>{}))});
+    const running=runAlarm('a',scheduledAt,d);await started;
+    await expect(Promise.resolve().then(()=>handlers!.onHandoff!())).rejects.toThrow('ownership disk full');
+    await handlers!.onDismiss();expect((await running).status).toBe('dismissed');
+    expect(release).toHaveBeenNthCalledWith(1,{preserve:true});expect(release).toHaveBeenNthCalledWith(2);
+  });
+
+  it('waits for an in-progress handoff before timeout cleanup can restore shared output',async()=>{
+    let handlers:Parameters<AlarmRunnerDeps['createSession']>[1]|undefined;
+    let playing:()=>void=()=>{};const started=new Promise<void>(resolve=>{playing=resolve;});
+    let preserved:()=>void=()=>{};const preserving=new Promise<void>(resolve=>{preserved=resolve;});
+    let timedOut:()=>void=()=>{};const timeout=new Promise<void>(resolve=>{timedOut=resolve;});
+    const release=vi.fn(async(options?:{preserve?:boolean})=>{if(options?.preserve)await preserving;});
+    const d=deps({systemVolume:{acquireMinimum:vi.fn(async()=>({message:'raised',release}))},createSession:vi.fn(async(_status,value)=>{handlers=value;return{update:vi.fn(change=>{if(change.state==='playing')playing();}),close:vi.fn(async()=>{})};}),wait:vi.fn(()=>timeout)});
+    const running=runAlarm('a',scheduledAt,d);await started;const handoff=handlers!.onHandoff!();timedOut();
+    try{for(let turn=0;turn<20;turn+=1)await Promise.resolve();expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});}
+    finally{preserved();await handoff;await running;}
+    expect(release).toHaveBeenCalledExactlyOnceWith({preserve:true});
+  });
 
   it('claims the alarm before resolving and preempts interactive playback before raising output or tuning',async()=>{const events:string[]=[];const base=deps();const d=deps({providers:{resolve:vi.fn(async()=>{events.push('resolve');return{url:'https://main'};})},preemptInteractivePlayback:vi.fn(async()=>{events.push('preempt');}),systemVolume:{acquireMinimum:vi.fn(async()=>{events.push('system-volume');return{message:'raised',release:vi.fn(async()=>{})};})},player:{...base.player,play:vi.fn(async()=>{events.push('play');})},createSession:vi.fn(async(status,handlers)=>{events.push(`claim-${status.state}`);return{update:vi.fn(change=>{events.push(`update-${change.state}`);queueMicrotask(()=>handlers.onDismiss());}),close:vi.fn(async()=>{})};})});await runAlarm('a',scheduledAt,d);expect(events).toEqual(['claim-starting','resolve','preempt','system-volume','play','update-playing']);});
 

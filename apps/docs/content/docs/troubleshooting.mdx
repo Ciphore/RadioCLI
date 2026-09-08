@@ -1,0 +1,194 @@
+---
+title: Troubleshooting
+description: Diagnose playback tools, terminal rendering, local storage, and optional desktop integrations.
+---
+
+Start with the report for the feature that is failing:
+
+```bash
+radiocli doctor
+radiocli doctor --json
+radiocli check
+radiocli alarm doctor
+```
+
+`doctor` reports local playback tools and individual platform capabilities.
+`check` adds provider health and the library path. `alarm doctor` reports native
+scheduling and recorded delivery health. An available player does not establish that a
+desktop session, system mixer, or scheduler is usable. See
+[Platforms](/docs/platforms) for runtime requirements and verified coverage.
+
+## Playback Tool Installed But Not Found
+
+`radiocli doctor` prints the resolved `mpv` path, discovery method, version, and
+launch result. RadioCLI checks `PATH`, known package-manager locations, and
+supported application directories. An executable found outside `PATH` can be
+used directly.
+
+For a custom installation, set an absolute path to the native executable:
+
+| Variable | Tool |
+| --- | --- |
+| `RADIOCLI_MPV_PATH` | `mpv` |
+| `RADIOCLI_FFPLAY_PATH` | `ffplay` |
+| `RADIOCLI_VLC_PATH` | `vlc` or `cvlc` |
+| `RADIOCLI_FFMPEG_PATH` | FFmpeg, including the decoder used for macOS AirPlay |
+
+The value is a file path, with no command arguments. Windows overrides must
+point to a native `.exe` or `.com` file; `.cmd` and `.bat` wrappers are not player
+executables. A configured path that is invalid or cannot run is reported instead
+of silently selecting another installation of that tool. Correct or remove the
+override, then run Doctor again.
+
+Replace the example path with your installed executable. In a POSIX shell:
+
+```bash
+RADIOCLI_MPV_PATH="/path with spaces/mpv" radiocli doctor
+```
+
+In PowerShell:
+
+```powershell
+$env:RADIOCLI_MPV_PATH = 'C:\path with spaces\mpv.exe'
+radiocli doctor
+```
+
+If no player is installed, use `radiocli setup --dry-run` to inspect the proposed
+installation, or follow [Install](getting-started/install.mdx). `ffplay` and VLC
+provide fallback playback, but pause, mute, interactive volume, metadata, and
+play/pause media keys require `mpv`.
+
+On minimal NetBSD installations, the packaged mpv also needs the matching OS
+X11 base set. Missing libraries under `/usr/X11R7/lib` can make the package
+installation fail or prevent the executable from starting, even with null audio
+and video. Install the matching distribution set through NetBSD's OS tools,
+then retry the player package and `mpv --version` before checking RadioCLI.
+
+## Missing Glyphs, Incorrect Colors, Or Too Much Motion
+
+Use **Settings → Appearance** or the command palette:
+
+```text
+:ascii on
+:background on
+:motion on
+```
+
+ASCII mode replaces decorative glyphs while preserving station names and
+metadata. Transparent Background removes the panel fill. Reduce Motion freezes
+receiver and loading animations and stops scrolling long labels.
+
+For a single launch, use `RADIOCLI_ASCII=1`, `NO_COLOR=1`, or
+`RADIOCLI_DISABLE_ANIMATION=1`. Any non-empty `NO_COLOR` value removes colors and
+fills, even when `FORCE_COLOR` is set. Sixteen-color terminals automatically
+keep their own background.
+
+If ASCII appeared unexpectedly, check `LC_ALL`, `LC_CTYPE`, and `LANG`, in that
+order. The first non-empty value determines the locale check: bare `C` and
+`POSIX` select ASCII decoration, while UTF-8 locales retain Unicode. An explicit
+`RADIOCLI_ASCII=1` also selects ASCII; `RADIOCLI_UNICODE=1` restores Unicode when
+ASCII is not explicitly enabled and the terminal is not `dumb`. SSH alone does
+not select ASCII or reduced motion.
+
+Set `RADIOCLI_SCREEN_READER=1` or `INK_SCREEN_READER=true` for screen-reader
+output. Receiver visualizers, mouse reporting, and scrolling labels are
+disabled; keyboard navigation and commands remain available. All
+environment overrides leave your saved appearance settings intact. See
+[TUI Controls](getting-started/tui-controls.mdx) for the complete list.
+
+## TUI Input Or Desktop Actions Are Unavailable
+
+Open `radiocli` from a terminal with interactive keyboard input. `TERM=dumb`
+uses static frames with ASCII decoration and no color or animation. The TUI
+still needs interactive stdin. Use command mode for redirected input or scripts:
+
+```bash
+radiocli doctor --json
+radiocli search "jazz"
+radiocli alarm list --json
+```
+
+Browser opening, clipboard access, and opening another terminal also depend on
+the current desktop session. On Linux, clipboard integration needs a working
+Wayland or X11 session and an available helper such as `wl-copy`, `xclip`, or
+`xsel`. When automatic copying is unavailable, RadioCLI displays the stream URL
+for manual copying. Keyboard navigation remains available without mouse support.
+
+For agent playback on a machine without a usable graphical terminal, explicitly
+choose headless mode with `radiocli setup --mcp --headless-agent`. See
+[CLI Usage](getting-started/cli.mdx) for agent controls.
+
+## Offline Directories, Proxies, And IPv6
+
+Check the network policy in `radiocli doctor --json`. `RADIOCLI_OFFLINE=1`
+blocks RadioCLI's public directory, location, vote, update, and receiver-discovery
+requests. Previously cached directories and saved or imported direct station
+URLs remain usable. A cache miss stays a cache miss until you run online again;
+offline mode does not download stations or audio in the background.
+
+`RADIOCLI_LOW_BANDWIDTH=1` uses the cached geotagged atlas and skips automatic
+receiver discovery. Smaller searches and manual requests remain available.
+Both settings leave the external player's networking separate: tuning a live
+stream still needs a working route to that station.
+
+For public HTTP(S) proxies, use a compatible Node release and set
+`NODE_USE_ENV_PROXY=1` before starting RadioCLI, together with `HTTP_PROXY` or
+`HTTPS_PROXY` and any required `NO_PROXY` exceptions. Node 22 needs 22.21 or newer
+for this public-fetch route; Node 24 also provides it. A missing startup opt-in,
+invalid proxy URL, SOCKS proxy, or `ALL_PROXY`-only configuration produces a
+diagnostic. Correct that configuration before retrying. The setting does not
+configure mpv or another player's proxy behavior. See
+[Network requests](reliability.mdx#network-requests).
+
+Authenticated local controls bind to `127.0.0.1`, falling back to `::1` when
+IPv4 loopback is unavailable, and bypass public proxy settings. Public directory
+and media connectivity still depend on each endpoint's addresses and the host's
+DNS and routing. A successful local IPv6 control check does not establish public
+IPv6 reachability. Diagnose the provider request and the external player's
+stream connection separately; neither requires exposing local control to the LAN.
+
+## Library Is Read-Only Or Cannot Be Saved
+
+A readable library remains usable for browsing and playback. If a history write
+fails, the TUI shows **Library not saved** and continues tuning, navigation,
+stop, and quit. Failed writes do not become saved listening history, and
+explicit favorite, setting, or alarm saves report their failure.
+
+Use the library path from `radiocli check` to inspect the file and its parent
+directory. Atomic saves need write access to both. Check filesystem permissions,
+Windows ACLs, or a read-only mount as appropriate. Windows ACLs are not configured
+by POSIX `chmod` modes.
+
+You can set `RADIOCLI_HOME` to a private writable directory. This selects a
+separate data location; it does not move the existing library automatically.
+Preserve your existing data before changing locations, and restart RadioCLI
+after correcting the path or permissions.
+
+## Optional Native Features Need Attention
+
+- **macOS:** terminal reopening through Apple Terminal or iTerm2 may need
+  Automation consent from the launching app. Experimental AirPlay also needs
+  Bonjour, FFmpeg, a usable sender, and an explicitly selected receiver. Local
+  playback remains a separate output option.
+- **Windows:** scheduled alarms use Task Scheduler with the interactive user
+  token. A requested `WakeToRun` setting still depends on hardware and power
+  policy. Use native Windows RadioCLI for Windows agent and terminal setup;
+  WSL has a separate Linux environment. The PowerShell console, system-volume,
+  and sleep-inhibitor adapters require permitted .NET/native interop; constrained
+  PowerShell policy can prevent those optional operations.
+- **Linux:** background alarms require an accessible systemd user manager.
+  A machine without that session can still use normal playback when its player
+  and audio device are available. A found `systemctl` executable alone does not
+  establish working user scheduling.
+
+Use **Verify alarm setup** in the Alarms screen to check registration, terminal
+delivery, sleep protection, system volume, and bounded sample playback on the
+current machine. Player volume and system output volume are separate: when a
+system mixer cannot be controlled, set the output device volume manually.
+macOS and Linux do not request privileged exact-wake events. Alarm Guard holds
+off idle sleep only while its inhibitor is alive.
+
+Follow the [Alarms guide](alarms.mdx) and
+[Reliability](reliability.mdx) for repair steps and wake limitations. Optional
+feature failures are reported individually; the platform name alone does not
+guarantee their availability.

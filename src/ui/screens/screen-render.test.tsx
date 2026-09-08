@@ -1,6 +1,6 @@
 import {act} from 'react';
-import {render} from 'ink-testing-library';
-import {afterEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, render as inkRender} from 'ink-testing-library';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {AppSettings, LibraryState, PlaybackDiagnostics, PlaybackState, Station, TrackPlay} from '../../types.js';
 import {DisplayContext, resolveDisplayMode} from '../display-context.js';
 import {HelpScreen} from './HelpScreen.js';
@@ -15,6 +15,26 @@ import {homeItems, settingsGroups, settingsItems, settingsRootItems} from '../sc
 import {defaultExploreCursor} from '../app-state.js';
 import {StationList} from '../components/StationList.js';
 import {displayWidth} from '../format.js';
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // Ink's fixture supplies 100 columns but no rows. Keep its 24-row fallback
+  // deterministic without asking the host terminal through commands like tput.
+  vi.stubEnv('COLUMNS', '100');
+  vi.stubEnv('LINES', '24');
+});
+afterEach(() => {
+  act(() => cleanup());
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+function render(tree: Parameters<typeof inkRender>[0]): ReturnType<typeof inkRender> {
+  let view!: ReturnType<typeof inkRender>;
+  act(() => { view = inkRender(tree); });
+  return view;
+}
 
 const station: Station = {
   id: 'station-1',
@@ -100,8 +120,6 @@ const library: LibraryState = {
 };
 
 describe('HomeScreen rendering', () => {
-  afterEach(() => vi.useRealTimers());
-
   it('does not repeat playback status already shown in the app header', () => {
     const frame = render(<HomeScreen selected={0} theme="green" library={library} />).lastFrame() ?? '';
 
@@ -120,8 +138,6 @@ describe('HomeScreen rendering', () => {
 });
 
 describe('StationList rendering', () => {
-  afterEach(() => vi.useRealTimers());
-
   it('replaces standard metadata with selected-station tags on the same row', () => {
     const frame = render(
       <StationList
@@ -411,8 +427,6 @@ describe('Explore world map rendering', () => {
 });
 
 describe('CountriesScreen rendering', () => {
-  afterEach(() => vi.useRealTimers());
-
   it('marquees a focused long name while keeping the row to one terminal line', async () => {
     vi.useFakeTimers();
     const view = render(

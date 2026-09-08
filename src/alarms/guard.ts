@@ -2,15 +2,17 @@ import {spawn as nodeSpawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {createServer,request} from 'node:http';
-import {dirname, join} from 'node:path';
+import {basename, dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import type {Alarm} from '../types.js';
 import {AlarmPowerGuardStore} from './power-guard-store.js';
 import type {PowerInhibitor} from './inhibitor.js';
 import {nextOccurrenceForAlarm} from './schedule.js';
 import {defaultAlarmRuntimeDirectory} from './runner.js';
+import {isLoopbackHost, listenLoopback, type LoopbackHost} from '../platform/loopback.js';
+import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 
-type GuardPid = {alarmId: string; occurrenceAt: string; pid: number; port: number; token: string};
+type GuardPid = {alarmId: string; occurrenceAt: string; pid: number; host?: LoopbackHost; port: number; token: string};
 export type GuardSpawn = (command: string, args: string[], env: NodeJS.ProcessEnv) => {pid?: number; unref(): void};
 type GuardVerifier=(guard:GuardPid)=>Promise<boolean>;
 type GuardStopper=(guard:GuardPid)=>Promise<boolean>;
@@ -41,6 +43,7 @@ export class AlarmGuardService {
     // A recurring alarm may have been edited/rescheduled while its old guard is
     // alive. Stop that exact process tree before replacing its occurrence state.
     await this.stopOwned(alarm.id);
+    if (this.hasOwnershipRecords(alarm.id)) throw new Error('Previous Alarm Guard ownership is unresolved; retain the alarm for repair before starting another guard.');
     this.store.request(alarm.id, occurrenceAt);
     const token=randomBytes(32).toString('hex');
     const child = this.spawn(
@@ -75,17 +78,20 @@ export class AlarmGuardService {
   async stop(alarmId?: string): Promise<boolean> {
     if(alarmId)return this.withOwnership(alarmId,()=>this.stopOwned(alarmId));
     const ids=[...new Set(this.pidFiles().map(readPid).filter((item):item is GuardPid=>Boolean(item)).map(item=>item.alarmId))];
-    const results=await Promise.all(ids.map(id=>this.withOwnership(id,()=>this.stopOwned(id))));return results.every(Boolean);
+    const results=await Promise.all(ids.map(id=>this.withOwnership(id,()=>this.stopOwned(id))));return results.every(Boolean)&&!this.hasOwnershipRecords();
   }
   private async stopOwned(alarmId?:string):Promise<boolean>{
     const targets = this.pidFiles()
-      .map(readPid)
-      .filter((item): item is GuardPid => Boolean(item))
-      .filter(item => !alarmId || item.alarmId === alarmId);
+      .map(path => ({path, owner: readPid(path)}))
+      .filter((item): item is {path: string; owner: GuardPid} => Boolean(item.owner))
+      .filter(item => !alarmId || item.owner.alarmId === alarmId);
     if (!targets.length) return false;
-    for (const current of targets) {
-      const path = this.path(current.alarmId, current.occurrenceAt);
-      if(!(await this.verify(current))){rmSync(path,{force:true});markIfCurrent(this.store,current,'Guard ownership challenge failed; the PID was not signaled.');continue;}
+    for (const {path, owner: current} of targets) {
+      if (!(await this.verify(current))) {
+        if (!isAlive(current.pid)) rmSync(path, {force: true});
+        markIfCurrent(this.store, current, 'Guard ownership challenge failed; the PID was not signaled.');
+        continue;
+      }
       if(!(await this.requestStop(current))){markIfCurrent(this.store,current,'Guard rejected its authenticated stop request; the PID was not signaled.');continue;}
       for(let attempt=0;attempt<20&&isAlive(current.pid);attempt+=1)await delay(50);
       if(isAlive(current.pid)&&await this.verify(current))await terminateGuardTree(current.pid);
@@ -100,17 +106,28 @@ export class AlarmGuardService {
         this.store.markReleased(current.alarmId, new Date(), current.occurrenceAt);
       }
     }
-    return targets.every(item => !isAlive(item.pid));
+    return !this.hasOwnershipRecords(alarmId);
   }
 
   async status() {
     const guards=[] as Array<{active:true;alarmId:string;occurrenceAt:string;pid:number}>;
+    const unresolvedGuards=[] as Array<{alarmId?:string;occurrenceAt?:string;pid?:number;message:string}>;
     for(const path of this.pidFiles()){
       const pid = readPid(path);
-      if (!pid) continue;
+      if (!pid) {
+        const alarmId=alarmIdFromPath(path);
+        unresolvedGuards.push({...(alarmId?{alarmId}:{}),message:'Guard ownership metadata cannot be read; its record was retained for repair.'});
+        continue;
+      }
       if (!(await this.verify(pid))) {
-        rmSync(path, {force: true});
-        markIfCurrent(this.store, pid, 'The guard process exited unexpectedly.');
+        if (isAlive(pid.pid)) {
+          const message='Guard ownership cannot be verified; its record was retained and the PID was not signaled.';
+          unresolvedGuards.push({alarmId:pid.alarmId,occurrenceAt:pid.occurrenceAt,pid:pid.pid,message});
+          markIfCurrent(this.store,pid,message);
+        } else {
+          rmSync(path, {force: true});
+          markIfCurrent(this.store, pid, 'The guard process exited unexpectedly.');
+        }
         continue;
       }
       guards.push({active:true,alarmId:pid.alarmId,occurrenceAt:pid.occurrenceAt,pid:pid.pid});
@@ -118,7 +135,10 @@ export class AlarmGuardService {
     return {
       active: guards.length > 0,
       guards,
-      message: guards.length ? `${guards.length} alarm guard${guards.length === 1 ? ' is' : 's are'} active.` : 'No alarm guard is active.'
+      unresolvedGuards,
+      message: unresolvedGuards.length
+        ? `${guards.length} alarm guards verified active; ${unresolvedGuards.length} ownership records require repair.`
+        : guards.length ? `${guards.length} alarm guard${guards.length === 1 ? ' is' : 's are'} active.` : 'No alarm guard is active.'
     };
   }
 
@@ -129,6 +149,13 @@ export class AlarmGuardService {
   private pidFiles(): string[] {
     if (!existsSync(this.directory)) return [];
     return readdirSync(this.directory).filter(name => name.endsWith('.json')).map(name => join(this.directory, name));
+  }
+  private hasOwnershipRecords(alarmId?:string):boolean {
+    return this.pidFiles().some(path=>{
+      const ownerId=readPid(path)?.alarmId??alarmIdFromPath(path);
+      // Unknown records require global repair, but cannot identify this alarm.
+      return !alarmId||ownerId===alarmId;
+    });
   }
   private async withOwnership<T>(alarmId:string,work:()=>Promise<T>):Promise<T>{const lock=join(this.directory,`.lock-${Buffer.from(alarmId).toString('base64url')}`);mkdirSync(this.directory,{recursive:true,mode:0o700});const deadline=Date.now()+3000;while(true){try{mkdirSync(lock,{mode:0o700});writeFileSync(join(lock,'created'),String(Date.now()),{mode:0o600});break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;let stale=false;try{const created=Number(readFileSync(join(lock,'created'),'utf8'));stale=Number.isFinite(created)?Date.now()-created>10_000:Date.now()-statSync(lock).mtimeMs>10_000;}catch{try{stale=Date.now()-statSync(lock).mtimeMs>10_000;}catch{}}if(stale){rmSync(lock,{recursive:true,force:true});continue;}if(Date.now()>deadline)throw new Error('Alarm Guard ownership is busy.');await delay(20);}}try{return await work();}finally{rmSync(lock,{recursive:true,force:true});}}
 }
@@ -200,41 +227,56 @@ function readPid(path: string): GuardPid | undefined {
   if (!existsSync(path)) return undefined;
   try {
     const value = JSON.parse(readFileSync(path, 'utf8')) as GuardPid;
-    if (!Number.isInteger(value.pid) || !Number.isInteger(value.port)||value.port<1||value.port>65535||!value.alarmId || !/^[a-f0-9]{64}$/.test(value.token)||!/(?:Z|[+-]\d{2}:\d{2})$/.test(value.occurrenceAt) || !Number.isFinite(Date.parse(value.occurrenceAt))) throw new Error();
+    if (!Number.isInteger(value.pid) || value.pid<1 || !Number.isInteger(value.port)||value.port<1||value.port>65535||typeof value.alarmId!=='string'||!value.alarmId || (value.host!==undefined&&!isLoopbackHost(value.host)) || !/^[a-f0-9]{64}$/.test(value.token)||!/(?:Z|[+-]\d{2}:\d{2})$/.test(value.occurrenceAt) || !Number.isFinite(Date.parse(value.occurrenceAt))) throw new Error();
     return value;
   } catch {
     return undefined;
   }
+}
+function alarmIdFromPath(path:string):string|undefined {
+  const name=basename(path,'.json');const decoded=Buffer.from(name,'base64url').toString();
+  if(Buffer.from(decoded).toString('base64url')!==name)return undefined;
+  const separator=decoded.indexOf('\0');
+  return separator>0?decoded.slice(0,separator):undefined;
 }
 function writePrivate(path: string, value: GuardPid): void {
   mkdirSync(dirname(path), {recursive: true, mode: 0o700});
   const temp=`${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   writeFileSync(temp, JSON.stringify(value), {mode: 0o600});
   renameSync(temp,path);
-  if (process.platform !== 'win32') chmodSync(path, 0o600);
+  if (nativeAdapters().posixPermissions) chmodSync(path, 0o600);
 }
 function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
 function ownsArtifact(path: string, token: string): boolean {
   return readPid(path)?.token === token;
 }
-async function startGuardControl(path:string,token:string,alarmId:string,occurrenceAt:string,onStop:()=>void){const server=createServer((req,res)=>{if(req.headers.authorization!==`Bearer ${token}`){res.statusCode=401;res.end('{}');return;}if(req.method==='POST'&&req.url==='/stop'){onStop();res.end('{}');return;}if(req.method!=='GET'||req.url!=='/challenge'){res.statusCode=404;res.end('{}');return;}res.setHeader('content-type','application/json');res.end(JSON.stringify({alarmId,occurrenceAt,pid:process.pid}));});await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const address=server.address();if(!address||typeof address==='string'){server.close();throw new Error('Unable to create Guard ownership endpoint.');}writePrivate(path,{alarmId,occurrenceAt,pid:process.pid,port:address.port,token});return{close:()=>new Promise<void>(resolve=>server.close(()=>resolve()))};}
+async function startGuardControl(path:string,token:string,alarmId:string,occurrenceAt:string,onStop:()=>void){
+  const server=createServer((req,res)=>{if(req.headers.authorization!==`Bearer ${token}`){res.statusCode=401;res.end('{}');return;}if(req.method==='POST'&&req.url==='/stop'){onStop();res.end('{}');return;}if(req.method!=='GET'||req.url!=='/challenge'){res.statusCode=404;res.end('{}');return;}res.setHeader('content-type','application/json');res.end(JSON.stringify({alarmId,occurrenceAt,pid:process.pid}));});
+  const close=()=>new Promise<void>(resolve=>server.close(()=>resolve()));
+  try {
+    const {host,port}=await listenLoopback(server);
+    writePrivate(path,{alarmId,occurrenceAt,pid:process.pid,host,port,token});
+    return {close};
+  } catch(error) { await close();throw error; }
+}
 function challengeGuard(guard:GuardPid):Promise<boolean>{return callGuard(guard,'GET','/challenge',true);}
 function requestGuardStop(guard:GuardPid):Promise<boolean>{return callGuard(guard,'POST','/stop',false);}
-function callGuard(guard:GuardPid,method:string,path:string,validateIdentity:boolean):Promise<boolean>{return new Promise(resolve=>{const req=request({host:'127.0.0.1',port:guard.port,path,method,headers:{authorization:`Bearer ${guard.token}`}},res=>{let body='';res.on('data',value=>body+=String(value));res.on('end',()=>{if(!validateIdentity){resolve(res.statusCode===200);return;}try{const reply=JSON.parse(body) as {alarmId?:string;occurrenceAt?:string;pid?:number};resolve(res.statusCode===200&&reply.alarmId===guard.alarmId&&reply.occurrenceAt===guard.occurrenceAt&&reply.pid===guard.pid);}catch{resolve(false);}});});req.once('error',()=>resolve(false));req.setTimeout(500,()=>req.destroy());req.end();});}
+function callGuard(guard:GuardPid,method:string,path:string,validateIdentity:boolean):Promise<boolean>{return new Promise(resolve=>{const req=request({host:guard.host??'127.0.0.1',port:guard.port,path,method,agent:false,headers:{authorization:`Bearer ${guard.token}`}},res=>{let body='';res.on('data',value=>body+=String(value));res.on('end',()=>{if(!validateIdentity){resolve(res.statusCode===200);return;}try{const reply=JSON.parse(body) as {alarmId?:string;occurrenceAt?:string;pid?:number};resolve(res.statusCode===200&&reply.alarmId===guard.alarmId&&reply.occurrenceAt===guard.occurrenceAt&&reply.pid===guard.pid);}catch{resolve(false);}});});req.once('error',()=>resolve(false));req.setTimeout(500,()=>req.destroy());req.end();});}
 export type GuardProcessOps={platform:NodeJS.Platform;isAlive(pid:number):boolean;kill(pid:number,signal:NodeJS.Signals):void;taskkill(pid:number,force:boolean):Promise<void>;wait(milliseconds:number):Promise<void>};
 export async function terminateGuardTree(pid: number,ops:GuardProcessOps={platform:process.platform,isAlive,kill:(target,signal)=>process.kill(target,signal),taskkill:taskkillTree,wait:delay}): Promise<void> {
+  const windows=nativeAdapters(identifyPlatform({platform:ops.platform})).ipc==='named-pipe';
   // Kill the entire detached tree first on Windows so a dying parent cannot
   // orphan its PowerShell execution-state helper.
-  if (ops.platform === 'win32') {
+  if (windows) {
     await ops.taskkill(pid, false);
   } else {
     try { ops.kill(pid, 'SIGTERM'); } catch { return; }
   }
   for (let index = 0; index < 20 && ops.isAlive(pid); index += 1) await ops.wait(50);
   if (!ops.isAlive(pid)) return;
-  if (ops.platform === 'win32') await ops.taskkill(pid, true);
+  if (windows) await ops.taskkill(pid, true);
   else {
     // The guard is a detached process-group leader; force-killing the negative
     // PID guarantees its inhibitor helper cannot survive an unresponsive parent.

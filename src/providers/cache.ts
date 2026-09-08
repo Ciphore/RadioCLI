@@ -1,6 +1,6 @@
 import {chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {homedir} from 'node:os';
+import {platformPaths} from '../platform/paths.js';
 import {join} from 'node:path';
 
 type CacheEnvelope = {
@@ -116,37 +116,8 @@ export class ProviderCache {
 }
 
 function defaultProviderCachePath(): string {
-  if (process.env.RADIOCLI_HOME) {
-    return join(process.env.RADIOCLI_HOME, 'radiocli-cache.json');
-  }
-
-  if (process.env.RADIO_ATLAS_HOME) {
-    return join(process.env.RADIO_ATLAS_HOME, 'radio-atlas-cache.json');
-  }
-
-  const currentPath = currentDefaultProviderCachePath();
-  const legacyPath = legacyDefaultProviderCachePath();
-  return existsSync(currentPath) || !existsSync(legacyPath) ? currentPath : legacyPath;
-}
-
-function currentDefaultProviderCachePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Caches', 'radiocli', 'radiocli-cache.json');
-  }
-
-  if (process.platform === 'win32') {
-    return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'RadioCLI', 'radiocli-cache.json');
-  }
-
-  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'radiocli', 'radiocli-cache.json');
-}
-
-function legacyDefaultProviderCachePath(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'radio-atlas', 'radio-atlas-cache.json');
-  }
-
-  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'radio-atlas', 'radio-atlas-cache.json');
+  const {cache, legacyCache} = platformPaths();
+  return existsSync(cache) || !existsSync(legacyCache) ? cache : legacyCache;
 }
 
 function writeJsonAtomically(filePath: string, value: unknown): void {
@@ -163,7 +134,7 @@ function writeJsonAtomically(filePath: string, value: unknown): void {
   }
 }
 
-export function backupBadFile(filePath: string): void {
+function backupBadFile(filePath: string): void {
   if (!existsSync(filePath)) {
     return;
   }

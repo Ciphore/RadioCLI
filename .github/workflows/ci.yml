@@ -10,6 +10,13 @@ concurrency:
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      experimental_bsd:
+        description: Run experimental packed-runtime checks in BSD guest VMs
+        type: boolean
+        default: false
+  schedule:
+    - cron: '37 7 * * 1'
   push:
     branches:
       - master
@@ -18,6 +25,7 @@ on:
 jobs:
   verify:
     name: Verify
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -25,6 +33,33 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [22.x, 24.x]
+        # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+        # Keep the original six jobs, then add the missing CPU architectures.
+        include:
+          - os: ubuntu-latest
+            architecture: x64
+          - os: macos-latest
+            architecture: arm64
+          - os: windows-latest
+            architecture: x64
+          - os: ubuntu-24.04-arm
+            node-version: 22.x
+            architecture: arm64
+          - os: ubuntu-24.04-arm
+            node-version: 24.x
+            architecture: arm64
+          - os: windows-11-arm
+            node-version: 22.x
+            architecture: arm64
+          - os: windows-11-arm
+            node-version: 24.x
+            architecture: arm64
+          - os: macos-15-intel
+            node-version: 22.x
+            architecture: x64
+          - os: macos-15-intel
+            node-version: 24.x
+            architecture: x64
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -33,7 +68,13 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
+          architecture: ${{ matrix.architecture }}
           cache: npm
+
+      - name: Verify native runtime identity
+        env:
+          RADIOCLI_EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: node --input-type=module -e "import assert from 'node:assert/strict'; import os from 'node:os'; assert.equal(process.arch, process.env.RADIOCLI_EXPECTED_ARCH); console.log(JSON.stringify({method:'GitHub-hosted native OS/CPU VM',platform:process.platform,architecture:process.arch,kernel:os.release(),node:process.version}));"
 
       - name: Install
         run: npm ci
@@ -50,6 +91,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: Package smoke harness tests
+        run: node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs
+
       - name: Build
         run: npm run build
 
@@ -63,22 +107,49 @@ jobs:
         run: npm run check:package
 
       - name: Data smoke
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: npm run smoke:data
 
+      - name: Install native Linux playback fixture
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mpv
+
+      - name: Install pinned native macOS or Windows playback fixture
+        if: runner.os != 'Linux'
+        env:
+          RADIOCLI_SMOKE_EVIDENCE_DIR: packed-evidence
+        run: node scripts/install-smoke-mpv.mjs
+
       - name: Fresh install smoke
-        if: github.event_name != 'pull_request'
-        run: npm run fresh:check
+        env:
+          RADIOCLI_EXPECTED_ARCH: ${{ matrix.architecture }}
+          RADIOCLI_SMOKE_EXECUTION_METHOD: GitHub-hosted native OS/CPU VM (${{ matrix.os }})
+          RADIOCLI_SMOKE_EVIDENCE_DIR: packed-evidence
+        run: npm run fresh:check -- --require-mpv
+
+      - name: Preserve packed runtime evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: packed-${{ matrix.os }}-${{ matrix.node-version }}
+          path: packed-evidence/*.json
+          if-no-files-found: warn
 
   playback-smoke:
     name: Playback Smoke
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    if: github.event_name != 'schedule'
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
         node-version: [22.x, 24.x]
+        include:
+          - os: ubuntu-latest
+            architecture: x64
+          - os: ubuntu-24.04-arm
+            architecture: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -87,6 +158,7 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
+          architecture: ${{ matrix.architecture }}
           cache: npm
 
       - name: Install system playback backend
@@ -96,10 +168,12 @@ jobs:
         run: npm ci
 
       - name: Playback smoke
+        # Packed normal/omit-optional installs for this OS/CPU/Node matrix run in verify.
         run: npm run smoke:playback
 
   docs:
     name: Docs
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -131,3 +205,141 @@ jobs:
       - name: Build
         working-directory: apps/docs
         run: npm run build
+
+  # Experimental jobs run in full guest kernels, not Linux containers. They are
+  # opt-in/weekly and do not establish maintained or audible-playback support.
+  # VM action source is pinned; upstream release assets/images are maintained
+  # separately by vmactions. The selected guest versions and actual runtimes are logged.
+  experimental-package:
+    name: Build experimental portability artifact
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.experimental_bsd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup build Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install build dependencies
+        run: npm ci --omit=optional
+
+      - name: Build the npm artifact for guest installation
+        run: |
+          mkdir -p portability-artifact
+          npm pack --pack-destination portability-artifact
+          cp scripts/packed-smoke.mjs portability-artifact/
+          sha256sum portability-artifact/*.tgz
+
+      - name: Preserve the built package and standalone harness
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portability-package
+          path: portability-artifact/
+          if-no-files-found: error
+
+  experimental-freebsd:
+    name: Experimental FreeBSD 14.4 x64 guest / Node 22
+    needs: experimental-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Download the Linux-built npm package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: portability-package
+          path: portability-artifact
+
+      - name: Install and exercise JavaScript in FreeBSD
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
+        with:
+          release: '14.4'
+          arch: x86_64
+          copyback: false
+          prepare: pkg install -y node22 npm-node22 mpv
+          run: |
+            set -eu
+            uname -a
+            node --version
+            npm --version
+            cd portability-artifact
+            set -- ./*.tgz
+            test "$#" -eq 1
+            node packed-smoke.mjs "$1" --omit-optional --require-mpv --execution-method 'QEMU FreeBSD 14.4 x86_64 guest kernel; null audio'
+
+  experimental-openbsd:
+    name: Experimental OpenBSD 7.9 x64 guest / packaged Node
+    needs: experimental-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Download the Linux-built npm package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: portability-package
+          path: portability-artifact
+
+      - name: Install and exercise JavaScript in OpenBSD
+        uses: vmactions/openbsd-vm@86cdc08415d9d0865267e686561e276c52d62530 # v1.4.7
+        with:
+          release: '7.9'
+          arch: x86_64
+          copyback: false
+          prepare: pkg_add -I node mpv
+          run: |
+            set -eu
+            uname -a
+            node --version
+            npm --version
+            cd portability-artifact
+            set -- ./*.tgz
+            test "$#" -eq 1
+            node packed-smoke.mjs "$1" --omit-optional --require-mpv --execution-method 'QEMU OpenBSD 7.9 x86_64 guest kernel; null audio'
+
+  experimental-netbsd:
+    name: Experimental NetBSD 10.1 x64 guest / Node 22
+    needs: experimental-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Download the Linux-built npm package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: portability-package
+          path: portability-artifact
+
+      - name: Install and exercise JavaScript in NetBSD
+        uses: vmactions/netbsd-vm@7f23a491dcc69c34195721ab67934917707f84c7 # v1.4.9
+        with:
+          release: '10.1'
+          arch: x86_64
+          copyback: false
+          prepare: |
+            set -eu
+            export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            # The minimal guest omits X11 libraries required by pkgsrc mpv,
+            # even for null audio/video. Install the matching official OS set.
+            # Digest: NetBSD-10.1/amd64/binary/sets/SHA512 on cdn.NetBSD.org.
+            radiocli_xbase=$(mktemp /tmp/radiocli-xbase.XXXXXX)
+            trap 'rm -f "$radiocli_xbase"' EXIT
+            ftp -q 60 -o "$radiocli_xbase" https://cdn.NetBSD.org/pub/NetBSD/NetBSD-10.1/amd64/binary/sets/xbase.tar.xz
+            test "$(cksum -a SHA512 -q "$radiocli_xbase")" = b6ac2195f91d7ae395ec2734c9ae2a4727014629fbdc94562531225e0d51e3b2705047e8440fcf75e1dacdcecb3cb980df7a82f838c12ad5274ba8ce95e49b72
+            tar -xpf "$radiocli_xbase" -C /
+            /usr/sbin/pkg_add pkgin
+            pkgin -y update
+            pkgin -y install 'nodejs>=22<23' mpv
+            mpv --version
+          run: |
+            set -eu
+            export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            uname -a
+            node --version
+            npm --version
+            cd portability-artifact
+            set -- ./*.tgz
+            test "$#" -eq 1
+            node packed-smoke.mjs "$1" --omit-optional --require-mpv --execution-method 'QEMU NetBSD 10.1 x86_64 guest kernel; null audio'

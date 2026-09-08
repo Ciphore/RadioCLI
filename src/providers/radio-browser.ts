@@ -3,6 +3,7 @@ import type {Country, LocationGuess, ResolvedStream, SearchOptions, Station} fro
 import {ProviderCache} from './cache.js';
 import {userAgent} from '../version.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
+import {networkPolicy, withExternalResponse} from '../platform/network.js';
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -260,35 +261,26 @@ export class RadioBrowserProvider {
   }
 
   async detectLocation(): Promise<LocationGuess | null> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch('https://ipapi.co/json/', {
-        signal: controller.signal,
-        headers: {'User-Agent': userAgent()}
+      return await withExternalResponse('https://ipapi.co/json/', {
+        timeoutMs: 5000,
+        init: {headers: {'User-Agent': userAgent()}}
+      }, async response => {
+        if (!response.ok) return null;
+        const parsed = locationSchema.parse(await response.json());
+        if (typeof parsed.latitude !== 'number' || typeof parsed.longitude !== 'number') return null;
+        return {
+          city: parsed.city,
+          region: parsed.region,
+          country: parsed.country_name,
+          countryCode: parsed.country_code,
+          latitude: parsed.latitude,
+          longitude: parsed.longitude,
+          source: 'ipapi.co'
+        };
       });
-      if (!response.ok) {
-        return null;
-      }
-
-      const parsed = locationSchema.parse(await response.json());
-      if (typeof parsed.latitude !== 'number' || typeof parsed.longitude !== 'number') {
-        return null;
-      }
-
-      return {
-        city: parsed.city,
-        region: parsed.region,
-        country: parsed.country_name,
-        countryCode: parsed.country_code,
-        latitude: parsed.latitude,
-        longitude: parsed.longitude,
-        source: 'ipapi.co'
-      };
     } catch {
       return null;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -351,7 +343,8 @@ export class RadioBrowserProvider {
       {
         maxAgeMs: geoAtlasMaxAgeMs,
         timeoutMs: geoAtlasTotalTimeoutMs,
-        attemptTimeoutMs: geoAtlasAttemptTimeoutMs
+        attemptTimeoutMs: geoAtlasAttemptTimeoutMs,
+        cacheOnly: networkPolicy().lowBandwidth
       }
     );
 
@@ -361,7 +354,7 @@ export class RadioBrowserProvider {
   private async request<T>(
     path: string,
     params: Record<string, string> = {},
-    options: {maxAgeMs?: number; timeoutMs?: number; attemptTimeoutMs?: number} = {}
+    options: {maxAgeMs?: number; timeoutMs?: number; attemptTimeoutMs?: number; cacheOnly?: boolean} = {}
   ): Promise<T> {
     const cacheKey = buildCacheKey(path, params);
     if (options.maxAgeMs) {
@@ -369,6 +362,15 @@ export class RadioBrowserProvider {
       if (cached) {
         return cached;
       }
+    }
+
+    const policy = networkPolicy();
+    if (policy.offline || options.cacheOnly) {
+      const stale = options.maxAgeMs ? this.cache.getStale<T>(cacheKey) : null;
+      if (stale !== null) return stale;
+      throw new ProviderUnavailableError(policy.offline
+        ? `${this.label} is offline: no cached response is available.`
+        : `${this.label} is in low-bandwidth mode: no cached atlas is available. Disable RADIOCLI_LOW_BANDWIDTH to download it.`);
     }
 
     let lastError: Error | null = null;
@@ -454,25 +456,20 @@ function buildCacheKey(path: string, params: Record<string, string>): string {
 }
 
 async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+  return withExternalResponse(url, {
+    timeoutMs,
+    init: {
       headers: {
         'User-Agent': userAgent(' (+https://radio-browser.info)'),
         Accept: 'application/json'
       }
-    });
+    }
+  }, async response => {
     if (!response.ok) {
       throw new Error(`Radio Browser request failed: ${response.status} ${response.statusText}`);
     }
-
-    // Keep the abort timer alive while consuming the body as well as headers.
     return (await response.json()) as T;
-  } finally {
-    clearTimeout(timeout);
-  }
+  });
 }
 
 export function dedupeStations(stations: Station[]): Station[] {

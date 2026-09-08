@@ -7,6 +7,10 @@ import {isDirectRun, runCommand} from './cli.js';
 import {detectPlaybackBackends} from './player/backend-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
+import * as platformPaths from './platform/paths.js';
+import * as schedulers from './alarms/scheduler.js';
+import * as support from './platform/support.js';
+import {identifyPlatform} from './platform/runtime.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -92,6 +96,8 @@ describe('CLI command dispatch', () => {
       backends: string[];
       commands: Record<string, string | null>;
       mpv: {path: string | null; discovery: string; launchable: boolean};
+      host: {id: string; arch: string};
+      capabilities: Record<string, {status: string; message: string}>;
       guidance: string[];
     };
     expect(report.radioCliVersion).toMatch(/^\d+\.\d+\.\d+/);
@@ -100,7 +106,94 @@ describe('CLI command dispatch', () => {
     expect(report.commands).toHaveProperty('mpv');
     expect(report.mpv).toMatchObject({discovery: expect.any(String), launchable: expect.any(Boolean)});
     expect(report.guidance).toContain('playback=missing');
+    expect(report.host).toMatchObject({id: expect.any(String), arch: process.arch});
+    expect(report.capabilities.playback?.status).toBe('unavailable');
+    expect(report.capabilities.storage?.status).toBe('available');
+    expect(report.capabilities).toHaveProperty('backgroundScheduling');
+    expect(report.capabilities).toHaveProperty('terminalReopening');
+    expect(report.capabilities).toHaveProperty('screenReader');
+    expect(JSON.stringify(report)).not.toContain(radioCliHome);
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('diagnoses an inaccessible data destination without creating or replacing it', async () => {
+    const blockedHome = join(radioCliHome, 'not-a-directory');
+    writeFileSync(blockedHome, 'preserve me');
+    process.env.RADIOCLI_HOME = blockedHome;
+    await runCommand(['doctor', '--json']);
+    const report = JSON.parse(logs.join('\n'));
+    expect(report.capabilities.storage.status).toBe('unavailable');
+    expect(report.capabilities.atomicWrites.status).toBe('unavailable');
+    expect(report.capabilities.storage.message).toContain('RADIOCLI_HOME');
+    expect(JSON.stringify(report)).not.toContain(blockedHome);
+    expect(readFileSync(blockedHome, 'utf8')).toBe('preserve me');
+  });
+
+  it('checks the selected legacy library location without migrating data during doctor', async () => {
+    const paths = platformPaths.platformPaths();
+    const spy = vi.spyOn(platformPaths, 'platformPaths').mockReturnValue({...paths, library: join(radioCliHome, 'absent.json'), legacyLibrary: radioCliHome});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.capabilities.storage.status).toBe('unavailable');
+      expect(existsSync(join(radioCliHome, 'absent.json'))).toBe(false);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('reports an inaccessible user scheduler while preserving unrelated diagnostics', async () => {
+    const adapter = schedulers.createSchedulerAdapter();
+    const spy = vi.spyOn(schedulers, 'createSchedulerAdapter').mockReturnValue({...adapter,
+      probeCapabilities: async () => ({supported: false, message: 'No active systemd user manager.', catchUpAfterWake: false, exactWake: false})});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.capabilities.backgroundScheduling).toMatchObject({status: 'unavailable', message: 'No active systemd user manager.'});
+      expect(report.capabilities.storage.status).toBe('available');
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('reports offline and constrained-terminal policy without writing state', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    vi.stubEnv('TERM', 'dumb');
+    vi.stubEnv('FORCE_COLOR', '3');
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.network).toMatchObject({status: 'offline', offline: true});
+      expect(report.terminal).toMatchObject({unicode: false, colorLevel: 0, reduceMotion: true, interactive: false});
+      expect(report.capabilities.unicode.status).toBe('unavailable');
+      expect(report.capabilities.color.status).toBe('unavailable');
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally {vi.unstubAllEnvs();}
+  });
+
+  it('keeps doctor usable if an optional scheduler probe fails', async () => {
+    const adapter = schedulers.createSchedulerAdapter();
+    const spy = vi.spyOn(schedulers, 'createSchedulerAdapter').mockReturnValue({...adapter,
+      probeCapabilities: async () => { throw new Error('probe failed'); }});
+    try {
+      await runCommand(['doctor', '--json']);
+      expect(JSON.parse(logs.join('\n')).capabilities.backgroundScheduling.status).toBe('unavailable');
+    } finally { spy.mockRestore(); }
+  });
+
+  it.each(['first-class', 'supported', 'experimental', 'unsupported'] as const)('preserves the %s support assessment in JSON and text doctor output', async tier => {
+    const assessment = support.assessPlatformSupport(identifyPlatform());
+    const spy = vi.spyOn(support, 'assessPlatformSupport').mockReturnValue({...assessment, tier});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.support.tier).toBe(tier);
+      expect(report.support.scope).toBe('current-installation');
+      expect(report.support.evidence).toEqual(assessment.evidence);
+      expect(report.backends).toEqual([]);
+      logs.length = 0;
+      await runCommand(['doctor']);
+      expect(logs.join('\n')).toContain(`support_tier=${tier}`);
+      expect(logs.join('\n')).toContain('support_scope=current-installation');
+      expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+    } finally {spy.mockRestore();}
   });
 
   it('rejects unknown commands with the help hint', async () => {
