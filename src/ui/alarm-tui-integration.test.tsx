@@ -25,6 +25,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // ink-testing-library sets columns but omits rows. Give Ink's fallback the
+  // fixture size so every layout avoids host terminal commands such as tput.
+  vi.stubEnv('COLUMNS', '100');
+  vi.stubEnv('LINES', '24');
   const testHome = mkdtempSync(join(tmpdir(), 'radiocli-alarm-tui-home-'));
   directories.push(testHome);
   vi.stubEnv('RADIOCLI_HOME', testHome);

@@ -1,7 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {basename,join,posix} from 'node:path';
 import {createPowerInhibitor} from './inhibitor.js';
 
 describe('power inhibitor', () => {
@@ -27,5 +26,13 @@ describe('power inhibitor', () => {
 
   it.each(['freebsd','openbsd','netbsd','android','haiku','sunos','aix'] as const)('reports unavailable sleep protection on %s without spawning a surrogate',async platform=>{const spawn=vi.fn();const inhibitor=createPowerInhibitor({platform,spawn,commandExists:()=>true});expect(inhibitor.status()).toMatchObject({supported:false,active:false});await expect(inhibitor.acquire('Alarm')).rejects.toThrow(/unsupported/i);expect(spawn).not.toHaveBeenCalled();});
 
-  it('spawns the executable resolved from the supplied PATH',async()=>{const root=mkdtempSync(join(tmpdir(),'radiocli-inhibitor-path-'));try{const command=join(root,'systemd-inhibit');writeFileSync(command,'#!/bin/sh\nexit 0\n',{mode:0o700});let exit:()=>void=()=>{};const exited=new Promise<void>(resolve=>{exit=resolve;});const spawn=vi.fn(()=>({pid:42,kill:()=>{exit();return true;},exited}));const inhibitor=createPowerInhibitor({platform:'linux',env:{PATH:root},spawn});const lease=await inhibitor.acquire('Alarm');expect(spawn).toHaveBeenCalledWith(command,expect.any(Array));await lease.release();}finally{rmSync(root,{recursive:true,force:true});}});
+  it('spawns the executable resolved from the supplied PATH',async()=>{
+    // Keep the injected POSIX PATH free of Windows drive-letter delimiters.
+    const root=mkdtempSync(join(process.cwd(),'.radiocli-inhibitor-path-'));
+    try{
+      writeFileSync(join(root,'systemd-inhibit'),'#!/bin/sh\nexit 0\n',{mode:0o700});let exit:()=>void=()=>{};const exited=new Promise<void>(resolve=>{exit=resolve;});const spawn=vi.fn(()=>({pid:42,kill:()=>{exit();return true;},exited}));
+      const pathEntry=basename(root);const inhibitor=createPowerInhibitor({platform:'linux',env:{PATH:pathEntry},spawn});const lease=await inhibitor.acquire('Alarm');
+      expect(spawn).toHaveBeenCalledWith(posix.join(pathEntry,'systemd-inhibit'),expect.any(Array));await lease.release();
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
 });

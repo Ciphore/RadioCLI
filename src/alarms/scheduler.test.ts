@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
 import {existsSync,mkdirSync,mkdtempSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {dirname,join} from 'node:path';
+import {basename,dirname,join} from 'node:path';
 import type {Alarm} from '../types.js';
 import {createSchedulerAdapter, SchedulerService,shouldRunLaunchdOccurrence,type SchedulerAdapter} from './scheduler.js';
 
@@ -174,11 +174,13 @@ describe('native alarm schedulers', () => {
   });
 
   it('uses the injected executable environment for scheduler discovery', () => {
-    const root = mkdtempSync(join(tmpdir(), 'radiocli-scheduler-path-'));
+    // A relative PATH entry also represents a POSIX search path when this
+    // injected Linux case runs on Windows, whose drive prefix contains ':'.
+    const root = mkdtempSync(join(process.cwd(), '.radiocli-scheduler-path-'));
     vi.stubEnv('PATH', '/missing-radiocli-executables');
     try {
       writeFileSync(join(root, 'systemctl'), '#!/bin/sh\nexit 0\n', {mode: 0o755});
-      const adapter = createSchedulerAdapter({platform: 'linux', env: {PATH: root}, home: root, writeFile: vi.fn(), removeFile: vi.fn(), run: vi.fn()});
+      const adapter = createSchedulerAdapter({platform: 'linux', env: {PATH: basename(root)}, home: root, writeFile: vi.fn(), removeFile: vi.fn(), run: vi.fn()});
       expect(adapter.capabilities().supported).toBe(true);
     } finally { vi.unstubAllEnvs(); rmSync(root, {recursive: true, force: true}); }
   });
