@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {ProviderManager} from './providers/provider-manager.js';
 import {PlayerController} from './player/player-controller.js';
-import {JsonLibraryStore} from './storage/store.js';
+import {defaultLibraryPath, JsonLibraryStore} from './storage/store.js';
 import {parsePlaylistFile, stationFromUrl, writeM3u} from './playlists/playlist.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {resolveCommand} from './player/command.js';
@@ -23,7 +23,6 @@ import {identifyPlatform} from './platform/runtime.js';
 import {platformCapabilities} from './platform/capabilities.js';
 import {hasGraphicalSession} from './platform/desktop.js';
 import {detectPackageManager} from './platform/packages.js';
-import {platformPaths} from './platform/paths.js';
 import {storageReadiness} from './platform/storage.js';
 
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
@@ -303,7 +302,7 @@ function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
     commands: integrationCommands,
     graphicalSession: hasGraphicalSession(host),
     packageManager: detectPackageManager(process.platform, host.osRelease),
-    storageWritable: storageReadiness(platformPaths().library).status === 'available'
+    storageWritable: libraryWritesAvailable()
   });
   return {
     radioCliVersion: appVersion(),
@@ -325,6 +324,11 @@ function doctorReport(backends: string[], mpvDiagnostic: CommandDiagnostic) {
     },
     guidance: playbackBackendStatusLines(backends)
   };
+}
+
+function libraryWritesAvailable(): boolean {
+  try { return storageReadiness(defaultLibraryPath()).status === 'available'; }
+  catch { return false; }
 }
 
 function printMpvDiagnostic(diagnostic: CommandDiagnostic): void {

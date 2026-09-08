@@ -283,7 +283,7 @@ export class JsonLibraryStore {
   private readonly now: () => Date;
 
   constructor(
-    filePath = defaultStorePath(),
+    filePath = defaultLibraryPath(),
     options: {idGenerator?: () => string; now?: () => Date} = {}
   ) {
     this.filePath = filePath;
@@ -713,7 +713,7 @@ function recoverActiveListeningSessionInState(state: LibraryState): LibraryState
   return finishActiveListeningSessionInState(state, new Date(recoveredEnd));
 }
 
-function defaultStorePath(): string {
+export function defaultLibraryPath(): string {
   const {library, legacyLibrary} = platformPaths();
   for (const filePath of [library, legacyLibrary]) {
     try {

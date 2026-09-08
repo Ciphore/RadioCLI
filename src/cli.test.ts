@@ -7,6 +7,7 @@ import {isDirectRun, runCommand} from './cli.js';
 import {detectPlaybackBackends} from './player/backend-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
+import * as platformPaths from './platform/paths.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -123,6 +124,17 @@ describe('CLI command dispatch', () => {
     expect(report.capabilities.storage.message).toContain('RADIOCLI_HOME');
     expect(JSON.stringify(report)).not.toContain(blockedHome);
     expect(readFileSync(blockedHome, 'utf8')).toBe('preserve me');
+  });
+
+  it('checks the selected legacy library location without migrating data during doctor', async () => {
+    const paths = platformPaths.platformPaths();
+    const spy = vi.spyOn(platformPaths, 'platformPaths').mockReturnValue({...paths, library: join(radioCliHome, 'absent.json'), legacyLibrary: radioCliHome});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.capabilities.storage.status).toBe('unavailable');
+      expect(existsSync(join(radioCliHome, 'absent.json'))).toBe(false);
+    } finally { spy.mockRestore(); }
   });
 
   it('rejects unknown commands with the help hint', async () => {

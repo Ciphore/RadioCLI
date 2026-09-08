@@ -1,17 +1,19 @@
 import {act} from 'react';
-import {mkdtempSync, rmSync} from 'node:fs';
+import {chmodSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render as inkRender} from 'ink-testing-library';
 import {ProviderManager} from '../providers/provider-manager.js';
+import {PlayerController} from '../player/player-controller.js';
 import * as backendInstall from '../player/backend-install.js';
 import * as airplayDiscovery from '../player/airplay-discovery.js';
 import * as updates from '../update-check.js';
 import * as session from '../agent/session.js';
 import * as presence from '../alarms/tui-presence.js';
+import * as systemActions from './system-actions.js';
 import {JsonLibraryStore} from '../storage/store.js';
-import type {Alarm, Station} from '../types.js';
+import type {Alarm, IcyNowPlaying, PlaybackState, Station} from '../types.js';
 import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
 import {App} from './App.js';
 
@@ -86,6 +88,256 @@ async function settle(elapsed = 0): Promise<void> {
   });
 }
 async function moveDown(app: ReturnType<typeof render>, count: number): Promise<void> { for (let index = 0; index < count; index += 1) app.stdin.write('\u001B[B'); await settle(); }
+
+function simulatedPlayer() {
+  let state: PlaybackState = {backend: 'mpv', state: 'idle', ready: false, volume: 70, muted: false};
+  const listeners = new Set<(state: PlaybackState) => void>();
+  const metadataListeners = new Set<(metadata: IcyNowPlaying) => void>();
+  const change = (next: Partial<PlaybackState>) => {
+    state = {...state, ...next};
+    for (const listener of listeners) listener({...state});
+  };
+  vi.spyOn(PlayerController.prototype, 'getState').mockImplementation(() => ({...state}));
+  vi.spyOn(PlayerController.prototype, 'onChange').mockImplementation(listener => {
+    listeners.add(listener);
+    listener({...state});
+    return () => { listeners.delete(listener); };
+  });
+  vi.spyOn(PlayerController.prototype, 'onMetadata').mockImplementation(listener => {
+    metadataListeners.add(listener);
+    return () => { metadataListeners.delete(listener); };
+  });
+  const play = vi.spyOn(PlayerController.prototype, 'play').mockImplementation(async (selected, url) => {
+    change({state: 'playing', ready: true, stationName: selected.name, streamUrl: url});
+  });
+  const stop = vi.spyOn(PlayerController.prototype, 'stop').mockImplementation(async () => {
+    change({state: 'idle', ready: false});
+  });
+  vi.spyOn(PlayerController.prototype, 'adjustVolume').mockImplementation(async delta => {
+    change({volume: state.volume + delta});
+    return {ok: true};
+  });
+  vi.spyOn(ProviderManager.prototype, 'resolve').mockImplementation(async selected => ({url: selected.streamUrl ?? 'https://example.test/live'}));
+  return {play, stop, state: () => state, metadata: (metadata: IcyNowPlaying) => {
+    for (const listener of metadataListeners) listener(metadata);
+  }};
+}
+
+async function tuneLibrary(app: ReturnType<typeof render>): Promise<void> {
+  app.stdin.write('2');
+  await settle();
+  app.stdin.write('\r');
+  await settle();
+}
+
+describe('Persistence failure boundaries', () => {
+  const failedSave = () => { throw new Error('Library is read-only. Set RADIOCLI_HOME to a writable directory.'); };
+  // Windows ACLs and a privileged POSIX user do not enforce this chmod fixture.
+  const nativePermissions = process.platform !== 'win32' && process.getuid?.() !== 0;
+
+  it.skipIf(!nativePermissions)('tunes and navigates with a readable read-only library without inventing saved history', async () => {
+    const {store, service} = fixture();
+    const player = simulatedPlayer();
+    const original = readFileSync(store.filePath, 'utf8');
+    chmodSync(store.filePath, 0o400);
+    try {
+      const app = render(<App store={new JsonLibraryStore(store.filePath)} alarmService={service} />);
+      await settle();
+      await tuneLibrary(app);
+      expect(player.play).toHaveBeenCalledOnce();
+      expect(player.state()).toMatchObject({state: 'playing', ready: true});
+      expect(app.lastFrame()).toContain('Library not saved');
+      expect(app.lastFrame()).not.toContain('Skipping');
+      expect(readFileSync(store.filePath, 'utf8')).toBe(original);
+      app.stdin.write('b');
+      await settle();
+      expect(app.lastFrame()).toContain('Overview');
+      app.stdin.write('q');
+      await settle();
+      expect(player.state().state).toBe('idle');
+      app.unmount();
+    } finally {
+      chmodSync(store.filePath, 0o600);
+    }
+  });
+
+  it.each([':stop\r', 'q'])('still stops playback through %j when the listening-history save fails', async input => {
+    const {store, service} = fixture();
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    vi.spyOn(store, 'finishActiveListeningSession').mockImplementation(failedSave);
+
+    app.stdin.write(input);
+    await settle();
+    expect(player.state().state).toBe('idle');
+    expect(player.stop).toHaveBeenCalledTimes(2);
+    app.unmount();
+  });
+
+  it('honors the sleep timer when the listening-history save fails', async () => {
+    const {store, service} = fixture();
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    vi.spyOn(store, 'finishActiveListeningSession').mockImplementation(failedSave);
+
+    app.stdin.write(':sleep 1\r');
+    await settle();
+    await settle(60_000);
+    expect(player.state().state).toBe('idle');
+    expect(app.lastFrame()).toContain('Library not saved');
+    app.unmount();
+  });
+
+  it.each(['stop', 'alarm-preempt'] as const)('honors agent %s when the listening-history save fails', async type => {
+    const {store, service} = fixture();
+    store.updateSettings({agentControl: {...store.snapshot().settings.agentControl!, enabled: true}});
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    vi.spyOn(store, 'finishActiveListeningSession').mockImplementation(failedSave);
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+
+    await act(async () => {
+      const result = await handle({type});
+      expect(result).toMatchObject({ok: true, status: {station: null, playback: {state: 'idle'}}});
+    });
+    expect(player.state().state).toBe('idle');
+    expect(app.lastFrame()).toContain('Library not saved');
+    app.unmount();
+  });
+
+  it('keeps successful search results usable when search history cannot be saved', async () => {
+    const {store, service} = fixture();
+    vi.spyOn(ProviderManager.prototype, 'search').mockResolvedValue([station]);
+    vi.spyOn(store, 'addSearch').mockImplementation(failedSave);
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    app.stdin.write(':search jazz\r');
+    await settle();
+    expect(app.lastFrame()).toContain('KEXP');
+    expect(app.lastFrame()).toContain('Library not saved');
+    expect(store.snapshot().searchHistory).toEqual([]);
+    app.unmount();
+  });
+
+  it.each(['metadata', 'checkpoint'] as const)('reports failed %s persistence while keeping playback active', async source => {
+    const {store, service} = fixture();
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    const before = store.snapshot();
+    if (source === 'metadata') {
+      vi.spyOn(store, 'recordTrack').mockImplementation(failedSave);
+      act(() => player.metadata({title: 'A song', raw: '', updatedAt: new Date().toISOString()}));
+      await settle();
+    } else {
+      vi.spyOn(store, 'checkpointActiveListeningSession').mockImplementation(failedSave);
+      await settle(30_000);
+    }
+    expect(app.lastFrame()).toContain('Library not saved');
+    expect(player.state().state).toBe('playing');
+    expect(store.snapshot()).toEqual(before);
+    app.unmount();
+  });
+
+  it('reports update-check persistence failure without rejecting the background check', async () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
+    const {store, service} = fixture();
+    vi.spyOn(store, 'updateCheckState').mockImplementation(failedSave);
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    expect(updates.checkForUpdate).toHaveBeenCalledOnce();
+    expect(app.lastFrame()).toContain('Library not saved');
+    expect(store.snapshot().updateCheck).toBeUndefined();
+    app.unmount();
+  });
+
+  it('reports a rejected background update check', async () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
+    const {store, service} = fixture();
+    vi.mocked(updates.checkForUpdate).mockRejectedValueOnce(new Error('Update service unavailable.'));
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    expect(app.lastFrame()).toContain('Update service unavailable.');
+    app.unmount();
+  });
+
+  it.each(['t', ':location off\r', '+'])('reports a failed explicit setting through %j without claiming success', async input => {
+    const {store, service} = fixture();
+    simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const settings = store.snapshot().settings;
+    vi.spyOn(store, 'updateSettings').mockImplementation(failedSave);
+    app.stdin.write(input);
+    await settle();
+    expect(app.lastFrame()).toContain('Library is read-only');
+    expect(store.snapshot().settings).toEqual(settings);
+    app.stdin.write('9');
+    await settle();
+    expect(app.lastFrame()).toContain('Choose a category');
+    app.unmount();
+  });
+
+  it('reports a failed favorite write and preserves the favorite', async () => {
+    const {store, service} = fixture();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    app.stdin.write('2');
+    await settle();
+    vi.spyOn(store, 'toggleFavorite').mockImplementation(failedSave);
+    app.stdin.write('f');
+    await settle();
+    expect(app.lastFrame()).toContain('Library is read-only');
+    expect(app.lastFrame()).not.toContain('Removed from favorites');
+    expect(store.isFavorite(station)).toBe(true);
+    app.unmount();
+  });
+
+  it('reports a failed media-key save from raw input', async () => {
+    const {store, service} = fixture();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    app.stdin.write(':learn next\r');
+    await settle();
+    vi.spyOn(store, 'updateSettings').mockImplementation(failedSave);
+    app.stdin.write('x');
+    await settle();
+    expect(app.lastFrame()).toContain('Library is read-only');
+    expect(store.snapshot().settings.mediaKeys.next).toEqual([]);
+    app.unmount();
+  });
+
+  it.each([
+    {key: 'O', field: 'homepage' as const, value: 'javascript:unsafe-homepage'},
+    {key: 'y', field: 'streamUrl' as const, value: 'javascript:unsafe-stream'}
+  ])('does not echo or dispatch an invalid $field when a desktop helper is unavailable', async ({key, field, value}) => {
+    const {store, service} = fixture();
+    store.toggleFavorite(station);
+    store.toggleFavorite({...station, [field]: value});
+    const open = vi.spyOn(systemActions, 'openExternal').mockResolvedValue(false);
+    const copy = vi.spyOn(systemActions, 'copyToClipboard').mockResolvedValue(false);
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    app.stdin.write('2');
+    await settle();
+    app.stdin.write(key);
+    await settle();
+    expect(open).not.toHaveBeenCalled();
+    expect(copy).not.toHaveBeenCalled();
+    expect(app.lastFrame()).not.toContain(value);
+    expect(app.lastFrame()).toMatch(/valid|safe/i);
+    app.unmount();
+  });
+});
 
 describe('Settings TUI integration', () => {
   it('checks once at launch and shows the available version beside the installed version', async () => {
