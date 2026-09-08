@@ -119,15 +119,63 @@ function resolveUnixTerminal(input:string,env:NodeJS.ProcessEnv,resolve:Terminal
 function shellQuote(value:string):string{return`'${value.replaceAll("'",`'\\''`)}'`;}
 function newWindowsConsole(powershell: string, args: readonly string[]): {args: string[]; environment: Record<string, string>} {
   const key = 'RADIOCLI_WINDOWS_CONSOLE_COMMAND';
-  // Node's detached Windows launcher has NUL stdio. Start-Process must create
-  // a separate console without -NoNewWindow or any standard-stream redirection.
-  // Its ArgumentList joins values, so only fixed flags and encoded data go in it.
+  // A detached Node launcher has NUL stdio. CreateProcessW explicitly creates
+  // new console buffers without inheriting those handles; STARTF_USESTDHANDLES
+  // must stay unset. ShellExecute-based Start-Process does not provide this
+  // handle contract. Only fixed flags and encoded data enter the argument string.
+  // https://learn.microsoft.com/en-us/windows/console/creation-of-a-console
+  // https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
+  const native = String.raw`
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class RadioCliConsole {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  private struct StartupInfo {
+    public uint cb;
+    public string lpReserved, lpDesktop, lpTitle;
+    public uint dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+    public short wShowWindow, cbReserved2;
+    public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ProcessInformation {
+    public IntPtr hProcess, hThread;
+    public uint dwProcessId, dwThreadId;
+  }
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CreateProcessW(string application, StringBuilder commandLine,
+    IntPtr processAttributes, IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+    uint creationFlags, IntPtr environment, string currentDirectory, ref StartupInfo startup,
+    out ProcessInformation process);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+  public static void Launch(string application, string arguments) {
+    var commandLine = new StringBuilder("\"" + application + "\" " + arguments);
+    if (commandLine.Length >= 32767) throw new ArgumentException("The Windows console command exceeds the native command-line limit.");
+    var startup = new StartupInfo();
+    startup.cb = (uint)Marshal.SizeOf(typeof(StartupInfo));
+    startup.dwFlags = 0x00000001; // STARTF_USESHOWWINDOW only; no inherited standard handles.
+    startup.wShowWindow = 1; // SW_SHOWNORMAL
+    ProcessInformation process;
+    if (!CreateProcessW(application, commandLine, IntPtr.Zero, IntPtr.Zero, false,
+      0x00000010, IntPtr.Zero, null, ref startup, out process)) { // CREATE_NEW_CONSOLE
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+  }
+}`;
   const script = [
     "$ErrorActionPreference='Stop'",
     "$ProgressPreference='SilentlyContinue'",
     `$radiocliConsole=[Environment]::GetEnvironmentVariable('${key}','Process') | ConvertFrom-Json`,
     `[Environment]::SetEnvironmentVariable('${key}',$null,'Process')`,
-    'Start-Process -FilePath ([string]$radiocliConsole.command) -ArgumentList ([string[]]$radiocliConsole.args) -WindowStyle Normal'
+    `Add-Type -TypeDefinition '${native.replaceAll("'", "''")}'`,
+    "[RadioCliConsole]::Launch([string]$radiocliConsole.command, [string]::Join(' ', [string[]]$radiocliConsole.args))"
   ].join(';');
   // Only this short-lived outer process needs the handoff. Encoding the inner
   // PowerShell command again exceeds Windows' command-line limit for ordinary

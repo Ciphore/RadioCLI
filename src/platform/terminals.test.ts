@@ -50,8 +50,10 @@ describe('graphical terminal invocation plans',()=>{
   it('requests a separate Windows console without inheriting detached launcher stdio',()=>{
     const plan=createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,closeOnExit:true});
     const script=Buffer.from(plan.args.at(-1)!,'base64').toString('utf16le');
-    expect(script).toContain('Start-Process');expect(script).toContain('-WindowStyle Normal');expect(script).not.toMatch(/-NoNewWindow|-RedirectStandard/);
-    expect(script).toMatch(/SetEnvironmentVariable\('[^']+',\$null,'Process'\);Start-Process/);
+    expect(script).toMatch(/CreateProcessW\(application, commandLine, IntPtr.Zero, IntPtr.Zero, false,\s*0x00000010, IntPtr.Zero, null, ref startup, out process\)/);
+    expect(script).toContain('startup.dwFlags = 0x00000001;');expect(script).not.toMatch(/GetStdHandle|Start-Process|startup\.hStd\w+\s*=/);
+    expect(script).toContain('CloseHandle(process.hThread)');expect(script).toContain('CloseHandle(process.hProcess)');
+    expect(script).toMatch(/SetEnvironmentVariable\('[^']+',\$null,'Process'\);Add-Type/);
   });
   it('keeps a console launch with ordinary deep install paths below the Windows command-line limit',()=>{
     const nodePath=`C:\\Program Files\\${'Runtime\\'.repeat(19)}node.exe`;
@@ -69,7 +71,7 @@ describe('graphical terminal invocation plans',()=>{
   });
   it.skipIf(process.platform!=='win32')('opens real Windows console TTY handles and preserves literal argv and environment',async()=>{
     const root=fixture();const cli=join(root,"Radio %PATH%! & ' 单播.cjs");const output=join(root,'console-result.json');
-    const preload=join(root,'console-preload.cjs');const stages=join(root,'console-stages.jsonl');
+    const preload=join(root,'console-preload.cjs');const stages=join(root,'console-stages.jsonl');const powershellStages=join(root,'powershell-stages.log');
     // Observe both the Node bootstrap and CLI without touching standard handles
     // or logging argv contents. Monitoring leaves normal exception handling intact.
     writeFileSync(preload,[
@@ -93,9 +95,18 @@ describe('graphical terminal invocation plans',()=>{
     const diagnostic:{commandCharacters:number;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,spawned:false,code:null,signal:null,stdout:'',stderr:''};
     await launchTerminalCommand({platform:'win32',env:{...process.env,NODE_OPTIONS:nodeOptions,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
       diagnostic.commandCharacters=[command,...args].reduce((length,value)=>length+value.length+3,1);
-      // Capture only the outer launcher; Start-Process still creates the child
+      const environment={...options?.env};const handoff=environment.RADIOCLI_WINDOWS_CONSOLE_COMMAND;expect(handoff).toBeDefined();
+      const inner=JSON.parse(handoff!) as {command:string;args:string[]};const index=inner.args.indexOf('-EncodedCommand')+1;expect(index).toBeGreaterThan(0);
+      const script=Buffer.from(inner.args[index]!,'base64').toString('utf16le');
+      // Observe PowerShell startup without waiting in the outer launcher or
+      // redirecting the console. Preserve the invocation's existing exit logic.
+      const path=Buffer.from(powershellStages,'utf8').toString('base64');
+      const prefix=`$radiocliProbe=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${path}'));[IO.File]::AppendAllText($radiocliProbe,"powershell-start $PID\n");trap{[IO.File]::AppendAllText($radiocliProbe,([string]$_.Exception.Message)+"\n");break};`;
+      const observed=prefix+script.replace('exit $LASTEXITCODE','[IO.File]::AppendAllText($radiocliProbe,"native-exit $LASTEXITCODE\n");exit $LASTEXITCODE');
+      inner.args[index]=Buffer.from(observed,'utf16le').toString('base64');environment.RADIOCLI_WINDOWS_CONSOLE_COMMAND=JSON.stringify(inner);
+      // Capture only the outer launcher; CreateProcessW still creates the child
       // with its own unredirected console handles. Never log inherited env.
-      const child=spawn(command,args,{...options,stdio:['ignore','pipe','pipe']});
+      const child=spawn(command,args,{...options,env:environment,stdio:['ignore','pipe','pipe']});
       child.stdout?.on('data',chunk=>diagnostic.stdout=(diagnostic.stdout+String(chunk)).slice(-4_000));
       child.stderr?.on('data',chunk=>diagnostic.stderr=(diagnostic.stderr+String(chunk)).slice(-4_000));
       child.once('spawn',()=>diagnostic.spawned=true);
@@ -106,7 +117,8 @@ describe('graphical terminal invocation plans',()=>{
     const deadline=Date.now()+10_000;
     while(!existsSync(output)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
     const nodeStages=existsSync(stages)?readFileSync(stages,'utf8').slice(-8_000):'';
-    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages})}`).toBe(true);
+    const powershellStage=existsSync(powershellStages)?readFileSync(powershellStages,'utf8').slice(-4_000):'';
+    expect(existsSync(output),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages,powershellStage})}`).toBe(true);
     expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
   },15_000);
   it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{
