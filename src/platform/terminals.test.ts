@@ -92,9 +92,9 @@ describe('graphical terminal invocation plans',()=>{
       "fs.writeFileSync(output+'.tmp',JSON.stringify(result),'utf8');fs.renameSync(output+'.tmp',output)"
     ].join(';'));
     const home='C:\\Data %PATH%! & "quote" \' 单播';const mpv="C:\\Players %PATH%! & ' 单播\\mpv.exe";const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
-    const diagnostic:{commandCharacters:number;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,spawned:false,code:null,signal:null,stdout:'',stderr:''};
+    const diagnostic:{commandCharacters:number;detached:boolean;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,detached:false,spawned:false,code:null,signal:null,stdout:'',stderr:''};
     await launchTerminalCommand({platform:'win32',env:{...process.env,NODE_OPTIONS:nodeOptions,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
-      diagnostic.commandCharacters=[command,...args].reduce((length,value)=>length+value.length+3,1);
+      diagnostic.detached=Boolean(options?.detached);
       const environment={...options?.env};const handoff=environment.RADIOCLI_WINDOWS_CONSOLE_COMMAND;expect(handoff).toBeDefined();
       const inner=JSON.parse(handoff!) as {command:string;args:string[]};const index=inner.args.indexOf('-EncodedCommand')+1;expect(index).toBeGreaterThan(0);
       const script=Buffer.from(inner.args[index]!,'base64').toString('utf16le');
@@ -104,9 +104,14 @@ describe('graphical terminal invocation plans',()=>{
       const prefix=`$radiocliProbe=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${path}'));[IO.File]::AppendAllText($radiocliProbe,"powershell-start $PID\n");trap{[IO.File]::AppendAllText($radiocliProbe,([string]$_.Exception.Message)+"\n");break};`;
       const observed=prefix+script.replace('exit $LASTEXITCODE','[IO.File]::AppendAllText($radiocliProbe,"native-exit $LASTEXITCODE\n");exit $LASTEXITCODE');
       inner.args[index]=Buffer.from(observed,'utf16le').toString('base64');environment.RADIOCLI_WINDOWS_CONSOLE_COMMAND=JSON.stringify(inner);
+      const outerArgs=[...args];const outerIndex=outerArgs.indexOf('-EncodedCommand')+1;expect(outerIndex).toBeGreaterThan(0);
+      const outer=Buffer.from(outerArgs[outerIndex]!,'base64').toString('utf16le');
+      const outerMarker=`[IO.File]::AppendAllText([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${path}')),"powershell-outer-start $PID\n");`;
+      outerArgs[outerIndex]=Buffer.from(outerMarker+outer,'utf16le').toString('base64');
+      diagnostic.commandCharacters=[command,...outerArgs].reduce((length,value)=>length+value.length+3,1);
       // Capture only the outer launcher; CreateProcessW still creates the child
       // with its own unredirected console handles. Never log inherited env.
-      const child=spawn(command,args,{...options,env:environment,stdio:['ignore','pipe','pipe']});
+      const child=spawn(command,outerArgs,{...options,env:environment,stdio:['ignore','pipe','pipe']});
       child.stdout?.on('data',chunk=>diagnostic.stdout=(diagnostic.stdout+String(chunk)).slice(-4_000));
       child.stderr?.on('data',chunk=>diagnostic.stderr=(diagnostic.stderr+String(chunk)).slice(-4_000));
       child.once('spawn',()=>diagnostic.spawned=true);
@@ -144,4 +149,26 @@ describe('terminal launcher acceptance',()=>{
   it('rejects a launcher that exits unsuccessfully immediately after spawn',async()=>{const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();const result=waitForLaunch(child);child.emit('spawn');child.emit('close',1);await expect(result).rejects.toThrow(/launcher.*exit.*1/i);});
   it('accepts a live launcher without claiming application readiness',async()=>{vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();const result=waitForLaunch(child);child.emit('spawn');await vi.advanceTimersByTimeAsync(100);await expect(result).resolves.toBeUndefined();expect(child.unref).toHaveBeenCalledOnce();});
   it('bounds a launcher that never reports process startup',async()=>{vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;const result=expect(waitForLaunch(child)).rejects.toThrow(/did not report process startup/i);await vi.advanceTimersByTimeAsync(3_000);await result;});
+  it('keeps a transient console bootstrap referenced until it exits',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
+    const launch=vi.fn(()=>child);
+    const result=launchTerminalCommand({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,spawn:launch});let settled=false;void result.then(()=>settled=true);
+    expect(launch).toHaveBeenCalledWith('powershell.exe',expect.any(Array),expect.objectContaining({detached:false,stdio:'ignore',windowsHide:true}));
+    child.emit('spawn');await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);expect(child.unref).not.toHaveBeenCalled();
+    child.emit('close',0);await expect(result).resolves.toBe('win32:console');expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('rejects a transient bootstrap failure after the ordinary launcher grace period',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
+    const result=waitForLaunch(child,{waitForExit:true}).then(()=>undefined,error=>error as Error);
+    child.emit('spawn');await vi.advanceTimersByTimeAsync(250);child.emit('close',7);
+    expect(await result).toMatchObject({message:expect.stringMatching(/launcher.*exit.*7/i)});expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('bounds a transient bootstrap and kills its owned process on the completion deadline',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
+    const result=waitForLaunch(child,{waitForExit:true}).then(()=>undefined,error=>error as Error);
+    child.emit('spawn');await vi.advanceTimersByTimeAsync(9_999);expect(child.kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toMatchObject({message:expect.stringMatching(/bootstrap.*did not complete/i)});expect(child.kill).toHaveBeenCalledOnce();expect(child.unref).not.toHaveBeenCalled();
+  });
 });

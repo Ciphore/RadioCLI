@@ -291,9 +291,7 @@ describe('JsonLibraryStore', () => {
     writeFileSync(backupFile, JSON.stringify(backup), 'utf8');
     expect(() => destination.importBackup(backupFile)).toThrow(/500/);
     expect(new JsonLibraryStore(destinationFile).snapshot().alarms).toHaveLength(500);
-  // This exercises real schema validation and disk operations for 500 records
-  // repeatedly; shared native Intel runners need more than the default 5 s.
-  }, 15_000);
+  });
 
   it('persists recents, favorites, and settings', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));

@@ -94,18 +94,33 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
 /** Request acceptance is separate from the caller's TUI/session verification. */
 export async function launchTerminalCommand(options:TerminalCommand):Promise<string>{
   const plan=createTerminalLaunch(options);
-  const child=(options.spawn??spawn)(plan.command,plan.args,{env:{...(options.env??process.env),...plan.environment},detached:true,stdio:'ignore',windowsHide:false});
-  await waitForLaunch(child);return plan.terminal;
+  // PowerShell can exit without executing its script under DETACHED_PROCESS.
+  // Keep this short-lived bootstrap attached until it creates the independent
+  // console. The new console, not its bootstrap, owns the interactive handles.
+  // https://github.com/nodejs/node/issues/51018
+  const consoleBootstrap=plan.terminal==='win32:console';
+  const child=(options.spawn??spawn)(plan.command,plan.args,{env:{...(options.env??process.env),...plan.environment},detached:!consoleBootstrap,stdio:'ignore',windowsHide:consoleBootstrap});
+  await waitForLaunch(child,{waitForExit:consoleBootstrap});return plan.terminal;
 }
 
-export function waitForLaunch(child:ChildProcess):Promise<void>{
+export function waitForLaunch(child:ChildProcess,options:{waitForExit?:boolean}={}):Promise<void>{
   return new Promise((resolve,reject)=>{
     let settled=false;let acceptedTimer:NodeJS.Timeout|undefined;
     const finish=(error?:Error)=>{if(settled)return;settled=true;clearTimeout(startupTimer);if(acceptedTimer)clearTimeout(acceptedTimer);if(error)reject(error);else resolve();};
     const startupTimer=setTimeout(()=>finish(new Error('Terminal launcher did not report process startup.')),3_000);
     child.once('error',error=>finish(error));
     child.once('close',(code,signal)=>finish(code===0?undefined:new Error(`Terminal launcher exited with ${code??signal??'unknown status'}.`)));
-    child.once('spawn',()=>{child.unref();acceptedTimer=setTimeout(()=>finish(),100);});
+    child.once('spawn',()=>{
+      if(options.waitForExit){
+        clearTimeout(startupTimer);
+        acceptedTimer=setTimeout(()=>{
+          finish(new Error('Terminal bootstrap did not complete.'));
+          try{child.kill();}catch{/* Preserve the timeout if cleanup also fails. */}
+        },10_000);
+      }else{
+        child.unref();acceptedTimer=setTimeout(()=>finish(),100);
+      }
+    });
   });
 }
 
@@ -119,7 +134,7 @@ function resolveUnixTerminal(input:string,env:NodeJS.ProcessEnv,resolve:Terminal
 function shellQuote(value:string):string{return`'${value.replaceAll("'",`'\\''`)}'`;}
 function newWindowsConsole(powershell: string, args: readonly string[]): {args: string[]; environment: Record<string, string>} {
   const key = 'RADIOCLI_WINDOWS_CONSOLE_COMMAND';
-  // A detached Node launcher has NUL stdio. CreateProcessW explicitly creates
+  // The transient launcher has NUL stdio. CreateProcessW explicitly creates
   // new console buffers without inheriting those handles; STARTF_USESTDHANDLES
   // must stay unset. ShellExecute-based Start-Process does not provide this
   // handle contract. Only fixed flags and encoded data enter the argument string.
