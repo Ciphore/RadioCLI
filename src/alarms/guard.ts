@@ -153,7 +153,8 @@ export class AlarmGuardService {
   private hasOwnershipRecords(alarmId?:string):boolean {
     return this.pidFiles().some(path=>{
       const ownerId=readPid(path)?.alarmId??alarmIdFromPath(path);
-      return !alarmId||!ownerId||ownerId===alarmId;
+      // Unknown records require global repair, but cannot identify this alarm.
+      return !alarmId||ownerId===alarmId;
     });
   }
   private async withOwnership<T>(alarmId:string,work:()=>Promise<T>):Promise<T>{const lock=join(this.directory,`.lock-${Buffer.from(alarmId).toString('base64url')}`);mkdirSync(this.directory,{recursive:true,mode:0o700});const deadline=Date.now()+3000;while(true){try{mkdirSync(lock,{mode:0o700});writeFileSync(join(lock,'created'),String(Date.now()),{mode:0o600});break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;let stale=false;try{const created=Number(readFileSync(join(lock,'created'),'utf8'));stale=Number.isFinite(created)?Date.now()-created>10_000:Date.now()-statSync(lock).mtimeMs>10_000;}catch{try{stale=Date.now()-statSync(lock).mtimeMs>10_000;}catch{}}if(stale){rmSync(lock,{recursive:true,force:true});continue;}if(Date.now()>deadline)throw new Error('Alarm Guard ownership is busy.');await delay(20);}}try{return await work();}finally{rmSync(lock,{recursive:true,force:true});}}

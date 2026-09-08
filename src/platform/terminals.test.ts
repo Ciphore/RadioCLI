@@ -1,17 +1,27 @@
 import {execFileSync,type ChildProcess} from 'node:child_process';
 import {EventEmitter} from 'node:events';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {basename,join,posix} from 'node:path';
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {createTerminalLaunch,detectGraphicalTerminal,waitForLaunch} from './terminals.js';
+import {createTerminalLaunch,detectGraphicalTerminal,launchTerminalCommand,waitForLaunch} from './terminals.js';
 
 const roots:string[]=[];
 afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 const resolve=(command:string)=>command;
 function fixture(){const root=mkdtempSync(join(process.cwd(),'.radiocli-terminals-'));roots.push(root);return root;}
 function terminalPath(root:string,name:string){return posix.join(basename(root),name);}
+function nodeInvocation(args: readonly string[]): {command: string; args: string[]} {
+  const index = args.indexOf('-EncodedCommand');
+  expect(index).toBeGreaterThanOrEqual(0);
+  const script = Buffer.from(args[index + 1]!, 'base64').toString('utf16le');
+  const encoded = /FromBase64String\('([^']+)'\)/.exec(script)?.[1];
+  expect(encoded).toBeDefined();
+  const invocation = JSON.parse(Buffer.from(encoded!, 'base64').toString('utf8')) as {command: string; args: string[]};
+  return invocation.args.includes('-EncodedCommand') ? nodeInvocation(invocation.args) : invocation;
+}
 
 describe('shared graphical terminal discovery',()=>{
+  it('ignores a malformed saved descriptor and continues normal terminal detection',()=>{expect(detectGraphicalTerminal('linux',{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linuxX'},command=>command==='kitty'?'/usr/bin/kitty':undefined)).toBe('linux:/usr/bin/kitty');});
   it.each(['linux','freebsd','openbsd','netbsd'] as const)('requires the central Unix adapter policy and an installed terminal on %s',platform=>{const env={DISPLAY:':0',TERMINAL:'xterm'};expect(detectGraphicalTerminal(platform,env,command=>command==='xterm'?'/usr/local/bin/xterm':undefined)).toBe(`${platform}:/usr/local/bin/xterm`);expect(detectGraphicalTerminal(platform,env,()=>undefined)).toBe(`${platform}:unsupported`);expect(detectGraphicalTerminal(platform,{...env,DISPLAY:''},resolve)).toBe(`${platform}:unsupported`);});
   it.each(['freebsd','openbsd','netbsd'] as const)('accepts a legacy Linux descriptor after revalidating the saved Unix terminal on %s',platform=>{expect(detectGraphicalTerminal(platform,{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/usr/local/bin/xterm'},resolve)).toBe('linux:/usr/local/bin/xterm');expect(detectGraphicalTerminal(platform,{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/usr/local/bin/xterm'},()=>undefined)).toBe(`${platform}:unsupported`);});
   it('requires an X11 or Wayland session before selecting a Unix terminal',()=>{expect(detectGraphicalTerminal('linux',{RADIOCLI_ALARM_TERMINAL:'linux:/bin/kitty'},resolve)).toBe('linux:unsupported');});
@@ -32,18 +42,40 @@ describe('graphical terminal invocation plans',()=>{
   it('preserves a special data home and every argument through the Windows Node bootstrap',()=>{
     const home='C:\\Data %PATH%! & "quote" \' 单播';const values=['space value','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
     const plan=createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home},nodePath:process.execPath,args:['-e',"process.stdout.write(JSON.stringify({args:process.argv.slice(1),home:process.env.RADIOCLI_HOME}))",'--',...values],resolve,closeOnExit:true});
-    const script=Buffer.from(plan.args.at(-1)!,'base64').toString('utf16le');const payload=JSON.parse(Buffer.from(/FromBase64String\('([^']+)'\)/.exec(script)![1]!,'base64').toString('utf8')) as {command:string;args:string[]};
+    const payload=nodeInvocation(plan.args);
     expect(payload.args[1]).not.toContain('"');const output=execFileSync(payload.command,payload.args,{encoding:'utf8'});expect(JSON.parse(output)).toEqual({args:values,home});expect(plan.command).toBe('powershell.exe');
   });
-  it.skipIf(process.platform!=='win32')('round-trips literal CLI paths and argv through native Windows PowerShell',()=>{
-    const root=fixture();const cli=join(root,"Radio %PATH%! & ' 单播.cjs");
-    // ASCII output separates exact argv transport from console code pages.
-    writeFileSync(cli,"process.stdout.write(Buffer.from(JSON.stringify({args:process.argv.slice(2),home:process.env.RADIOCLI_HOME}),'utf8').toString('base64'))");
-    const home='C:\\Data %PATH%! & "quote" \' 单播';const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
-    const plan=createTerminalLaunch({platform:'win32',env:{...process.env,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home},nodePath:process.execPath,args:[cli,...args],closeOnExit:true});
-    const output=execFileSync(plan.command,plan.args,{encoding:'utf8',windowsHide:true,timeout:10_000});
-    expect(JSON.parse(Buffer.from(output,'base64').toString('utf8'))).toEqual({args,home});
+  it('requests a separate Windows console without inheriting detached launcher stdio',()=>{
+    const plan=createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,closeOnExit:true});
+    const script=Buffer.from(plan.args.at(-1)!,'base64').toString('utf16le');
+    expect(script).toContain('Start-Process');expect(script).toContain('-WindowStyle Normal');expect(script).not.toMatch(/-NoNewWindow|-RedirectStandard/);
   });
+  it.skipIf(process.platform!=='win32')('opens real Windows console TTY handles and preserves literal argv and environment',async()=>{
+    const root=fixture();const cli=join(root,"Radio %PATH%! & ' 单播.cjs");const output=join(root,'console-result.json');
+    // File output observes the actual TTY child without redirecting its stdio.
+    writeFileSync(cli,"const fs=require('node:fs');const output=process.argv[2];fs.writeFileSync(output+'.tmp',JSON.stringify({stdin:process.stdin.isTTY===true,stdout:process.stdout.isTTY===true,stderr:process.stderr.isTTY===true,args:process.argv.slice(3),home:process.env.RADIOCLI_HOME,mpv:process.env.RADIOCLI_MPV_PATH}),'utf8');fs.renameSync(output+'.tmp',output)");
+    const home='C:\\Data %PATH%! & "quote" \' 单播';const mpv="C:\\Players %PATH%! & ' 单播\\mpv.exe";const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
+    await launchTerminalCommand({platform:'win32',env:{...process.env,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true});
+    const deadline=Date.now()+10_000;
+    while(!existsSync(output)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
+    expect(existsSync(output)).toBe(true);
+    expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
+  },15_000);
+  it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{
+    const configured={RADIOCLI_MPV_PATH:"/Players % ! & ' 单播/mpv",RADIOCLI_FFPLAY_PATH:'/Players A/ffplay',RADIOCLI_VLC_PATH:'/Players A/vlc',RADIOCLI_FFMPEG_PATH:'/Players A/ffmpeg',RADIOCLI_OFFLINE:'0',RADIOCLI_LOW_BANDWIDTH:'true'};
+    const script=`process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(Object.keys(configured))}.map(key=>[key,process.env[key]]))))`;
+    const plan=createTerminalLaunch({platform,env:{...configured,DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:terminal,HTTPS_PROXY:'https://private-password@proxy.invalid'},nodePath:process.execPath,args:['-e',script],resolve});
+    const args=plan.args.slice(plan.args.indexOf(process.execPath)+1);
+    const output=execFileSync(process.execPath,args,{encoding:'utf8',env:{...process.env,...Object.fromEntries(Object.keys(configured).map(key=>[key,'stale-server-value']))}});
+    expect(JSON.parse(output)).toEqual(configured);
+    expect(JSON.parse(Buffer.from(args.at(-1)!,'base64url').toString('utf8')).environment).toEqual(configured);
+  });
+  it.skipIf(process.platform==='win32')('passes configured player paths literally through Apple Terminal shell commands',()=>{
+    const mpv="/Players $ % ! & ' 单播/mpv";
+    const plan=createTerminalLaunch({platform:'darwin',env:{RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:['-e','process.stdout.write(process.env.RADIOCLI_MPV_PATH)'],resolve});
+    expect(execFileSync('/bin/sh',['-c',plan.args.at(-1)!],{encoding:'utf8',env:{...process.env,RADIOCLI_MPV_PATH:'stale'}})).toBe(mpv);
+  });
+  it.each(['darwin','linux','win32'] as const)('rejects control characters in approved %s terminal environment values',platform=>{expect(()=>createTerminalLaunch({platform,env:{DISPLAY:':0',RADIOCLI_MPV_PATH:'/tools/mpv\nInjected=value'},nodePath:'/node',args:['/cli.js'],resolve})).toThrow(/RADIOCLI_MPV_PATH.*control/i);});
   it('uses the same data-home bootstrap without assuming /usr/bin/env exists',()=>{const home="/Data A/O'Brien 单播";const plan=createTerminalLaunch({platform:'linux',env:{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/tools/kitty',RADIOCLI_HOME:home},nodePath:process.execPath,args:['-e','process.stdout.write(process.env.RADIOCLI_HOME)'],resolve});expect(plan.args).not.toContain('/usr/bin/env');expect(execFileSync(process.execPath,plan.args.slice(2),{encoding:'utf8'})).toBe(home);});
   it('fails before spawning when Windows has no runnable PowerShell',()=>{expect(()=>createTerminalLaunch({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve:()=>undefined})).toThrow(/PowerShell.*unavailable/i);});
 });

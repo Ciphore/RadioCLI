@@ -12,6 +12,8 @@ import {AlarmPowerGuardStore} from './power-guard-store.js';
 import {detectAlarmTerminal} from './terminal-launcher.js';
 import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 import {resolveCommandDetails} from '../player/command.js';
+import {launchEnvironment, nodeLaunchCommand} from '../platform/launch-command.js';
+import {powershellCommand} from '../platform/shell.js';
 
 export type SchedulerCapabilities = {
   name?: string;
@@ -108,17 +110,16 @@ export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapt
   const common = {home, nodePath, cliPath, env, terminal: detectAlarmTerminal(platform, env), write, removeFile, run};
   if (policy.scheduler === 'launchd') return launchdAdapter(common);
   if (policy.scheduler === 'task-scheduler') return windowsAdapter(common);
-  if (policy.scheduler === 'systemd' && commandExists('systemctl')) return systemdAdapter(common);
-  return unsupportedAdapter(policy.scheduler === 'systemd'
-    ? 'User scheduling requires systemd. This Linux session is unsupported; RadioCLI will not claim the alarm is registered.'
-    : `Alarm scheduling is not supported on ${host.id==='unknown'?host.platform:host.id}.`);
+  if (policy.scheduler === 'systemd') {
+    if (commandExists('systemctl')) return systemdAdapter(common);
+    return unavailableAdapter('systemctl is unavailable; systemd job registration and removal cannot be verified. Repair artifacts were retained.');
+  }
+  return unsupportedAdapter(`Alarm scheduling is not supported on ${host.id==='unknown'?host.platform:host.id}.`);
 }
 
 type Common = {home: string; nodePath: string; cliPath: string; env: NodeJS.ProcessEnv; terminal:string; write: (p:string,c:string)=>void; removeFile:(p:string)=>void; run:(c:string,a:string[])=>Promise<CommandResult>};
 function runtimeEnvironment(common:Common):Record<string,string>{
-  const result:Record<string,string>={RADIOCLI_ALARM_TERMINAL:common.terminal};
-  for(const key of ['RADIOCLI_HOME','DISPLAY','WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR']){const value=common.env[key];if(value)result[key]=value;}
-  return result;
+  return launchEnvironment(common.env, {includeDesktop: true, terminal: common.terminal});
 }
 const jobName = (id: string) => `io.radiocli.alarm.${createHash('sha256').update(id).digest('hex').slice(0, 20)}`;
 const invocationArgs = (common: Common, id: string, occurrence: Date,internalCommand='internal-run') => [common.cliPath, 'alarm', internalCommand, id, occurrence.toISOString()];
@@ -167,7 +168,7 @@ function systemdAdapter(common: Common): SchedulerAdapter {
   return {
     capabilities,
     probeCapabilities,
-    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=[common.nodePath,...invocationArgs(common,alarm.id,occurrence)].map(systemdQuote).join(' '); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
+    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand([common.nodePath,...invocationArgs(common,alarm.id,occurrence)]); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
     async remove(id){
       const n=names(id);
       await removeWithVerification(()=>common.run('systemctl',['--user','disable','--now',n.timer]),()=>common.run('systemctl',['--user','show',n.timer,'--property=LoadState','--property=ActiveState']),result=>/^LoadState=not-found\r?$/m.test(result.stdout)&&/^ActiveState=inactive\r?$/m.test(result.stdout),'systemd timer');
@@ -182,13 +183,27 @@ function windowsAdapter(common: Common): SchedulerAdapter {
   const xmlPath=(id:string)=>join(common.env.LOCALAPPDATA??join(common.home,'AppData','Local'),'RadioCLI','scheduler',`${jobName(id)}.xml`);
   return {
     capabilities:()=>({name:'Task Scheduler',supported:true,exactWake:false,catchUpAfterWake:true,message:'Task Scheduler can request wake when hardware and policy permit, but exact wake cannot be guaranteed. Resync after changing the host timezone; a logged-in audio session is required. Alarm playback has no scheduler execution-time cutoff.'}),
-    async install(alarm,occurrence){const name=`\\RadioCLI\\${jobName(alarm.id)}`;const command=windowsCommandLine(common.nodePath,invocationArgs(common,alarm.id,occurrence));const environment=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`set "${key}=${cmdEscape(value)}"`).join(' && ');const raw=`${environment} && ${command}`;const body=`<?xml version="1.0" encoding="UTF-8"?><Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description>${xml(alarm.label)}</Description></RegistrationInfo><Triggers><TimeTrigger><StartBoundary>${windowsLocalBoundary(occurrence)}</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><StartWhenAvailable>true</StartWhenAvailable><WakeToRun>${alarm.reliability.wakeIfSupported}</WakeToRun><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings><Actions Context="Author"><Exec><Command>cmd.exe</Command><Arguments>/d /s /c &quot;${xml(raw)}&quot;</Arguments></Exec></Actions></Task>`;const path=xmlPath(alarm.id);common.write(path,body);ensureSuccess(await common.run('schtasks.exe',['/Create','/TN',name,'/XML',path,'/F']),'schtasks create');},
+    async install(alarm, occurrence) {
+      const name = `\\RadioCLI\\${jobName(alarm.id)}`;
+      const direct = nodeLaunchCommand(common.nodePath, invocationArgs(common, alarm.id, occurrence), runtimeEnvironment(common));
+      // Task Scheduler expands %NAME% in Path and Arguments itself. Only its
+      // standard PowerShell path and fixed flags/encoded data cross that boundary.
+      const command = '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+      const args = powershellCommand(direct).join(' ');
+      const body = `<?xml version="1.0" encoding="UTF-8"?><Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description>${xml(alarm.label)}</Description></RegistrationInfo><Triggers><TimeTrigger><StartBoundary>${windowsLocalBoundary(occurrence)}</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><StartWhenAvailable>true</StartWhenAvailable><WakeToRun>${alarm.reliability.wakeIfSupported}</WakeToRun><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings><Actions Context="Author"><Exec><Command>${xml(command)}</Command><Arguments>${xml(args)}</Arguments></Exec></Actions></Task>`;
+      const path = xmlPath(alarm.id);
+      common.write(path, body);
+      ensureSuccess(await common.run('schtasks.exe', ['/Create', '/TN', name, '/XML', path, '/F']), 'schtasks create');
+    },
     async remove(id){const name=`\\RadioCLI\\${jobName(id)}`;await removeWithVerification(()=>common.run('schtasks.exe',['/Delete','/TN',name,'/F']),()=>common.run('schtasks.exe',['/Query','/TN',name]),result=>result.code===1&&/^ERROR: The system cannot find the (?:file|path) specified\.$/.test(`${result.stderr}\n${result.stdout}`.trim()),'Task Scheduler job');common.removeFile(xmlPath(id));},
     async status(id){const result=await common.run('schtasks.exe',['/Query','/TN',`\\RadioCLI\\${jobName(id)}`]);const artifact=existsSync(xmlPath(id));const executable=existsSync(common.nodePath)&&existsSync(common.cliPath);return{installed:result.code===0&&artifact,healthy:result.code===0&&artifact&&executable,message:result.code!==0?'task not registered':!artifact?'task XML artifact missing':!executable?'RadioCLI executable missing':'registered and executable'};}
   };
 }
 
 function unsupportedAdapter(message:string):SchedulerAdapter{return{capabilities:()=>({supported:false,exactWake:false,catchUpAfterWake:false,message}),install:async()=>{throw new Error(message);},remove:async()=>{},status:async()=>({installed:false,healthy:false,message})};}
+function unavailableAdapter(message: string): SchedulerAdapter {
+  return {...unsupportedAdapter(message), remove: async () => {throw new Error(message);}};
+}
 function runCommand(command:string,args:string[]):Promise<CommandResult>{return new Promise(resolve=>{const child=spawn(command,args,{stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:10_000});let stdout='';let stderr='';child.stdout.on('data',v=>stdout+=String(v));child.stderr.on('data',v=>stderr+=String(v));child.on('error',e=>resolve({code:127,stdout,stderr:e.message}));child.on('close',code=>resolve({code:code??1,stdout,stderr}));});}
 async function boundedProbe(probe:Promise<CommandResult>):Promise<CommandResult>{let timer:NodeJS.Timeout|undefined;try{return await Promise.race([probe,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('User-manager probe timed out.')),3_000);})]);}finally{if(timer)clearTimeout(timer);}}
 async function removeWithVerification(remove:()=>Promise<CommandResult>,query:()=>Promise<CommandResult>,isAbsent:(result:CommandResult)=>boolean,label:string):Promise<void>{
@@ -204,9 +219,11 @@ function commandMessage(result:CommandResult){return(result.stderr||result.stdou
 function ensureSuccess(result:CommandResult,label:string){if(result.code!==0)throw new Error(`${label} failed: ${(result.stderr||result.stdout||`exit ${result.code}`).trim()}`);}
 function xml(value:string){return value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&apos;');}
 function systemdQuote(value:string){if(/[\r\n\0]/.test(value))throw new Error('Scheduler arguments cannot contain control characters.');return `"${value.replaceAll('%','%%').replaceAll('\\','\\\\').replaceAll('"','\\"')}"`;}
-function cmdEscape(value:string){return value.replaceAll('%','%%').replaceAll('"','""').replaceAll('^','^^').replaceAll('&','^&').replaceAll('|','^|').replaceAll('<','^<').replaceAll('>','^>');}
-function windowsCommandLine(command:string,args:string[]){return [command,...args].map(windowsArg).join(' ');}
-function windowsArg(value:string){return `"${value.replace(/(\\*)"/g,'$1$1\\"').replace(/(\\+)$/,'$1$1')}"`;}
+function systemdExecCommand(values: string[]): string {
+  // ':' disables $VAR/${VAR} expansion for ExecStart. Environment= has
+  // different syntax: its dollar signs are already literal and must stay so.
+  return `:${values.map(systemdQuote).join(' ')}`;
+}
 function localParts(date:Date){return{year:date.getFullYear(),month:date.getMonth()+1,day:date.getDate(),hour:date.getHours(),minute:date.getMinutes(),second:date.getSeconds()};}
 function systemdCalendar(date:Date){return `${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,'0')}-${String(date.getUTCDate()).padStart(2,'0')} ${String(date.getUTCHours()).padStart(2,'0')}:${String(date.getUTCMinutes()).padStart(2,'0')}:${String(date.getUTCSeconds()).padStart(2,'0')} UTC`;}
 function windowsLocalBoundary(date:Date){const p=localParts(date);return `${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}T${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')}:${String(p.second).padStart(2,'0')}`;}

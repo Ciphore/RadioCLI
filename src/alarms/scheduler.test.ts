@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {existsSync,mkdirSync,mkdtempSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {basename,dirname,join} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import type {Alarm} from '../types.js';
 import {createSchedulerAdapter, SchedulerService,shouldRunLaunchdOccurrence,type SchedulerAdapter} from './scheduler.js';
 
@@ -13,6 +14,17 @@ const alarm: Alarm = {
   reliability: {missedRunGraceMinutes: 10, wakeIfSupported: true},
   createdAt: '2029-01-01T00:00:00.000Z', updatedAt: '2029-01-01T00:00:00.000Z'
 };
+
+function windowsTaskInvocation(body: string): {command: string; args: string[]} {
+  expect(body).toContain('<Command>%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe</Command>');
+  const argumentsText = /<Arguments>([^<]+)<\/Arguments>/.exec(body)?.[1];
+  expect(argumentsText).toBeDefined();
+  const args = argumentsText!.split(' ');
+  const script = Buffer.from(args[args.indexOf('-EncodedCommand') + 1]!, 'base64').toString('utf16le');
+  const encoded = /FromBase64String\('([^']+)'\)/.exec(script)?.[1];
+  expect(encoded).toBeDefined();
+  return JSON.parse(Buffer.from(encoded!, 'base64').toString('utf8'));
+}
 
 describe('native alarm schedulers', () => {
   it('generates safely escaped launchd artifacts and an argv-only command', async () => {
@@ -62,6 +74,22 @@ describe('native alarm schedulers', () => {
     expect(adapter.capabilities().message).toMatch(/systemd/i);
   });
 
+  it('retains scheduler health and repair artifacts when systemctl is unavailable',async()=>{
+    const run=vi.fn();const removeFile=vi.fn();const health={record:vi.fn(),list:()=>[],get:()=>[],remove:vi.fn()};
+    const adapter=createSchedulerAdapter({platform:'linux',home:'/missing-radiocli-home',env:{},commandExists:()=>false,run,removeFile,writeFile:vi.fn()});
+    const service=new SchedulerService(adapter,()=>new Date(),health as never);
+    await expect(service.remove(alarm.id)).rejects.toThrow(/systemctl.*unavailable|verify.*remov|verify.*absence/i);
+    expect(health.remove).not.toHaveBeenCalled();expect(removeFile).not.toHaveBeenCalled();expect(run).not.toHaveBeenCalled();
+    expect(health.record).toHaveBeenCalledWith(expect.objectContaining({alarmId:alarm.id,component:'scheduler',healthy:false,message:expect.stringContaining('retained')}));
+  });
+
+  it('allows removal of a definition on a runtime with no native scheduler adapter',async()=>{
+    const run=vi.fn();const adapter=createSchedulerAdapter({platform:'freebsd',env:{},run});
+    const health={record:vi.fn(),list:()=>[],get:()=>[],remove:vi.fn()};
+    await expect(new SchedulerService(adapter,()=>new Date(),health as never).remove(alarm.id)).resolves.toBeUndefined();
+    expect(health.remove).toHaveBeenCalledWith(alarm.id);expect(run).not.toHaveBeenCalled();
+  });
+
   it('creates a current-user Windows task with wake and local interactive audio semantics', async () => {
     const write=vi.fn();const run=vi.fn(async()=>({code:0,stdout:'',stderr:''}));
     const adapter=createSchedulerAdapter({platform:'win32',home:'C:\\Users\\A B',nodePath:'C:\\Node A\\node.exe',cliPath:'C:\\Radio A\\dist\\cli.js',writeFile:write,removeFile:vi.fn(),run,env:{LOCALAPPDATA:'C:\\Data A',RADIOCLI_HOME:'C:\\Profile & A'}});
@@ -74,16 +102,57 @@ describe('native alarm schedulers', () => {
     expect(artifact).toContain('<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>');
     expect(artifact).toContain('<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>');
     expect(artifact).toContain('encoding="UTF-8"');
-    expect(artifact).toContain('RADIOCLI_HOME=C:\\Profile ^&amp; A&quot; &amp;&amp;');
-    expect(artifact).toContain('RADIOCLI_ALARM_TERMINAL=win32:console');
+    const invocation=windowsTaskInvocation(artifact);
+    expect(invocation.command).toBe('C:\\Node A\\node.exe');
+    expect(JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8')).environment).toEqual({RADIOCLI_HOME:'C:\\Profile & A',RADIOCLI_ALARM_TERMINAL:'win32:console'});
     expect(artifact).not.toContain('&amp;amp;');
     expect(adapter.capabilities().exactWake).toBe(false);
     expect((run.mock.calls as unknown as Array<[string,string[]]>)[0]?.[1]).toContain('/XML');
   });
 
+  it('preserves literal Windows job arguments and approved environment values',async()=>{
+    const root=mkdtempSync(join(tmpdir(),'radiocli-windows-job-'));
+    try{
+      const cliPath=join(root,"Radio $ %PATH%! & ' 单播.cjs");const writes:Array<[string,string]>=[];
+      const configured={RADIOCLI_HOME:"C:\\Data %PATH%! & ' 单播",RADIOCLI_MPV_PATH:"C:\\Players %PATH%! & ' 单播\\mpv.exe",RADIOCLI_FFPLAY_PATH:'C:\\Players A\\ffplay.exe',RADIOCLI_VLC_PATH:'C:\\Players A\\vlc.exe',RADIOCLI_FFMPEG_PATH:'C:\\Players A\\ffmpeg.exe',RADIOCLI_OFFLINE:'0',RADIOCLI_LOW_BANDWIDTH:'1'};
+      writeFileSync(cliPath,`process.stdout.write(JSON.stringify({args:process.argv.slice(2),environment:Object.fromEntries(${JSON.stringify(Object.keys(configured))}.map(key=>[key,process.env[key]]))}))`);
+      const adapter=createSchedulerAdapter({platform:'win32',home:root,nodePath:process.execPath,cliPath,env:{...configured,HTTPS_PROXY:'https://private-password@proxy.invalid'},writeFile:(path,body)=>writes.push([path,body]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
+      await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));
+      const {command,args}=windowsTaskInvocation(writes[0]![1]);expect(command).toBe(process.execPath);expect(args).toHaveLength(3);expect(args[0]).toBe('-e');
+      const payload=JSON.parse(Buffer.from(args.at(-1)!,'base64url').toString('utf8'));expect(payload.environment).toEqual({...configured,RADIOCLI_ALARM_TERMINAL:'win32:console'});expect(JSON.stringify(payload)).not.toContain('private-password');
+      const output=execFileSync(command,args,{encoding:'utf8',windowsHide:true});
+      expect(JSON.parse(output)).toEqual({args:['alarm','internal-run',alarm.id,'2030-02-03T14:05:00.000Z'],environment:configured});
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
+
   it('pins systemd timers in UTC and escapes specifiers',async()=>{
     const writes:Array<[string,string]>=[];const adapter=createSchedulerAdapter({platform:'linux',home:'/home/a',nodePath:'/node%p',cliPath:'/app%h/cli.js',writeFile:(p,c)=>writes.push([p,c]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''})),commandExists:()=>true,env:{RADIOCLI_HOME:'/data%u'}});
     await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));const units=writes.map(item=>item[1]).join('\n');expect(units).toContain('2030-02-03 14:05:00 UTC');expect(units).toContain('/node%%p');expect(units).toContain('RADIOCLI_HOME=/data%%u');
+  });
+
+  it('disables systemd command expansion while preserving literal environment values',async()=>{
+    const writes:Array<[string,string]>=[];
+    const adapter=createSchedulerAdapter({platform:'linux',home:'/home/a',nodePath:'/Node $ ${CUSTOM} % 单播/node',cliPath:'/app-${CUSTOM}/% spaced 单播/cli.js',env:{RADIOCLI_HOME:'/data $ ${CUSTOM} % 单播'},commandExists:()=>true,writeFile:(path,body)=>writes.push([path,body]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
+    await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));
+    const service=writes.find(([path])=>path.endsWith('.service'))![1];
+    expect(service).toContain('ExecStart=:"/Node $ ${CUSTOM} %% 单播/node" "/app-${CUSTOM}/%% spaced 单播/cli.js"');
+    expect(service).toContain('Environment="RADIOCLI_HOME=/data $ ${CUSTOM} %% 单播"');
+    expect(service).not.toContain('$$');
+  });
+
+  it.each(['darwin','linux'] as const)('preserves explicit player locations and network policy without proxy secrets in %s jobs',async platform=>{
+    const writes:Array<[string,string]>=[];
+    const configured={RADIOCLI_MPV_PATH:'/Players A/mpv',RADIOCLI_FFPLAY_PATH:'/Players A/ffplay',RADIOCLI_VLC_PATH:'/Players A/vlc',RADIOCLI_FFMPEG_PATH:'/Players A/ffmpeg',RADIOCLI_OFFLINE:'0',RADIOCLI_LOW_BANDWIDTH:'1'};
+    const adapter=createSchedulerAdapter({platform,home:'/home/a',nodePath:'/node',cliPath:'/cli.js',env:{...configured,HTTPS_PROXY:'https://proxy-user:private-password@proxy.invalid',ARBITRARY_SECRET:'private-secret'},commandExists:()=>true,writeFile:(path,body)=>writes.push([path,body]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
+    await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));
+    const artifact=writes.map(([,body])=>body).join('\n');
+    for(const [key,value] of Object.entries(configured))expect(artifact).toContain(platform==='darwin'?`<key>${key}</key><string>${value}</string>`:`Environment="${key}=${value}"`);
+    expect(artifact).not.toMatch(/proxy-user|private-password|private-secret|HTTPS_PROXY|ARBITRARY_SECRET/);
+  });
+
+  it.each(['darwin','linux','win32'] as const)('rejects control characters in an approved %s job environment before writing artifacts',async platform=>{
+    const writeFile=vi.fn();const adapter=createSchedulerAdapter({platform,home:'/home/a',nodePath:'/node',cliPath:'/cli.js',env:{RADIOCLI_MPV_PATH:'/tools/mpv\nInjected=value'},commandExists:()=>true,writeFile,removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
+    await expect(adapter.install(alarm,new Date('2030-02-03T14:05:00Z'))).rejects.toThrow(/RADIOCLI_MPV_PATH.*control/i);expect(writeFile).not.toHaveBeenCalled();
   });
 
   it('removes disabled alarms and reschedules enabled alarms', async () => {

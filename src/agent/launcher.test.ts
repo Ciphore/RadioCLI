@@ -13,6 +13,14 @@ const spawn=vi.fn((command:string,args:readonly string[])=>{calls.push({command,
 beforeEach(()=>{calls.length=0;spawn.mockClear();vi.mocked(nodeSpawn).mockImplementation(spawn as unknown as typeof nodeSpawn);});
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllEnvs();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 function fixture(){const root=mkdtempSync(join(tmpdir(),'radiocli-launcher-'));roots.push(root);return root;}
+function nodeInvocation(args: readonly string[]): {command: string; args: string[]} {
+  const encoded = args[args.indexOf('-EncodedCommand') + 1];
+  const script = Buffer.from(encoded!, 'base64').toString('utf16le');
+  const match = /FromBase64String\('([^']+)'\)/.exec(script);
+  expect(match).not.toBeNull();
+  const invocation = JSON.parse(Buffer.from(match![1]!, 'base64').toString('utf8')) as {command: string; args: string[]};
+  return invocation.args.includes('-EncodedCommand') ? nodeInvocation(invocation.args) : invocation;
+}
 
 describe('agent graphical launcher',()=>{
   it('does not resolve a directory as a command',()=>{const root=fixture();const path=join(root,'radiocli-test-command');mkdirSync(path);expect(resolveExecutable(path,{PATH:root},'linux')).toBeUndefined();});
@@ -24,7 +32,7 @@ describe('agent graphical launcher',()=>{
     await launchRadioTui(nodePath,cliPath,'encoded-agent-command',{platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:terminal,RADIOCLI_HOME:home},spawn,resolve:command=>command});
     const call=calls[0]!;expect(call.command).not.toBe('cmd.exe');const encoded=call.args[call.args.indexOf('-EncodedCommand')+1];expect(call.args).toContain('-EncodedCommand');
     const script=Buffer.from(encoded!,'base64').toString('utf16le');const match=/FromBase64String\('([^']+)'\)/.exec(script);expect(match).not.toBeNull();
-    const invocation=JSON.parse(Buffer.from(match![1]!,'base64').toString('utf8')) as {command:string;args:string[]};expect(invocation.command).toBe(nodePath);
+    const invocation=nodeInvocation(call.args);expect(invocation.command).toBe(nodePath);
     const payload=JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8'));
     expect(payload).toEqual({args:[cliPath,'agent-ui','encoded-agent-command'],environment:{RADIOCLI_HOME:home}});expect(script).not.toContain(home);expect(script).not.toContain(cliPath);
   });

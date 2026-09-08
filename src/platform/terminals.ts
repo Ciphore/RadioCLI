@@ -3,6 +3,7 @@ import {posix,win32} from 'node:path';
 import {resolveCommandDetails} from './executables.js';
 import {identifyPlatform,nativeAdapters} from './runtime.js';
 import {powershellCommand} from './shell.js';
+import {launchEnvironment, nodeLaunchCommand} from './launch-command.js';
 
 export type TerminalResolver=(command:string)=>string|undefined;
 type TerminalSpawn=(command:string,args:readonly string[])=>ChildProcess;
@@ -38,7 +39,7 @@ export function detectGraphicalTerminal(platform:NodeJS.Platform=process.platfor
   }
   if(adapter!=='unix'||!hasDisplay(env))return unsupported;
   if(configured){
-    const separator=configured.indexOf(':');const prefix=configured.slice(0,separator);
+    const separator=configured.indexOf(':');const prefix=separator<0?'':configured.slice(0,separator);
     if(prefix===host.id||prefix==='linux'){
       const path=resolveUnixTerminal(configured.slice(separator+1),env,resolve);
       return path?`${prefix}:${path}`:unsupported;
@@ -55,16 +56,17 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
   const platform=options.platform??process.platform;const env=options.env??process.env;const resolve=options.resolve??resolver(platform,env);
   const terminal=detectGraphicalTerminal(platform,env,resolve);const values=[options.nodePath,...options.args];
   if(values.some(value=>value.includes('\0')))throw new Error('Terminal command values cannot contain NUL bytes.');
-  const home=env.RADIOCLI_HOME;
+  const environment=launchEnvironment(env);
   if(terminal.endsWith(':unsupported')){
     if(nativeAdapters(identifyPlatform({platform,env})).terminal==='unix'&&!hasDisplay(env))throw new Error('No graphical desktop session is available: DISPLAY and WAYLAND_DISPLAY are unset. Open radiocli manually for controls.');
     throw new Error('No supported installed graphical terminal was found. Open radiocli manually for controls.');
   }
   if(terminal==='darwin:apple-terminal'||terminal==='darwin:iterm'){
-    const command=`${home!==undefined?`RADIOCLI_HOME=${shellQuote(home)} `:''}${values.map(shellQuote).join(' ')}${options.closeOnExit?'; exit':''}`;
+    const assignments=Object.entries(environment).map(([key,value])=>`${key}=${shellQuote(value)}`).join(' ');
+    const command=`${assignments?`${assignments} `:''}${values.map(shellQuote).join(' ')}${options.closeOnExit?'; exit':''}`;
     return{terminal,command:'/usr/bin/osascript',args:terminal==='darwin:apple-terminal'?appleTerminalScript(command):iTermScript(command)};
   }
-  const direct=home===undefined?values:nodeBootstrap(options.nodePath,options.args,{RADIOCLI_HOME:home});
+  const direct=Object.keys(environment).length?nodeLaunchCommand(options.nodePath,options.args,environment):values;
   if(terminal==='darwin:wezterm')return{terminal,command:'/usr/bin/open',args:['-na','WezTerm','--args','start','--always-new-process','--',...direct]};
   if(terminal==='darwin:ghostty')return{terminal,command:'/usr/bin/open',args:['-na','Ghostty','--args','-e',...direct]};
   if(terminal==='darwin:kitty')return{terminal,command:'/usr/bin/open',args:['-na','kitty','--args','--detach',...direct]};
@@ -74,9 +76,9 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
     if(!powershell)throw new Error('PowerShell is unavailable; a RadioCLI terminal cannot be requested.');
     // PowerShell 5 does not preserve arbitrary native argv quoting. Only a
     // fixed quote-free Node program and encoded JSON cross that boundary.
-    const command=nodeBootstrap(options.nodePath,options.args,home===undefined?{}:{RADIOCLI_HOME:home});
+    const command=nodeLaunchCommand(options.nodePath,options.args,environment);
     const args=powershellCommand(command,{}, {keepOpen:!options.closeOnExit});
-    if(terminal==='win32:console')return{terminal,command:powershell,args};
+    if(terminal==='win32:console')return{terminal,command:powershell,args:newWindowsConsole(powershell,args)};
     const wt=resolve('wt.exe')??(env.LOCALAPPDATA?resolve(win32.join(env.LOCALAPPDATA,'Microsoft','WindowsApps','wt.exe')):undefined);
     if(!wt)throw new Error('Windows Terminal is unavailable; the saved terminal cannot be requested.');
     return{terminal,command:wt,args:['-w','new','new-tab','--title',options.title??'RadioCLI',powershell,...args]};
@@ -115,9 +117,17 @@ function resolveUnixTerminal(input:string,env:NodeJS.ProcessEnv,resolve:Terminal
   const path=resolve(input);return path&&unixTerminals.some(item=>item.name===posix.basename(path))?path:undefined;
 }
 function shellQuote(value:string):string{return`'${value.replaceAll("'",`'\\''`)}'`;}
-function nodeBootstrap(nodePath:string,args:readonly string[],environment:Record<string,string>):string[]{
-  const program="const p=JSON.parse(Buffer.from(process.argv[1],'base64url').toString('utf8'));const r=require('node:child_process').spawnSync(process.execPath,p.args,{stdio:'inherit',env:{...process.env,...p.environment}});if(r.error)console.error(r.error.message);process.exit(r.status??1);";
-  return[nodePath,'-e',program,Buffer.from(JSON.stringify({args,environment}),'utf8').toString('base64url')];
+function newWindowsConsole(powershell: string, args: readonly string[]): string[] {
+  const payload = Buffer.from(JSON.stringify({command: powershell, args}), 'utf8').toString('base64');
+  // Node's detached Windows launcher has NUL stdio. Start-Process must create
+  // a separate console without -NoNewWindow or any standard-stream redirection.
+  // Its ArgumentList joins values, so only fixed flags and encoded data go in it.
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    `$radiocliConsole=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json`,
+    'Start-Process -FilePath ([string]$radiocliConsole.command) -ArgumentList ([string[]]$radiocliConsole.args) -WindowStyle Normal'
+  ].join(';');
+  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
 }
 function appleTerminalScript(command:string):string[]{return['-e','on run argv','-e','tell application "Terminal"','-e','activate','-e','do script (item 1 of argv)','-e','end tell','-e','end run',command];}
 function iTermScript(command:string):string[]{return['-e','on run argv','-e','tell application "iTerm"','-e','activate','-e','set w to (create window with default profile)','-e','tell current session of w to write text (item 1 of argv)','-e','end tell','-e','end run',command];}

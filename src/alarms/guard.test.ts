@@ -129,5 +129,91 @@ describe('one-shot alarm guard',()=>{
   });
 });
 
+describe('alarm-specific Guard ownership', () => {
+  const oldOccurrence = '2030-01-01T00:01:00.000Z';
+  const nameFor = (alarmId: string) => `${Buffer.from(`${alarmId}\0${oldOccurrence}`).toString('base64url')}.json`;
+  const ownerFor = (alarmId: string) => JSON.stringify({alarmId, occurrenceAt: oldOccurrence, pid: process.pid, port: 43210, token: 'a'.repeat(64)});
+
+  async function withRecord(name: string, contents: string, check: (fixture: {
+    service: AlarmGuardService;
+    alarm: Alarm;
+    path: string;
+    directory: string;
+    spawn: ReturnType<typeof vi.fn>;
+  }) => Promise<void>): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-guard-record-scope-'));
+    try {
+      const directory = join(root, 'guards');
+      mkdirSync(directory);
+      const path = join(directory, name);
+      writeFileSync(path, contents);
+      const store = new AlarmPowerGuardStore(join(root, 'power.json'));
+      let spawnedToken: string | undefined;
+      const spawn = vi.fn((_command: string, args: string[]) => {
+        const occurrenceAt = args.at(-3)!;
+        const pidPath = args.at(-2)!;
+        const token = args.at(-1)!;
+        spawnedToken = token;
+        writeFileSync(pidPath, JSON.stringify({alarmId: 'a', occurrenceAt, pid: process.pid, port: 43210, token}));
+        store.markActive('a', new Date(), occurrenceAt);
+        return {pid: process.pid, unref: vi.fn()};
+      });
+      const alarm: Alarm = {
+        id: 'a', label: 'Wake', enabled: true,
+        station: {id: 'x', provider: 'radio-browser', name: 'X', tags: []},
+        schedule: {type: 'once', at: '2030-01-01T00:02:00.000Z'},
+        playback: {volume: 30, fadeSeconds: 0, stopAfterMinutes: 30},
+        reliability: {missedRunGraceMinutes: 10, wakeIfSupported: false},
+        createdAt: 'x', updatedAt: 'x'
+      };
+      const service = new AlarmGuardService(store, 'node', 'cli.js', spawn, () => new Date('2030-01-01T00:00:00Z'), directory, async owner => owner.token === spawnedToken, vi.fn(async () => false));
+      await check({service, alarm, path, directory, spawn});
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  }
+
+  it.each([
+    {name: 'partial.json', contents: '{"alarmId":', reason: 'an undecodable filename'},
+    {name: nameFor('b'), contents: '{"alarmId":', reason: 'another alarm encoded in its filename'},
+    {name: nameFor('a'), contents: ownerFor('b'), reason: 'a parsed owner ID that differs from its filename'}
+  ])('starts an unrelated alarm despite $reason', async ({name, contents}) => {
+    await withRecord(name, contents, async ({service, alarm, path, spawn}) => {
+      await expect(service.start(alarm)).resolves.toMatchObject({pid: process.pid, occurrenceAt: alarm.schedule.type === 'once' ? alarm.schedule.at : undefined});
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(readFileSync(path, 'utf8')).toBe(contents);
+    });
+  });
+
+  it.each([
+    {name: nameFor('a'), contents: '{"alarmId":', reason: 'its own encoded filename'},
+    {name: nameFor('b'), contents: ownerFor('a'), reason: 'its own parsed owner ID'}
+  ])('blocks a replacement identified by $reason', async ({name, contents}) => {
+    await withRecord(name, contents, async ({service, alarm, path, spawn}) => {
+      await expect(service.start(alarm)).rejects.toThrow(/ownership.*repair/i);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(readFileSync(path, 'utf8')).toBe(contents);
+    });
+  });
+
+  it('reports one alarm stopped while retaining an unknown record for global repair', async () => {
+    await withRecord('partial.json', '{"alarmId":', async ({service, path, directory}) => {
+      const knownPath = join(directory, nameFor('a'));
+      writeFileSync(knownPath, ownerFor('a'));
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => {throw Object.assign(new Error('No process'), {code: 'ESRCH'});});
+      try {
+        expect(await service.stop('a')).toBe(true);
+        expect(() => readFileSync(knownPath)).toThrow();
+        expect(await service.stop()).toBe(false);
+        expect(await service.status()).toMatchObject({active: false, guards: [], unresolvedGuards: [{message: expect.stringContaining('retained for repair')}]});
+        expect(readFileSync(path, 'utf8')).toBe('{"alarmId":');
+        expect(kill.mock.calls.every(call => call[1] === 0)).toBe(true);
+      } finally {
+        kill.mockRestore();
+      }
+    });
+  });
+});
+
 function readFile(path:string){try{readFileSync(path);return true;}catch{return false;}}
 function controlRequest(port:number,token:string,method:string,path:string,host='127.0.0.1'):Promise<{status:number;body:string}>{return new Promise((resolve,reject)=>{const req=request({host,port,path,method,agent:false,headers:{authorization:`Bearer ${token}`}},res=>{let body='';res.on('data',chunk=>body+=String(chunk));res.on('end',()=>resolve({status:res.statusCode??0,body}));});req.once('error',reject);req.end();});}
