@@ -53,7 +53,7 @@ export function MapScreen({
         right={filter ? `filter: ${filter}` : undefined}
       />
       {loading ? <Text color={textMuted}>{asciify('Loading country density…')}</Text> : null}
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1} flexDirection="column" aria-hidden>
         {graph.rows.map((row, index) => (
           <MapLine key={`map-row-${index}`} row={row} theme={theme} />
         ))}

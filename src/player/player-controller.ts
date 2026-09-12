@@ -1,16 +1,16 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {existsSync, unlinkSync} from 'node:fs';
-import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import type {AirPlayDevice, AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
-import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
-import {resolveCommand} from './command.js';
+import {airPlayMacOSOnlyMessage, detectPlaybackBackends, ffplayLimitedControlsMessage, isAirPlayPlatformSupported, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
+import {resolveCommand} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 import {encodeWorkerStart, parseWorkerMessage, serializeWorkerMessage, type AirPlayWorkerCommand, type AirPlayWorkerEvent} from './airplay-worker-protocol.js';
 import {safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {MpvIpcClient} from './mpv-ipc-client.js';
+import {mpvIpcPath} from '../platform/ipc.js';
 
 export type PlayerEvent = (state: PlaybackState) => void;
 export type MetadataEvent = (metadata: IcyNowPlaying) => void;
@@ -20,6 +20,21 @@ export type PlaybackControlResult = {
 };
 
 const minAirPlayTuneTimeoutSeconds = 30;
+const maxPlayerDiagnosticCharacters = 4096;
+
+type PlayerRuntime = {
+  platform: NodeJS.Platform;
+  arch: string;
+  env: NodeJS.ProcessEnv;
+};
+
+type PlayerExit = {
+  backend: 'mpv' | 'ffplay' | 'vlc' | 'airplay';
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  diagnostic: string;
+  spawnError?: boolean;
+};
 
 export class PlaybackOutputError extends Error {
   constructor(message: string) {
@@ -57,13 +72,19 @@ export class PlayerController {
   private currentMpvMediaTitle: string | null = null;
   private metadataPollInFlight = false;
   private playbackStatePollInFlight = false;
+  private mpvLiveRetuneInFlight = false;
   private pendingMpvVolume: number | null = null;
   private mpvVolumeFlush: Promise<PlaybackControlResult> | null = null;
   private confirmedMpvVolume = 70;
   private mpvSessionId = 0;
+  private playbackSessionId = 0;
   private stopPromise: Promise<void> | null = null;
+  private lastPlayerExit: PlayerExit | null = null;
 
-  constructor(private readonly getSettings: () => AppSettings) {}
+  constructor(
+    private readonly getSettings: () => AppSettings,
+    private readonly runtime: PlayerRuntime = {platform: process.platform, arch: process.arch, env: process.env}
+  ) {}
 
   onChange(listener: PlayerEvent): () => void {
     this.listeners.add(listener);
@@ -100,7 +121,7 @@ export class PlayerController {
   }
 
   refreshDetectedBackends(): string[] {
-    this.availableBackends = detectPlaybackBackends();
+    this.availableBackends = detectPlaybackBackends({platform: this.runtime.platform});
     return this.detectedBackends();
   }
 
@@ -199,7 +220,25 @@ export class PlayerController {
     });
     if (backend === 'mpv') {
       this.playWithMpv(url, station.name);
-      await this.waitForReady(backend);
+      try {
+        await this.waitForReady(backend);
+      } catch (error) {
+        if (!this.shouldRetryMpvWithAlsa(error)) throw error;
+        await this.stop();
+        this.backend = backend;
+        this.setState({
+          backend,
+          state: 'loading',
+          message: `Opening ${station.name}`,
+          volume: this.getSettings().volume,
+          muted: false,
+          stationName: station.name,
+          streamUrl: url,
+          ready: false
+        });
+        this.playWithMpv(url, station.name, 'alsa,');
+        await this.waitForReady(backend);
+      }
     } else if (backend === 'ffplay') {
       this.playWithFfplay(url);
       await this.waitForReady(backend);
@@ -235,6 +274,9 @@ export class PlayerController {
     }
 
     if (this.backend === 'mpv') {
+      if (this.state.state === 'paused') {
+        return this.resumeMpvAtLiveEdge();
+      }
       try {
         await this.sendMpv({command: ['cycle', 'pause']});
       } catch {
@@ -266,6 +308,28 @@ export class PlayerController {
     if (this.state.state === 'playing') return {ok: true};
     if (this.state.state !== 'paused') return {ok: false, message: 'RadioCLI has no paused station to resume.'};
     return this.togglePause();
+  }
+
+  private async resumeMpvAtLiveEdge(): Promise<PlaybackControlResult> {
+    if (this.mpvLiveRetuneInFlight) return {ok: true, message: 'Reconnecting at the live broadcast.'};
+    const url = this.state.streamUrl ? safeMediaTarget(this.state.streamUrl) : null;
+    if (!url) return {ok: false, message: 'The paused station no longer has a usable stream URL.'};
+    this.mpvLiveRetuneInFlight = true;
+    try {
+      // Reloading the same URL discards mpv's delayed live buffer and opens a
+      // fresh stream connection. This keeps radio pause/play semantics at the
+      // live edge instead of behaving like time-shifted on-demand audio.
+      await this.sendMpv({command: ['loadfile', url, 'replace']});
+      await this.sendMpv({command: ['set_property', 'pause', false]});
+    } catch {
+      return {ok: false, message: 'mpv could not reconnect the paused station at the live edge.'};
+    } finally {
+      this.mpvLiveRetuneInFlight = false;
+    }
+    this.currentMpvMediaTitle = cleanMediaTitle(this.state.stationName ?? '') ?? 'RadioCLI';
+    this.emitMetadata({updatedAt: new Date().toISOString()});
+    this.setState({...this.state, state: 'playing', ready: true, startedAt: new Date().toISOString()});
+    return {ok: true, message: 'Reconnected at the live broadcast.'};
   }
 
   setVolume(volume: number): Promise<PlaybackControlResult> {
@@ -315,8 +379,28 @@ export class PlayerController {
   }
 
   async setMuted(muted: boolean): Promise<PlaybackControlResult> {
-    if (this.state.muted === muted) return {ok: true};
-    return this.toggleMute();
+    const unsupported = this.unsupportedFfplayControl();
+    if (unsupported) return this.state.muted === muted ? {ok: true} : unsupported;
+
+    // mpv can inherit mute=yes from its configuration, so the controller's
+    // startup default is not authoritative. Explicit setters must always reach
+    // the backend even when the requested value matches our local state.
+    if (this.backend === 'mpv') {
+      try {
+        await this.sendMpv({command: ['set_property', 'mute', muted]});
+      } catch {
+        return {ok: false, message: 'mpv did not acknowledge the mute change.'};
+      }
+    } else if (this.backend === 'airplay') {
+      if (!this.sendAirPlayCommand({type: 'setMuted', muted})) {
+        return {ok: false, message: 'The AirPlay worker is not available.'};
+      }
+    } else if (this.state.muted === muted) {
+      return {ok: true};
+    }
+
+    this.setState({...this.state, muted});
+    return {ok: true};
   }
 
   stop(): Promise<void> {
@@ -387,7 +471,7 @@ export class PlayerController {
   }
 
   async refreshAirPlayDevices(): Promise<AirPlayDevice[]> {
-    this.availableAirPlayDevices = await discoverAirPlayDevices();
+    this.availableAirPlayDevices = await discoverAirPlayDevices({platform: this.runtime.platform});
     return [...this.availableAirPlayDevices];
   }
 
@@ -432,6 +516,9 @@ export class PlayerController {
   private playbackUnavailableMessage(): string {
     const preferred = this.getSettings().preferredBackend;
     if (preferred === 'airplay') {
+      if (!isAirPlayPlatformSupported(this.runtime.platform)) {
+        return airPlayMacOSOnlyMessage;
+      }
       return `AirPlay is not ready on this install. Run radiocli doctor. ${airPlaySenderHealth().message}`;
     }
 
@@ -442,8 +529,9 @@ export class PlayerController {
     return `No playback backend found. ${playbackBackendInstallHint()}`;
   }
 
-  private playWithMpv(url: string, initialTitle: string): void {
-    this.ipcPath = createMpvIpcPath();
+  private playWithMpv(url: string, initialTitle: string, recoveredAudioOutput?: string): void {
+    this.playbackSessionId += 1;
+    this.ipcPath = mpvIpcPath();
     this.mpvIpcClient = new MpvIpcClient(this.ipcPath);
     this.mpvSessionId += 1;
     this.confirmedMpvVolume = clampVolume(this.getSettings().volume);
@@ -453,9 +541,11 @@ export class PlayerController {
       resolveCommand('mpv') ?? 'mpv',
       [
         '--no-video',
-        '--really-quiet',
+        '--msg-level=all=warn',
         '--force-window=no',
-        ...(process.env.RADIOCLI_MPV_AUDIO_OUTPUT ? [`--ao=${process.env.RADIOCLI_MPV_AUDIO_OUTPUT}`] : []),
+        ...(recoveredAudioOutput || this.runtime.env.RADIOCLI_MPV_AUDIO_OUTPUT
+          ? [`--ao=${recoveredAudioOutput ?? this.runtime.env.RADIOCLI_MPV_AUDIO_OUTPUT}`]
+          : []),
         `--force-media-title=${this.currentMpvMediaTitle}`,
         `--volume=${this.getSettings().volume}`,
         `--input-ipc-server=${this.ipcPath}`,
@@ -469,6 +559,7 @@ export class PlayerController {
   }
 
   private playWithFfplay(url: string): void {
+    this.playbackSessionId += 1;
     this.process = spawn(resolveCommand('ffplay') ?? 'ffplay', ['-nodisp', '-hide_banner', '-loglevel', 'error', '-volume', String(this.getSettings().volume), '-autoexit', url], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -476,6 +567,7 @@ export class PlayerController {
   }
 
   private playWithVlc(url: string): void {
+    this.playbackSessionId += 1;
     // VLC ships a `cvlc` shim for headless playback; fall back to the main `vlc`
     // binary (resolved from app bundles when off PATH) with a dummy interface.
     const binary = resolveCommand('cvlc') ?? resolveCommand('vlc') ?? 'cvlc';
@@ -730,9 +822,19 @@ export class PlayerController {
 
   private wireProcess(): void {
     const child = this.process;
-    if (!child) {
+    const backend = this.backend;
+    if (!child || !backend) {
       return;
     }
+
+    this.lastPlayerExit = null;
+    let diagnostic = '';
+    child.stdout.on('data', chunk => {
+      diagnostic = appendPlayerDiagnostic(diagnostic, String(chunk));
+    });
+    child.stderr.on('data', chunk => {
+      diagnostic = appendPlayerDiagnostic(diagnostic, String(chunk));
+    });
 
     // Local players can write diagnostics indefinitely. Drain both pipes so a
     // full OS pipe buffer can never stall playback.
@@ -740,17 +842,32 @@ export class PlayerController {
     child.stderr.resume?.();
 
     child.on('error', error => {
+      diagnostic = appendPlayerDiagnostic(diagnostic, error.message);
+      if (this.process !== child) return;
+      this.lastPlayerExit = {backend, code: null, signal: null, diagnostic, spawnError: true};
+      this.rejectPendingAirPlayReady(error);
+      this.rejectPendingAirPlayRetune(error);
+      if (backend === 'airplay') {
+        this.currentAirPlayDevice = null;
+        this.currentAirPlayDeviceId = null;
+        this.pendingAirPlayPasscode = null;
+        this.airPlaySessionEstablished = false;
+      }
+      this.process = null;
+      this.stopMpvPolling();
+      this.cleanupIpc();
       this.setState({
         ...this.state,
-        backend: this.backend ?? 'none',
+        backend,
         state: 'error',
         message: error.message,
         ready: false
       });
     });
 
-    child.on('exit', code => {
+    child.on('exit', (code, signal) => {
       if (this.process === child) {
+        this.lastPlayerExit = {backend, code, signal, diagnostic};
         this.rejectPendingAirPlayRetune(new Error('AirPlay worker exited.'));
         if (this.backend === 'airplay') {
           this.currentAirPlayDevice = null;
@@ -885,21 +1002,35 @@ export class PlayerController {
   private async waitForReady(backend: 'mpv' | 'ffplay' | 'vlc'): Promise<void> {
     const timeoutMs = this.getSettings().tuneTimeoutSeconds * 1000;
     const started = Date.now();
+    const child = this.process;
+    const playbackSessionId = this.playbackSessionId;
+    const mpvClient = this.mpvIpcClient;
+    const wasSuperseded = () => this.playbackSessionId !== playbackSessionId;
+    const isCurrent = () => !wasSuperseded() && this.process === child;
 
     while (Date.now() - started < timeoutMs) {
-      if (!this.process) {
-        throw new Error('Player exited before the stream became ready.');
+      if (wasSuperseded()) {
+        throw new Error(`${backend} playback request was superseded.`);
+      }
+      if (!child || this.process !== child) {
+        throw this.playerExitedBeforeReady(backend);
       }
 
       if (backend === 'ffplay' || backend === 'vlc') {
-        await waitForStartupWindow(() => this.process, Math.min(500, timeoutMs));
+        await waitForStartupWindow(
+          () => this.process === child ? child : null,
+          Math.min(500, timeoutMs),
+          () => this.playerExitedBeforeReady(backend)
+        );
+        if (wasSuperseded()) throw new Error(`${backend} playback request was superseded.`);
+        if (!isCurrent()) throw this.playerExitedBeforeReady(backend);
         return;
       }
 
-      if (this.ipcPath) {
+      if (mpvClient) {
         try {
-          await this.queryMpv({command: ['get_property', 'path']});
-          if (await this.hasMpvAudioStarted()) {
+          await mpvClient.query({command: ['get_property', 'path']});
+          if (await this.hasMpvAudioStarted(mpvClient) && isCurrent()) {
             return;
           }
         } catch {
@@ -910,14 +1041,38 @@ export class PlayerController {
       await delay(150);
     }
 
+    if (wasSuperseded()) {
+      throw new Error(`${backend} playback request was superseded.`);
+    }
+    if (this.process !== child) throw this.playerExitedBeforeReady(backend);
     await this.stop();
     throw new Error(`Timed out while opening stream after ${this.getSettings().tuneTimeoutSeconds}s.`);
   }
 
-  private async hasMpvAudioStarted(): Promise<boolean> {
+  private shouldRetryMpvWithAlsa(error: unknown): boolean {
+    return this.runtime.platform === 'linux' &&
+      (this.runtime.arch === 'arm' || this.runtime.arch === 'arm64') &&
+      !this.runtime.env.RADIOCLI_MPV_AUDIO_OUTPUT &&
+      isAudioOutputInitializationFailure(this.lastPlayerExit?.diagnostic ?? '') &&
+      isPlaybackOutputError(error);
+  }
+
+  private playerExitedBeforeReady(backend: 'mpv' | 'ffplay' | 'vlc'): Error {
+    const exit = this.lastPlayerExit?.backend === backend ? this.lastPlayerExit : null;
+    const reason = exit
+      ? exit.signal ? `signal ${exit.signal}` : exit.code === null ? 'without an exit code' : `code ${exit.code}`
+      : 'before its exit status was available';
+    const diagnostic = concisePlayerDiagnostic(exit?.diagnostic ?? '');
+    const message = `${backend} exited before the stream became ready (${reason})${diagnostic ? `: ${diagnostic}` : '.'}`;
+    return isBackendInitializationFailure(backend, exit, diagnostic)
+      ? new PlaybackOutputError(message)
+      : new Error(message);
+  }
+
+  private async hasMpvAudioStarted(client: MpvIpcClient): Promise<boolean> {
     const [timePos, audioPts] = await Promise.all([
-      this.queryMpv<number>({command: ['get_property', 'time-pos']}).catch(() => null),
-      this.queryMpv<number>({command: ['get_property', 'audio-pts']}).catch(() => null)
+      client.query<number>({command: ['get_property', 'time-pos']}).catch(() => null),
+      client.query<number>({command: ['get_property', 'audio-pts']}).catch(() => null)
     ]);
 
     return typeof timePos === 'number' || typeof audioPts === 'number';
@@ -993,6 +1148,10 @@ export class PlayerController {
         return false;
       }
 
+      if (!paused && this.state.state === 'paused' && !this.mpvLiveRetuneInFlight) {
+        return (await this.resumeMpvAtLiveEdge()).ok;
+      }
+
       const state = paused ? 'paused' : 'playing';
       if (this.state.state !== state) {
         this.setState({...this.state, state});
@@ -1038,18 +1197,6 @@ export class PlayerController {
       listener(state);
     }
   }
-}
-
-export function createMpvIpcPath(
-  platform: NodeJS.Platform = process.platform,
-  pid = process.pid,
-  timestamp = Date.now()
-): string {
-  if (platform === 'win32') {
-    return `\\\\.\\pipe\\radiocli-${pid}-${timestamp}`;
-  }
-
-  return join(tmpdir(), `radiocli-${pid}-${timestamp}.sock`);
 }
 
 function airPlayWorkerPath(): string {
@@ -1123,15 +1270,54 @@ export function extractMpvTitle(metadata: Record<string, string> | null): string
   return undefined;
 }
 
-async function waitForStartupWindow(getProcess: () => ChildProcessWithoutNullStreams | null, ms: number): Promise<void> {
+async function waitForStartupWindow(
+  getProcess: () => ChildProcessWithoutNullStreams | null,
+  ms: number,
+  exitedError: () => Error = () => new Error('Player exited before the stream became ready.')
+): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < ms) {
     if (!getProcess()) {
-      throw new Error('Player exited before the stream became ready.');
+      throw exitedError();
     }
 
     await delay(Math.min(100, ms - (Date.now() - started)));
   }
+}
+
+function appendPlayerDiagnostic(current: string, chunk: string): string {
+  const combined = current + chunk;
+  return combined.length <= maxPlayerDiagnosticCharacters
+    ? combined
+    : combined.slice(-maxPlayerDiagnosticCharacters);
+}
+
+function concisePlayerDiagnostic(value: string): string {
+  const lines = value
+    .split(/\r?\n/)
+    .map(line => sanitizeTerminalText(line.replace(/https?:\/\/\S+/gi, '[stream URL]')))
+    .filter((line): line is string => Boolean(line))
+    .slice(-3)
+    .join(' · ')
+    .slice(0, 700);
+  return lines;
+}
+
+function isAudioOutputInitializationFailure(value: string): boolean {
+  return /audio output initialization failed|could not open\/initialize audio device|failed to initialize audio driver/i.test(value);
+}
+
+function isBackendInitializationFailure(
+  backend: 'mpv' | 'ffplay' | 'vlc',
+  exit: PlayerExit | null,
+  diagnostic: string
+): boolean {
+  if (isAudioOutputInitializationFailure(diagnostic)) return true;
+  if (exit?.spawnError) return true;
+  if (/unknown (?:command line )?option|error initializing|failed to (?:create|connect to) .*(?:socket|pipe)/i.test(diagnostic)) return true;
+  // mpv reserves status 1 for player initialization and invalid options. A
+  // stream that could not be played uses status 2 and remains skippable.
+  return backend === 'mpv' && exit?.code === 1;
 }
 
 function cleanMetadataTitle(value: string | undefined): string | undefined {

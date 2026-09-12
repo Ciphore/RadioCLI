@@ -36,8 +36,11 @@ export function computeTerminalLayout(columns = 100, rows = 30, footerRows = 2):
   const reservedFooterRows = Math.min(desiredFooterRows, Math.max(0, safeRows - topRows - 1));
   const contentRows = Math.max(1, safeRows - reservedFooterRows - topRows);
   const mapMode = frameWidth >= 88 && contentRows >= 24 ? 'full' : 'compact';
-  const stationRows = clamp(contentRows - 6, 1, 48);
-  const countryRows = clamp(contentRows - 5, 1, 64);
+  // Derive list windows from the live terminal height. Capping these values
+  // leaves the lower half of tall/full-screen terminals unused while the
+  // selection continues scrolling through rows that could already be visible.
+  const stationRows = Math.max(1, contentRows - 6);
+  const countryRows = Math.max(1, contentRows - 5);
 
   return {
     columns: safeColumns,

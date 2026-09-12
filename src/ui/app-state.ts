@@ -96,7 +96,7 @@ export const initialStationContexts: Record<StationContextKey, StationContext> =
   },
   library: {
     title: 'Library',
-    subtitle: 'Favorites, recent stations, and imported streams',
+    subtitle: 'Favorites, imported streams, and recent stations',
     stations: []
   }
 };
@@ -123,6 +123,18 @@ export function searchEditingArrowAction(
   }
 
   return null;
+}
+
+export function shouldTuneSearchResult(query: string, lastSubmittedQuery: string): boolean {
+  const trimmedQuery = query.trim();
+  return !trimmedQuery || trimmedQuery === lastSubmittedQuery.trim();
+}
+
+export function isSearchFavoriteShortcut(
+  input: string,
+  key: {ctrl?: boolean; meta?: boolean; super?: boolean}
+): boolean {
+  return input.toLowerCase() === 'f' && Boolean(key.ctrl || key.meta || key.super);
 }
 
 export function clampVolume(value: number): number {

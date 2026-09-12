@@ -52,6 +52,18 @@ describe('computeTerminalLayout', () => {
     expect(computeTerminalLayout(159, 45).countryRows).toBe(35);
   });
 
+  it('uses all available list rows in tall full-screen terminals', () => {
+    const layout = computeTerminalLayout(329, 91, 3);
+    const explore = computeExploreMapLayout(layout.frameWidth, layout.contentRows, layout.stationRows);
+
+    expect(layout.contentRows).toBe(85);
+    expect(layout.stationRows).toBe(79);
+    expect(layout.countryRows).toBe(80);
+    expect(layout.stationRows).toBeGreaterThan(48);
+    expect(layout.countryRows).toBeGreaterThan(64);
+    expect(explore.listPageSize).toBe(77);
+  });
+
   it('expands receiver width with wide terminals', () => {
     expect(computeTerminalLayout(200, 40).receiverWidth).toBe(198);
     expect(computeTerminalLayout(72, 24).receiverWidth).toBe(70);

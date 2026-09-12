@@ -38,7 +38,7 @@ export function TopTabs({tabs, active, theme, width, backendLabel}: TopTabsProps
   const tabPaddingWidth = Math.max(0, bodyWidth - visibleTabsWidth - (canShowRight ? rightWidth : 0));
 
   return (
-    <Box flexDirection="column" backgroundColor={background} width={width}>
+    <Box flexDirection="column" backgroundColor={background} width={width} aria-label={`RadioCLI. Tabs: ${tabs.map(tab => `${tab.label}${tab.screen === active ? ' (selected)' : ''}`).join(', ')}. Audio output: ${backendLabel}.`}>
       <Text backgroundColor={background}>
         <Text color={panelBorder}>{box.tl} </Text>
         <Text color={accent} bold>
@@ -51,7 +51,7 @@ export function TopTabs({tabs, active, theme, width, backendLabel}: TopTabsProps
         {visibleTabs.map((item, index) => (
           <Text key={item.type === 'overflow' ? `${item.side}-overflow` : item.tab.screen}>
             {item.type === 'overflow' ? (
-              <Text color={textMuted}>…</Text>
+              <Text color={textMuted}>{ascii ? '.' : '…'}</Text>
             ) : (
               <Text color={item.tab.screen === active ? accent : textMuted} bold={item.tab.screen === active}>
                 {item.tab.label}

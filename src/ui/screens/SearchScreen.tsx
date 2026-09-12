@@ -6,6 +6,7 @@ import {ScreenHeader} from '../components/ScreenHeader.js';
 import {panelBorder, textMuted, themeAccent} from '../theme.js';
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {truncate} from '../format.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type SearchScreenProps = {
   query: string;
@@ -35,6 +36,7 @@ export function SearchScreen({
   width
 }: SearchScreenProps): React.ReactElement {
   const {panel: panelBackground, ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const contentWidth = Math.max(40, width);
   const inputWidth = Math.max(34, Math.min(contentWidth, 96));
   const inputTextWidth = Math.max(8, inputWidth - 8);
@@ -59,10 +61,10 @@ export function SearchScreen({
         marginBottom={1}
         flexShrink={0}
       >
-        <Text color={editing ? themeAccent(theme) : textMuted}>{editing ? '› ' : '  '}</Text>
-        <Text color={query ? themeAccent(theme) : textMuted}>{truncate(query || 'Search stations, genres, languages, places…', inputTextWidth)}</Text>
+        <Text color={editing ? themeAccent(theme) : textMuted}>{a(editing ? '› ' : '  ')}</Text>
+        <Text color={query ? themeAccent(theme) : textMuted}>{a(truncate(query || 'Search stations, genres, languages, places…', inputTextWidth))}</Text>
       </Box>
-      {loading ? <Text color={textMuted}>Searching station directories…</Text> : null}
+      {loading ? <Text color={textMuted}>{a('Searching station directories…')}</Text> : null}
       {!loading || stations.length > 0 ? (
         <StationList
           stations={stations}

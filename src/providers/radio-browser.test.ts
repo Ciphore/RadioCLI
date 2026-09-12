@@ -1,6 +1,7 @@
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {createServer} from 'node:http';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {ProviderCache} from './cache.js';
 import {RadioBrowserProvider} from './radio-browser.js';
@@ -10,6 +11,8 @@ const roots: string[] = [];
 describe('RadioBrowserProvider', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
 
     for (const root of roots.splice(0)) {
       rmSync(root, {recursive: true, force: true});
@@ -172,6 +175,94 @@ describe('RadioBrowserProvider', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('discovers the current Radio Browser servers and ignores unsafe or non-HTTPS SRV records', async () => {
+    const resolveSrv = vi.fn(async () => [
+      {name: 'de1.api.radio-browser.info', port: 443, priority: 1, weight: 1},
+      {name: 'DE1.api.radio-browser.info.', port: 443, priority: 1, weight: 1},
+      {name: 'wrong.example.com', port: 443, priority: 1, weight: 100},
+      {name: 'insecure.api.radio-browser.info', port: 80, priority: 1, weight: 100}
+    ]);
+    const fetch = mockFetch(url => {
+      if (url.origin === 'https://all.api.radio-browser.info') {
+        return jsonResponse({message: 'unavailable'}, {status: 503, statusText: 'Service Unavailable'});
+      }
+      return jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}]);
+    });
+    const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});
+
+    await expect(provider.countries(10)).resolves.toEqual([{name: 'Japan', code: 'JP', stationCount: 500}]);
+    expect(resolveSrv).toHaveBeenCalledOnce();
+    expect(resolveSrv).toHaveBeenCalledWith('_api._tcp.radio-browser.info');
+    expect(fetch.mock.calls.map(([input]) => new URL(String(input)).origin)).toEqual([
+      'https://all.api.radio-browser.info',
+      'https://de1.api.radio-browser.info'
+    ]);
+
+    fetch.mockClear();
+    await provider.health();
+    expect(resolveSrv).toHaveBeenCalledOnce();
+  });
+
+  it('retries mirror discovery after a temporary DNS failure', async () => {
+    const resolveSrv = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('temporary DNS failure'), {code: 'EAI_AGAIN'}))
+      .mockResolvedValueOnce([{name: 'de1.api.radio-browser.info', port: 443, priority: 1, weight: 1}]);
+    const fetch = mockFetch(url => url.origin === 'https://de1.api.radio-browser.info'
+      ? jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}])
+      : jsonResponse({message: 'unavailable'}, {status: 503, statusText: 'Service Unavailable'}));
+    const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});
+
+    await expect(provider.countries(10)).rejects.toThrow(/unavailable/i);
+    await expect(provider.countries(10)).resolves.toEqual([{name: 'Japan', code: 'JP', stationCount: 500}]);
+    expect(resolveSrv).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.some(([input]) => new URL(String(input)).origin === 'https://de1.api.radio-browser.info')).toBe(true);
+  });
+
+  it('uses the canonical endpoint without waiting for DNS service discovery when it is healthy', async () => {
+    const resolveSrv = vi.fn(() => new Promise<never>(() => {}));
+    const fetch = mockFetch(() => jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}]));
+    const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});
+
+    await expect(provider.countries(10)).resolves.toEqual([{name: 'Japan', code: 'JP', stationCount: 500}]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(resolveSrv).not.toHaveBeenCalled();
+  });
+
+  it('recovers an EAI_AGAIN lookup with the TLS-preserving system-resolver fallback', async () => {
+    const systemFetch = mockFetch(() => {
+      throw new TypeError('fetch failed', {cause: Object.assign(new Error('temporary failure in name resolution'), {code: 'EAI_AGAIN'})});
+    });
+    const fallbackFetch = vi.fn(async (_input: string | URL, _init?: RequestInit) => jsonResponse([
+      {stationuuid: 'recovered-fm', name: 'Recovered FM', url: 'https://stream.example/live'}
+    ]));
+    const provider = new RadioBrowserProvider(
+      ['https://all.api.radio-browser.info'],
+      cacheForTest(),
+      {fetchWithSystemResolver: fallbackFetch, allowsDirectDnsFallback: () => true}
+    );
+
+    await expect(provider.popular(1)).resolves.toMatchObject([{id: 'recovered-fm', name: 'Recovered FM'}]);
+    expect(systemFetch).toHaveBeenCalledOnce();
+    expect(fallbackFetch).toHaveBeenCalledOnce();
+    expect(String(fallbackFetch.mock.calls[0]?.[0])).toContain('all.api.radio-browser.info/json/stations/search');
+  });
+
+  it('does not use the direct DNS fallback when proxy routing forbids it', async () => {
+    const systemFetch = mockFetch(() => {
+      throw new TypeError('fetch failed', {cause: Object.assign(new Error('temporary failure in name resolution'), {code: 'EAI_AGAIN'})});
+    });
+    const fallbackFetch = vi.fn(async (_input: string | URL, _init?: RequestInit) => jsonResponse([]));
+    const provider = new RadioBrowserProvider(
+      ['https://all.api.radio-browser.info'],
+      cacheForTest(),
+      {fetchWithSystemResolver: fallbackFetch, allowsDirectDnsFallback: () => false}
+    );
+
+    await expect(provider.popular(1)).rejects.toThrow(/EAI_AGAIN|temporary failure|fetch failed/i);
+    expect(systemFetch).toHaveBeenCalledOnce();
+    expect(fallbackFetch).not.toHaveBeenCalled();
+  });
+
   it('returns stale cached data when every mirror is offline', async () => {
     const cacheFile = cacheFileForTest();
     writeFileSync(
@@ -210,6 +301,81 @@ describe('RadioBrowserProvider', () => {
       streamUrl: 'https://cached.example.com/live.mp3'
     });
   });
+
+  it('uses stale cached startup results immediately in explicit offline mode', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const cache = cachedEntry('/json/stations/search?hidebroken=true&limit=1&order=clickcount&reverse=true', [
+      {stationuuid: 'offline-fm', name: 'Offline FM', url: 'https://stream.example/live.mp3'}
+    ], Date.now() - 60 * 60 * 1000);
+    const fetch = mockFetch(() => {throw new Error('Network must not be attempted.');});
+    const provider = new RadioBrowserProvider(['https://primary.example', 'https://secondary.example'], cache);
+    expect(await provider.popular(1)).toMatchObject([{id: 'offline-fm', streamUrl: 'https://stream.example/live.mp3'}]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports an offline cache miss without trying a mirror', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const fetch = mockFetch(() => jsonResponse([]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    await expect(provider.popular(1)).rejects.toThrow(/offline.*cache|cache.*offline/i);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not vote, locate, or resolve externally when offline and retains a supplied stream URL', async () => {
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const fetch = mockFetch(() => {throw new Error('Network must not be attempted.');});
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    const station = {...radioBrowserStation('saved'), streamUrl: 'https://stream.example/live.mp3'};
+    expect(await provider.vote(station)).toBe(false);
+    expect(await provider.detectLocation()).toBeNull();
+    expect(await provider.resolve(station)).toEqual({url: station.streamUrl, name: station.name});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('avoids an uncached atlas in low-bandwidth mode while ordinary directory requests still work', async () => {
+    vi.stubEnv('RADIOCLI_LOW_BANDWIDTH', '1');
+    const fetch = mockFetch(() => jsonResponse([{stationuuid: 'small-list', name: 'Small list'}]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    await expect(provider.nearby({latitude: 48.8, longitude: 2.3, source: 'test'})).rejects.toThrow(/low.bandwidth.*cache|cache.*low.bandwidth/i);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await provider.popular(1)).toMatchObject([{id: 'small-list'}]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(await provider.search('small', {limit: 1})).toMatchObject([{id: 'small-list'}]);
+  });
+
+  it('uses a bounded stale atlas in low-bandwidth mode without refreshing it', async () => {
+    vi.stubEnv('RADIOCLI_LOW_BANDWIDTH', '1');
+    const cache = cachedEntry('/json/stations/search?has_geo_info=true&hidebroken=true&limit=100000&order=name', [
+      {stationuuid: 'cached-nearby', name: 'Cached nearby', geo_lat: 48.8, geo_long: 2.3}
+    ], Date.now() - 7 * 60 * 60 * 1000);
+    const fetch = mockFetch(() => jsonResponse([]));
+    const provider = new RadioBrowserProvider(['https://primary.example'], cache);
+    expect(await provider.nearby({latitude: 48.8, longitude: 2.3, source: 'test'}, 1)).toMatchObject([{id: 'cached-nearby'}]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  for (const host of ['127.0.0.1', '::1']) {
+    it(`uses native fetch to read a real ${host} directory endpoint`, async context => {
+      let requests = 0;
+      const server = createServer((_request, response) => {requests += 1;response.end(JSON.stringify([{name: 'Japan', iso_3166_1: 'jp', stationcount: 1}]));});
+      try {
+        await new Promise<void>((resolve, reject) => {server.once('error', reject);server.listen(0, host, resolve);});
+      } catch (error) {
+        if (host === '::1' && ['EAFNOSUPPORT', 'EPROTONOSUPPORT', 'EADDRNOTAVAIL'].includes((error as NodeJS.ErrnoException).code ?? '')) context.skip('The host does not provide IPv6 loopback.');
+        throw error;
+      }
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('No listener address.');
+        const provider = new RadioBrowserProvider([`http://${host === '::1' ? '[::1]' : host}:${address.port}`], cacheForTest());
+        expect(await provider.countries()).toEqual([{name: 'Japan', code: 'JP', stationCount: 1}]);
+        expect(requests).toBe(1);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    });
+  }
 
   it('loads country stations with limit and offset pagination', async () => {
     const fetch = mockFetch(url => {
@@ -370,6 +536,12 @@ function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
 
 function cacheForTest(): ProviderCache {
   return new ProviderCache(cacheFileForTest());
+}
+
+function cachedEntry(key: string, value: unknown, createdAt: number): ProviderCache {
+  const file = cacheFileForTest();
+  writeFileSync(file, JSON.stringify({version: 1, entries: {[key]: {createdAt, value}}}));
+  return new ProviderCache(file);
 }
 
 function cacheFileForTest(): string {

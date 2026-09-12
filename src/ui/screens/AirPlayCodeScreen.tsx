@@ -3,6 +3,8 @@ import {Box, Text} from 'ink';
 import type {AirPlayDevice, PlaybackState, ThemeName} from '../../types.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 import {textDim, textMuted, themeAccent} from '../theme.js';
 
 type AirPlayCodeScreenProps = {
@@ -20,6 +22,8 @@ export function AirPlayCodeScreen({
   theme,
   width
 }: AirPlayCodeScreenProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
   const lineWidth = Math.max(24, width - 4);
   const promptActive = isAirPlayCodePromptActive(playback);
@@ -38,7 +42,7 @@ export function AirPlayCodeScreen({
 
       <Box marginTop={1} flexDirection="column">
         <Text color={textMuted}>
-          Receiver: <Text color={accent}>{truncate(receiverName, Math.max(8, lineWidth - 10))}</Text>
+          Receiver: <Text color={accent}>{a(truncate(receiverName, Math.max(8, lineWidth - 10)))}</Text>
         </Text>
         <Text color={textMuted}>
           Playback: <Text color={accent}>{playback.backend}</Text> / {playback.state}
@@ -55,7 +59,7 @@ export function AirPlayCodeScreen({
           Code
         </Text>
         <Text color={code ? accent : textDim}>{code ? masked : 'type the code from the receiver'}</Text>
-        <Text color={textDim}>Enter submits · Backspace edits · Esc returns to AirPlay</Text>
+        <Text color={textDim}>{a('Enter submits · Backspace edits · Esc returns to AirPlay')}</Text>
       </Box>
     </Box>
   );

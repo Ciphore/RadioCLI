@@ -68,6 +68,7 @@ type AppContentProps = {
   theme: ThemeName;
   updateCheck?: UpdateCheckState;
   alarmTui: AlarmTuiController;
+  airPlaySupported?: boolean;
 };
 
 export function AppContent({
@@ -105,7 +106,8 @@ export function AppContent({
   storePath,
   theme,
   updateCheck,
-  alarmTui
+  alarmTui,
+  airPlaySupported = true
 }: AppContentProps): React.ReactElement {
   if (layout.compact) {
     if (screen === 'alarms') return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
@@ -145,6 +147,7 @@ export function AppContent({
         stationError={stationContext.error}
         filterLabel={filterLabel}
         sleepLabel={sleepLabel}
+        airPlaySupported={airPlaySupported}
       />
     );
   }
@@ -286,6 +289,7 @@ export function AppContent({
         diagnostics={diagnostics}
         width={frameWidth}
         height={layout.contentRows}
+        airPlaySupported={airPlaySupported}
       />
     );
   }

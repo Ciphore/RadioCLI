@@ -143,7 +143,7 @@ describe('page footer shortcuts', () => {
         playbackBackend: 'mpv',
         screen: 'search'
       })
-    ).toBe('Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Esc finish');
+    ).toBe('Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Ctrl+F favorite · Esc finish');
   });
 
   it('keeps AirPlay code entry hidden until AirPlay streaming is ready', () => {
@@ -158,6 +158,20 @@ describe('page footer shortcuts', () => {
         screen: 'airplay-settings'
       })
     ).toBe('↑/↓ choose · Enter select receiver · r refresh · b settings');
+  });
+
+  it('does not advertise the AirPlay shortcut on unsupported operating systems', () => {
+    expect(pageFooterText({
+      capturingTransportAction: null,
+      commandMode: false,
+      commandText: '',
+      editingCountryFilter: false,
+      editingSearch: false,
+      screen: 'settings',
+      airPlaySupported: false
+    })).toBe(
+      '↑/↓ choose · Enter open · o output · b Overview'
+    );
   });
 
   it('advertises the dedicated AirPlay receiver picker controls', () => {

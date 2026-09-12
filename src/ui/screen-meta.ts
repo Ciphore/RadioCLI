@@ -32,7 +32,7 @@ export const primaryScreens: readonly PrimaryScreen[] = [
 export const screenMetadata: Record<PrimaryScreen, ScreenMetadata> = {
   home: {tabLabel: 'Overview', title: 'Overview', description: 'Your listening at a glance'},
   'now-playing': {tabLabel: 'Playing', title: 'Now playing', description: 'Receiver and playback controls'},
-  library: {tabLabel: 'Library', title: 'Library', description: 'Favorites, recents, and imported streams'},
+  library: {tabLabel: 'Library', title: 'Library', description: 'Favorites, imported streams, and recents'},
   explore: {tabLabel: 'Explore', title: 'Explore', description: 'Discover stations on the world map'},
   search: {tabLabel: 'Search', title: 'Search', description: 'Find stations, genres, languages, or places'},
   countries: {tabLabel: 'Countries', title: 'Countries', description: 'Browse stations by country'},

@@ -6,6 +6,7 @@ import {panelBorder, textMuted, themeAccent, themeContributionColors} from '../t
 import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type StatsScreenProps = {
   library: LibraryState;
@@ -40,6 +41,7 @@ type ContributionGraph = {
 
 export function StatsScreen({library, theme, width, height}: StatsScreenProps): React.ReactElement {
   const {panel: panelBackground, ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const stats = computeListeningStats(library.activity.sessions);
   const contentWidth = Math.max(20, width - 4);
   const graph = buildContributionGraph(stats.days, contentWidth, height);
@@ -70,10 +72,10 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
       >
         <Box>
           <Text color={themeAccent(theme)} bold>
-            Activity — {graph.year}
+            {a(`Activity — ${graph.year}`)}
           </Text>
         </Box>
-        <Box flexDirection="column">
+        <Box flexDirection="column" aria-label={`Activity graph: ${stats.activeDays} active days in ${graph.year}`}>
           <Text color={textMuted}>{' '.repeat(dayLabelWidth)}{graph.months}</Text>
           {graph.rows.map(row => (
             <React.Fragment key={row.key}>
@@ -101,13 +103,13 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           Summary
         </Text>
         <Box marginTop={compact ? 0 : 1} flexDirection="column" width={contentWidth}>
-          {metricPair('Favorite station', truncate(favorite, favoriteWidth), 'Total hours listened', formatHours(totalHours), metricWidth, theme)}
+          {metricPair('Favorite station', a(truncate(favorite, favoriteWidth)), 'Total hours listened', formatHours(totalHours), metricWidth, theme)}
           {metricPair('Sessions', stats.sessions.toLocaleString(), 'Longest streak', formatDays(stats.longestStreak), metricWidth, theme)}
           {metricPair('Current streak', formatDays(stats.currentStreak), 'Stations listened', stats.listenedStationCount.toLocaleString(), metricWidth, theme)}
           {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Stations counted after', '2 min', metricWidth, theme)}
         </Box>
-        <Box marginTop={1}>
-          <Text color={textMuted}>Less · </Text>
+        <Box marginTop={1} aria-hidden>
+          <Text color={textMuted}>{a('Less · ')}</Text>
           {graphColors.map(color => (
             <React.Fragment key={color}>
               {renderLegendCell(color, graph.cellText, graph.cellGap)}

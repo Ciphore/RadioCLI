@@ -6,6 +6,8 @@ import {ScreenHeader} from '../components/ScreenHeader.js';
 import {commandHelp, keyHelpSections} from '../help-content.js';
 import {padDisplayEnd, truncate} from '../format.js';
 import {visibleWindow} from '../list-window.js';
+import {useDisplay} from '../display-context.js';
+import {toAsciiSafe} from '../ascii.js';
 
 type HelpScreenProps = {
   theme: ThemeName;
@@ -17,6 +19,8 @@ type HelpScreenProps = {
 type HelpRow = {key: string; heading?: string; keys?: string; description?: string};
 
 export function HelpScreen({theme, width, height, selected}: HelpScreenProps): React.ReactElement {
+  const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
   const keyColumnWidth = 16;
   const lineWidth = Math.max(28, width - 2);
@@ -47,12 +51,12 @@ export function HelpScreen({theme, width, height, selected}: HelpScreenProps): R
           <Text key={row.key} color={accent} bold>{row.heading}</Text>
         ) : (
           <Text key={row.key}>
-            <Text color={accent}>{padDisplayEnd(truncate(row.keys ?? '', keyColumnWidth - 1), keyColumnWidth)}</Text>
-            <Text color={textMuted}>{truncate(row.description ?? '', Math.max(1, lineWidth - keyColumnWidth))}</Text>
+            <Text color={accent}>{a(padDisplayEnd(truncate(row.keys ?? '', keyColumnWidth - 1), keyColumnWidth))}</Text>
+            <Text color={textMuted}>{a(truncate(row.description ?? '', Math.max(1, lineWidth - keyColumnWidth)))}</Text>
           </Text>
         ))}
       </Box>
-      <Text color={textMuted}>Showing {window.start + 1}-{window.end} of {rows.length} · ↑/↓ scroll</Text>
+      <Text color={textMuted}>{a(`Showing ${window.start + 1}-${window.end} of ${rows.length} · ↑/↓ scroll`)}</Text>
     </Box>
   );
 }

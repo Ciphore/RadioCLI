@@ -30,7 +30,7 @@ export const keyHelpSections: HelpSection[] = [
       {keys: ', / . or F7/F9', description: 'Previous / next station'},
       {keys: '+ / -', description: 'Volume up / down'},
       {keys: 'm', description: 'Mute / unmute'},
-      {keys: 'f', description: 'Favorite the station'},
+      {keys: 'f / Ctrl+F', description: 'Favorite the station (Ctrl+F while typing in Search)'},
       {keys: 'O', description: 'Open station homepage'},
       {keys: 'y', description: 'Copy stream URL'},
       {keys: 's', description: 'Sleep timer (Now Playing)'},
@@ -87,7 +87,7 @@ export const commandHelp: CommandHelp[] = [
   {name: 'ascii', args: '<on|off>', description: 'ASCII-safe display'},
   {name: 'motion', args: '<on|off>', description: 'Reduce motion'},
   {name: 'background', args: '<on|off>', description: 'Transparent background'},
-  {name: 'airplay', description: 'Open AirPlay settings'},
+  {name: 'airplay', description: 'Open AirPlay settings (macOS only)'},
   {name: 'learn', args: '<previous|play|next>', description: 'Learn a media key'},
   {name: 'keys', args: '[reset]', description: 'Show or reset learned media keys'},
   {name: 'favorite', description: 'Favorite the current station (alias :fav)'},
@@ -95,8 +95,9 @@ export const commandHelp: CommandHelp[] = [
   {name: 'map', description: 'Open the world map'},
   {name: 'stats', description: 'Open listening stats'},
   {name: 'settings', description: 'Open settings'},
-  {name: 'export', args: '[backup.json]', description: 'Export preferences and library'},
-  {name: 'import', args: '<backup.json>', description: 'Restore preferences and library'},
+  {name: 'import', args: '<stream-url> [name]', description: 'Add a custom station and discover its details'},
+  {name: 'export', args: '[backup.json]', description: 'Back up preferences and library'},
+  {name: 'restore', args: '<backup.json>', description: 'Restore preferences and library'},
   {name: 'update', description: 'Show the install command for the latest release'},
   {name: 'stop', description: 'Stop playback'},
   {name: 'help', description: 'Open this help'}
@@ -123,7 +124,6 @@ export const commandNames: string[] = [
   'airplay-code',
   'airplay-settings',
   'backup',
-  'restore',
   ...commandHelp.map(entry => entry.name)
 ].sort((a, b) => a.localeCompare(b));
 

@@ -24,9 +24,9 @@ radiocli agent status
 radiocli check
 radiocli countries
 radiocli search "japan hits"
+radiocli import https://example.com/live.mp3
 radiocli import stations.m3u
 radiocli export favorites.m3u
-radiocli add-url <stream-url> [station name]
 radiocli alarm list
 radiocli alarm doctor
 ```
@@ -142,20 +142,34 @@ explicitly requests one of those separate mechanisms.
 snoozes, edits, or stops an alarm; new interactive playback is refused while an
 alarm occurrence is active.
 
-## Playlist Import And Export
+## Custom Station And Playlist Import
 
 RadioCLI imports `.m3u`, `.pls`, and `.xspf` playlists, including nested local
 playlists. Imported stations are treated as first-class playlist stations and can
 be exported together with favorites as `.m3u`.
 
-## Direct Stream Adds
-
-Use `radiocli add-url` when a public stream is known but not present in the provider
-directories:
+Use `radiocli import` with a direct HTTP(S) stream when a station is missing from
+search or from the open provider directories. This is especially useful for
+networks such as iHeartMedia whose stations may not be available to open-source
+radio directories. Look up the station's direct stream URL—not merely its website
+or player page—and import it:
 
 ```bash
-radiocli add-url https://example.com/live.mp3 "Example FM"
+radiocli import https://example.com/live.mp3
 ```
+
+RadioCLI makes a short, bounded request for HTTP and ICY headers and uses any
+published station name, homepage, codec, bitrate, and HLS status. Supply a name
+only when the stream does not publish one or when you want to override it:
+
+```bash
+radiocli import https://example.com/live.mp3 "Example FM"
+```
+
+The submitted stable URL is retained instead of temporary signed redirects.
+Imports are stored newest first and displayed after favorites but before recently
+played stations. Metadata availability varies by broadcaster, so details that a
+stream does not publish cannot always be discovered automatically.
 
 ## Alarms And Scheduled Radio
 
