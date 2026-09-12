@@ -8,11 +8,17 @@ RadioCLI does not require secrets or accounts.
 ## Local Agent Control
 
 Agent control is opt-in. Its MCP transport is stdio, and active playback uses a
-short-lived authenticated HTTP endpoint bound only to `127.0.0.1`. The random
-bearer token and port are stored in a user-private runtime file. Requests are
-serialized, stale discovery records are removed, and a single-owner lock keeps
-two local agents from starting competing players. The endpoint is not exposed
-to the LAN or internet.
+short-lived authenticated HTTP endpoint bound to literal loopback: `127.0.0.1`,
+with `::1` as the fallback when IPv4 loopback is unavailable. The random bearer
+token, address, and port are stored in a user-private runtime file. Requests
+are serialized, and a single-owner lock keeps two local agents from starting
+competing players. The endpoint is not exposed to the LAN or internet.
+
+Agent, alarm, and Guard clients accept only those literal loopback addresses.
+They make direct Node HTTP requests with `agent: false`, so public HTTP proxy
+settings cannot forward local control or bearer tokens to a proxy. Loopback
+requests still require authentication; their local address does not replace
+the token check.
 
 MCP and `radiocli agent` can play only stations saved by RadioCLI or opaque IDs
 returned by its search and browse operations. The agent interface does not
@@ -28,7 +34,7 @@ external terminal windows or app-control prompts.
 ## Privacy Notes
 
 - Nearby location is enabled by default for new libraries, but no location
-  request is made until you open Nearby.
+  request is made until you open Nearby; offline mode blocks that request.
 - Location lookup uses approximate IP-based location from `ipapi.co`. Disable it
   with `l`, Settings, or `:location off`.
 - Explore uses only the cursor coordinate you move in the terminal.
@@ -37,10 +43,42 @@ external terminal windows or app-control prompts.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
   to `mpv`, `ffplay`, or the experimental macOS AirPlay worker.
 - AirPlay discovery uses Bonjour on your local network. AirPlay streaming runs
-  through a local worker and the bundled sender bridge.
+  through a local worker and the bundled sender bridge. Offline mode blocks
+  receiver discovery. Low-bandwidth mode skips automatic discovery but permits
+  an explicit refresh.
 - Favoriting a Radio Browser station sends a best-effort vote to that public
   directory by default. Disable **Share favorite votes with Radio Browser** in
-  Settings to keep favorites local-only.
+  Settings to keep favorites local-only. Offline mode also prevents the vote
+  request.
+
+## Public Network Controls
+
+`RADIOCLI_OFFLINE=1` blocks public HTTP requests made by RadioCLI's Node client.
+It can still read cached directory data and hand a saved direct URL to the
+native player when the user asks to tune. The player's stream connection is
+outside this directory-request policy; offline mode is not an OS firewall or
+an audio-download feature.
+
+`RADIOCLI_LOW_BANDWIDTH=1` avoids downloading the geotagged station atlas and
+uses a cached copy when available. Smaller searches, location lookups, health
+checks, and manual controls remain available, so it is not a privacy substitute
+for offline mode or disabling location and directory voting.
+
+Both flags suppress automatic AirPlay discovery, and offline mode also blocks
+manual receiver discovery before starting Bonjour. Existing authenticated
+loopback controls and the stdio MCP transport continue to work offline.
+
+Public HTTP(S) proxies require a compatible Node release and
+`NODE_USE_ENV_PROXY=1` at process startup. `NO_PROXY` and the proxy URLs are
+handled by Node; RadioCLI does not install a global dispatcher or change TLS
+verification. Invalid proxy configuration errors identify the setting without
+echoing credentials. SOCKS and `ALL_PROXY` alone are unsupported. See
+[Reliability](./reliability.mdx#network-requests) for version requirements and
+the distinction between public requests and local control.
+
+Homepage actions validate HTTP(S) URLs before opening or displaying them.
+Stream-copy fallbacks validate media targets and sanitize terminal text, so a
+rejected URL is not echoed into the terminal.
 
 ## Alarm Data And Local Control
 
@@ -55,28 +93,56 @@ The following state is deliberately machine-local and excluded from backups:
 - scheduler and power-inhibitor health records
 - Alarm Guard process/lease state and occurrence locks
 - active-alarm discovery files and their random bearer tokens
+- shared system-volume snapshots and participating process IDs
+
+System-volume ownership lives in `.radiocli/system-volume` under the OS account's
+home directory. It is shared across `RADIOCLI_HOME` and XDG profiles so separate
+alarm runners cannot restore the same output device independently. The saved
+snapshot is removed after successful final restoration or playback handoff.
 
 After restoring a backup on another machine, run `radiocli alarm sync` to create
 that machine's native jobs. Alarm playback resolves the configured public station
 and connects to its stream just like normal playback; RadioCLI does not upload
 the alarm or proxy its audio.
 
-While an alarm is playing, the detached runner opens an HTTP control endpoint on
-`127.0.0.1` only. Discovery files and 32-byte random bearer tokens use private
-machine-local storage permissions where the OS supports POSIX modes. Dismiss,
-snooze, keep-playing, and Guard ownership requests must authenticate; there is no
-network-facing control server. The detached runner may open the locally saved
-terminal emulator to expose those controls. It does not pass the bearer token on
-the command line; the TUI discovers it through the private machine-local file.
+While an alarm is playing, the detached runner opens its own authenticated
+loopback endpoint using the same IPv4-to-IPv6 fallback. New control files store
+32-byte random bearer tokens with mode `0600`; new directories request mode
+`0700` where the filesystem enforces POSIX modes. Windows relies on private
+user-directory ACLs; POSIX mode arguments do not configure those ACLs. Dismiss,
+snooze, keep-playing, and Guard ownership requests must authenticate. The detached
+runner may open the locally saved terminal emulator to expose those controls.
+It does not pass the bearer token on the command line; the TUI discovers it
+through the private machine-local file.
+
+A Guard PID is insufficient evidence of ownership. If its authenticated
+challenge fails while the process is still alive, or its ownership record is
+unreadable, RadioCLI retains the record for repair and does not signal that PID.
+An ambiguous native-job removal likewise retains the definition and artifacts
+instead of hiding a possibly active registration.
+
+## Local Data Integrity
+
+Library access failures are reported without exposing the private storage path.
+Permission and I/O errors do not rename intact data as corrupt or reset the
+library. A corrupt library is reset only after its original bytes have been
+preserved in a backup. Failed atomic writes leave the previous saved state
+intact; readable read-only libraries remain available to the TUI, with warnings
+for optional history that could not be saved.
+
+The platform changes preserve the library and backup schemas, existing
+`RADIOCLI_HOME` and `RADIO_ATLAS_HOME` overrides, legacy Radio Atlas data paths,
+and existing runtime namespaces. See [Architecture](./architecture.mdx#persistence)
+for the separation between portable library data and machine-local records.
 
 ## Location Lookup
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
 For new libraries the feature is on, and opening Nearby requests an approximate
-location from `ipapi.co`. RadioCLI uses the returned city, region, country,
-latitude, and longitude to sort the local geotagged station atlas. Turn it off
-before opening Nearby with Settings or `:location off` if you do not want that
-request; the choice is stored locally.
+location from `ipapi.co` unless offline mode is active. RadioCLI uses the
+returned city, region, country, latitude, and longitude to sort the local
+geotagged station atlas. Turn it off before opening Nearby with Settings or
+`:location off` if you do not want that request; the choice is stored locally.
 
 ## Reporting Security Issues
 

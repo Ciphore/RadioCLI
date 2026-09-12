@@ -1,8 +1,9 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
   assessScheduledOccurrence,
   canonicalizeAlarmTime,
   canonicalizeIsoWeekdays,
+  canonicalizeTimeZone,
   isValidTimeZone,
   nextAlarmOccurrence,
   nextOccurrenceForAlarm
@@ -119,5 +120,21 @@ describe('alarm scheduling', () => {
     expect(() => canonicalizeAlarmTime('noon')).toThrow(/time/i);
     expect(() => canonicalizeIsoWeekdays([])).toThrow(/weekday/i);
     expect(() => canonicalizeIsoWeekdays([0, 8])).toThrow(/weekday/i);
+  });
+
+  it('canonicalizes each alarm timezone with one native formatter construction', () => {
+    const expected = new Intl.DateTimeFormat('en-US', {timeZone: 'US/Eastern'}).resolvedOptions().timeZone;
+    const NativeDateTimeFormat = Intl.DateTimeFormat;
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (...args: Parameters<typeof Intl.DateTimeFormat>) {
+      return new NativeDateTimeFormat(...args);
+    } as typeof Intl.DateTimeFormat);
+    try {
+      expect(canonicalizeTimeZone(' US/Eastern ')).toBe(expected);
+      expect(formatter).toHaveBeenCalledTimes(1);
+      expect(() => canonicalizeTimeZone('Mars/Olympus_Mons')).toThrow('Invalid IANA timezone: Mars/Olympus_Mons');
+      expect(() => canonicalizeTimeZone('   ')).toThrow(/Invalid IANA timezone/);
+    } finally {
+      formatter.mockRestore();
+    }
   });
 });

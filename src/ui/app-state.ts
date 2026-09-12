@@ -125,6 +125,18 @@ export function searchEditingArrowAction(
   return null;
 }
 
+export function shouldTuneSearchResult(query: string, lastSubmittedQuery: string): boolean {
+  const trimmedQuery = query.trim();
+  return !trimmedQuery || trimmedQuery === lastSubmittedQuery.trim();
+}
+
+export function isSearchFavoriteShortcut(
+  input: string,
+  key: {ctrl?: boolean; meta?: boolean; super?: boolean}
+): boolean {
+  return input.toLowerCase() === 'f' && Boolean(key.ctrl || key.meta || key.super);
+}
+
 export function clampVolume(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }

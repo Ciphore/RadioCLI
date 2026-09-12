@@ -12,6 +12,26 @@ afterEach(async () => {
 });
 
 describe('MpvIpcClient', () => {
+  it('preserves UTF-8 metadata across native socket packets', async () => {
+    const path = testIpcPath();
+    const sockets = new Set<Socket>();
+    const server = createServer(socket => {
+      sockets.add(socket);
+      socket.on('error', () => undefined);
+      socket.once('data', request => {
+        const {request_id} = JSON.parse(String(request)) as {request_id: number};
+        const response = Buffer.from(`${JSON.stringify({request_id, error: 'success', data: '日本 Café'})}\n`);
+        const cut = response.indexOf(Buffer.from('日')) + 1;
+        socket.write(response.subarray(0, cut));
+        setTimeout(() => { if (!socket.destroyed) socket.write(response.subarray(cut)); }, 20);
+      });
+    });
+    await listen(server, path);
+    const client = new MpvIpcClient(path, 500);
+    cleanupTasks.push(() => closeTestIpc(client, server, sockets, path));
+    await expect(client.query({command: ['get_property', 'media-title']})).resolves.toBe('日本 Café');
+  });
+
   it('multiplexes concurrent requests over one socket and reconnects after a drop', async () => {
     const path = testIpcPath();
     const sockets = new Set<Socket>();

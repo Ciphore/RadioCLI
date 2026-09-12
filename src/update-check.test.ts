@@ -13,6 +13,7 @@ import {
 describe('update checks', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it('compares semantic versions', () => {
@@ -51,6 +52,33 @@ describe('update checks', () => {
 
     expect(updateCheck.updateAvailable).toBe(false);
     expect(updateCheck.error).toContain('503');
+  });
+
+  it('does not make automatic or explicit registry requests while offline', async () => {
+    vi.stubEnv('CI', 'false');
+    vi.stubEnv('RADIOCLI_OFFLINE', '1');
+    const fetchImpl = vi.fn(async () => new Response('{"version":"99.0.0"}'));
+    expect(shouldCheckForUpdate(undefined)).toBe(false);
+    expect(automaticUpdateChecksAllowed(true)).toBe(false);
+    const result = await checkForUpdate({fetchImpl});
+    expect(result.updateAvailable).toBe(false);
+    expect(result.error).toMatch(/offline/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('bounds the registry response body after headers arrive', async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const fetchImpl = async () => new Response(new ReadableStream<Uint8Array>({start(controller) {body = controller;}}));
+    let result: Awaited<ReturnType<typeof checkForUpdate>> | undefined;
+    const checking = checkForUpdate({fetchImpl, timeoutMs: 100}).then(value => {result = value;});
+    try {
+      await vi.advanceTimersByTimeAsync(101);
+      expect(result?.error).toMatch(/timed out/i);
+    } finally {
+      body.error(new Error('test cleanup'));
+      await checking;
+    }
   });
 
   it('uses a 24 hour cache and honors disable flags', () => {

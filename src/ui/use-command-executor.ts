@@ -17,6 +17,7 @@ type UseCommandExecutorOptions = {
   loadCountry: (country: Country) => Promise<void>;
   openAirPlaySettings: () => void;
   openLibrary: () => void;
+  persistLibrary: (write: () => LibraryState) => LibraryState | undefined;
   player: PlayerController;
   playingStation: Station | null;
   providers: ProviderManager;
@@ -46,6 +47,7 @@ export function useCommandExecutor({
   loadCountry,
   openAirPlaySettings,
   openLibrary,
+  persistLibrary,
   player,
   playingStation,
   providers,
@@ -271,7 +273,7 @@ export function useCommandExecutor({
       }
 
       if (name === 'stop') {
-        setLibrary(store.finishActiveListeningSession());
+        persistLibrary(() => store.finishActiveListeningSession());
         await player.stop();
         return;
       }
@@ -311,6 +313,7 @@ export function useCommandExecutor({
       loadCountry,
       openAirPlaySettings,
       openLibrary,
+      persistLibrary,
       player,
       playingStation,
       providers,
