@@ -1,5 +1,6 @@
-import {existsSync, readFileSync} from 'node:fs';
-import {commandExists} from './command.js';
+import {ffplayInstallCommand, mpvInstallCommand, type PackageHintOptions} from '../platform/packages.js';
+import {identifyPlatform, nativeAdapters, readLinuxOsRelease} from '../platform/runtime.js';
+import {commandExists} from '../platform/executables.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 
 type PlaybackBackendDetectionOptions = {
@@ -30,7 +31,7 @@ export function detectPlaybackBackends({
     backends.push('vlc');
   }
 
-  if (platform === 'darwin' && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
+  if (nativeAdapters(identifyPlatform({platform})).airPlay && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
     backends.push('airplay');
   }
 
@@ -102,22 +103,24 @@ export function playbackBackendLabel(backend: string | null | undefined): string
 
 export function playbackBackendInstallHint(
   platform: NodeJS.Platform = process.platform,
-  osRelease = readLinuxOsRelease()
+  osRelease = readLinuxOsRelease(platform),
+  options: PackageHintOptions = {}
 ): string {
-  return `Run radiocli setup to install mpv for playback (${mpvInstallCommand(platform, osRelease)}), then run radiocli doctor.`;
+  return `Run radiocli setup to install mpv for playback (${mpvInstallCommand(platform, osRelease, process.env, options)}), then run radiocli doctor.`;
 }
 
 export function playbackBackendStatusLines(
   backends: string[],
   platform: NodeJS.Platform = process.platform,
-  osRelease = readLinuxOsRelease()
+  osRelease = readLinuxOsRelease(platform),
+  options: PackageHintOptions = {}
 ): string[] {
   const backendSet = new Set(backends);
   const lines = [
     'npm_install=RadioCLI installs the optional AirPlay sender when native dependencies are available; playback tools come from mpv and FFmpeg',
     'guided_setup=radiocli setup',
-    `install_mpv=${mpvInstallCommand(platform, osRelease)}`,
-    `optional_ffplay=${ffplayInstallCommand(platform, osRelease)}`
+    `install_mpv=${mpvInstallCommand(platform, osRelease, process.env, options)}`,
+    `optional_ffplay=${ffplayInstallCommand(platform, osRelease, process.env, options)}`
   ];
 
   if (backendSet.has('mpv')) {
@@ -166,113 +169,4 @@ export function playbackBackendStatusLines(
     'controls_hint=install mpv for playback and controls',
     ...lines
   ];
-}
-
-export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
-  if (platform === 'darwin') {
-    return 'brew install mpv';
-  }
-
-  if (platform === 'win32') {
-    return 'winget install --id shinchiro.mpv -e';
-  }
-
-  if (platform !== 'linux') {
-    return 'install mpv with your system package manager';
-  }
-
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install mpv';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install mpv';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S mpv';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add mpv';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install mpv';
-  }
-
-  return 'install mpv with your system package manager';
-}
-
-function ffplayInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease()): string {
-  if (platform === 'darwin') {
-    return 'brew install ffmpeg';
-  }
-
-  if (platform === 'win32') {
-    return 'winget install --id Gyan.FFmpeg -e';
-  }
-
-  if (platform !== 'linux') {
-    return 'install FFmpeg with your system package manager';
-  }
-
-  const ids = linuxReleaseIds(osRelease);
-  if (hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])) {
-    return 'sudo apt install ffmpeg';
-  }
-
-  if (hasAny(ids, ['fedora', 'rhel', 'centos'])) {
-    return 'sudo dnf install ffmpeg';
-  }
-
-  if (hasAny(ids, ['arch', 'manjaro'])) {
-    return 'sudo pacman -S ffmpeg';
-  }
-
-  if (hasAny(ids, ['alpine'])) {
-    return 'sudo apk add ffmpeg';
-  }
-
-  if (hasAny(ids, ['opensuse', 'suse'])) {
-    return 'sudo zypper install ffmpeg';
-  }
-
-  return 'install FFmpeg with your system package manager';
-}
-
-function readLinuxOsRelease(): string {
-  if (process.platform !== 'linux' || !existsSync('/etc/os-release')) {
-    return '';
-  }
-
-  try {
-    return readFileSync('/etc/os-release', 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function linuxReleaseIds(osRelease: string): Set<string> {
-  const ids = new Set<string>();
-  for (const line of osRelease.split('\n')) {
-    const match = /^(ID|ID_LIKE)=(.*)$/.exec(line);
-    if (!match) {
-      continue;
-    }
-
-    for (const value of match[2]!.replaceAll('"', '').split(/\s+/)) {
-      const normalized = value.trim().toLowerCase();
-      if (normalized) {
-        ids.add(normalized);
-      }
-    }
-  }
-
-  return ids;
-}
-
-function hasAny(values: Set<string>, candidates: string[]): boolean {
-  return candidates.some(candidate => values.has(candidate));
 }

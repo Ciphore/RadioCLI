@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {resolveCommandDetails} from './command.js';
+import {resolveCommandDetails} from './executables.js';
 
 describe('command resolution', () => {
   it('finds the WinGet shinchiro mpv installer location without PATH', () => {

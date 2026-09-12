@@ -30,7 +30,7 @@ export const keyHelpSections: HelpSection[] = [
       {keys: ', / . or F7/F9', description: 'Previous / next station'},
       {keys: '+ / -', description: 'Volume up / down'},
       {keys: 'm', description: 'Mute / unmute'},
-      {keys: 'f', description: 'Favorite the station'},
+      {keys: 'f / Ctrl+F', description: 'Favorite the station (Ctrl+F while typing in Search)'},
       {keys: 'O', description: 'Open station homepage'},
       {keys: 'y', description: 'Copy stream URL'},
       {keys: 's', description: 'Sleep timer (Now Playing)'},

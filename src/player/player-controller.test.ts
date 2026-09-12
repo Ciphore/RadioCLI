@@ -3,16 +3,16 @@ import {spawn} from 'node:child_process';
 import {existsSync, unlinkSync} from 'node:fs';
 import {createServer, type Server} from 'node:net';
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {commandExists} from './command.js';
+import {commandExists} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
-import {createMpvIpcPath, extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
+import {extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
 import type {AirPlayDevice, AppSettings, Station} from '../types.js';
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }));
 
-vi.mock('./command.js', () => ({
+vi.mock('../platform/executables.js', () => ({
   commandExists: vi.fn(),
   resolveCommand: vi.fn()
 }));
@@ -61,16 +61,6 @@ describe('extractMpvTitle', () => {
 
   it('strips standard StreamTitle wrappers', () => {
     expect(extractMpvTitle({StreamTitle: "StreamTitle='Artist - Song';"})).toBe('Artist - Song');
-  });
-});
-
-describe('createMpvIpcPath', () => {
-  it('uses a Unix socket path on POSIX platforms', () => {
-    expect(createMpvIpcPath('linux', 123, 456)).toMatch(/radiocli-123-456\.sock$/);
-  });
-
-  it('uses a Windows named pipe path on native Windows', () => {
-    expect(createMpvIpcPath('win32', 123, 456)).toBe('\\\\.\\pipe\\radiocli-123-456');
   });
 });
 
@@ -512,6 +502,100 @@ describe('PlayerController lifecycle', () => {
 
     await controller.stop();
     await mpvServer.close();
+  });
+
+  it('recovers an ARM Linux mpv audio initialization failure by trying ALSA first', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const failedChild = fakeChildProcess();
+    const recoveredChild = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock
+      .mockReturnValueOnce(failedChild as never)
+      .mockImplementationOnce((_command, args) => {
+        mpv.current = fakeMpvIpc(mpvIpcPath(args));
+        return recoveredChild as never;
+      });
+    const controller = new PlayerController(
+      () => settings({preferredBackend: 'mpv'}),
+      {platform: 'linux', arch: 'arm64', env: {}}
+    );
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    failedChild.stderr.emit('data', '[ao] Failed to initialize audio driver pipewire\nCould not open/initialize audio device -> no sound.\n');
+    failedChild.emit('exit', 2, null);
+    await playing;
+
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(spawnMock.mock.calls[0]?.[1]).not.toContain('--ao=alsa,');
+    expect(spawnMock.mock.calls[1]?.[1]).toContain('--ao=alsa,');
+    expect(controller.getState()).toMatchObject({backend: 'mpv', state: 'playing', ready: true});
+
+    await controller.stop();
+    await expectFakeMpv(mpv.current).close();
+  });
+
+  it.each([
+    ['macOS', {platform: 'darwin' as const, arch: 'arm64', env: {}}],
+    ['Windows', {platform: 'win32' as const, arch: 'arm64', env: {}}],
+    ['Linux x64', {platform: 'linux' as const, arch: 'x64', env: {}}],
+    ['explicit ARM Linux output', {platform: 'linux' as const, arch: 'arm64', env: {RADIOCLI_MPV_AUDIO_OUTPUT: 'pipewire'}}]
+  ])('does not override mpv audio selection on %s', async (_label, runtime) => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}), runtime);
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stderr.emit('data', '[ao] Failed to initialize audio driver pipewire\nCould not open/initialize audio device -> no sound.\n');
+    child.emit('exit', 2, null);
+
+    await expect(playing).rejects.toMatchObject({
+      name: 'PlaybackOutputError',
+      message: expect.stringContaining('Could not open/initialize audio device')
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a station-specific mpv failure eligible for auto-skip without exposing its URL', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(
+      () => settings({preferredBackend: 'mpv'}),
+      {platform: 'linux', arch: 'arm64', env: {}}
+    );
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stderr.emit('data', 'Failed to open https://listener:secret@streams.example.com/private?token=secret\n');
+    child.emit('exit', 2, null);
+    const error = await playing.then(() => null, (reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(isPlaybackOutputError(error)).toBe(false);
+    expect((error as Error).message).toContain('[stream URL]');
+    expect((error as Error).message).not.toContain('secret');
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an OS-level player launch failure immediately as a non-skippable output error', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv', tuneTimeoutSeconds: 30}));
+
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.emit('error', new Error('spawn mpv EACCES'));
+
+    await expect(playing).rejects.toMatchObject({
+      name: 'PlaybackOutputError',
+      message: expect.stringContaining('spawn mpv EACCES')
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({backend: 'mpv', state: 'error', ready: false});
   });
 
   it('syncs external mpv pause changes from macOS media controls', async () => {

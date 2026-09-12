@@ -60,7 +60,7 @@ export function pageFooterText({
   }
 
   if (screen === 'search' && editingSearch) {
-    return 'Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Esc finish';
+    return 'Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Ctrl+F favorite · Esc finish';
   }
 
   if (screen === 'search') {

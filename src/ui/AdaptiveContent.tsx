@@ -112,7 +112,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     stationTitle,
   } = props;
   const accent = themeAccent(theme);
-  const {ascii} = useDisplay();
+  const {ascii, reduceMotion} = useDisplay();
   const {bodyRows} = adaptiveFrameMetrics(mode, height);
   const title = screenTitle(screen);
   const status = adaptiveStatus(props);
@@ -142,7 +142,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         ascii={ascii}
         theme={theme}
         receiverStyle={library.settings.receiverStyle}
-        reduceMotion={Boolean(library.settings.reduceMotion)}
+        reduceMotion={reduceMotion}
       />
     );
   }
@@ -161,7 +161,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         loading={loadingStations}
         error={props.stationError}
         ascii={ascii}
-        reduceMotion={Boolean(library.settings.reduceMotion)}
+        reduceMotion={reduceMotion}
       />
     );
   }
@@ -208,7 +208,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         width={width}
         theme={theme}
         ascii={ascii}
-        reduceMotion={Boolean(library.settings.reduceMotion)}
+        reduceMotion={reduceMotion}
       />
     );
   }
@@ -237,7 +237,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     const prompt = airPlayCode ? `Code: ${airPlayCode}` : 'Type the code shown by the receiver.';
     return (
       <AdaptiveFrame title={title} status={status} mode={mode} height={height} width={width} theme={theme}>
-        {bodyRows > 0 ? <Text color={airPlayCode ? accent : textMuted}>{truncate(prompt, width)}</Text> : null}
+        {bodyRows > 0 ? <Text color={airPlayCode ? accent : textMuted}>{ascii ? toAsciiSafe(truncate(prompt, width)) : truncate(prompt, width)}</Text> : null}
       </AdaptiveFrame>
     );
   }
@@ -280,7 +280,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
           pageSize={bodyRows}
           width={width}
           theme={theme}
-          reduceMotion={Boolean(library.settings.reduceMotion)}
+          reduceMotion={reduceMotion}
         />
       ) : (
         <StaticRows rows={empty.slice(0, bodyRows)} width={width} theme={theme} />
@@ -318,6 +318,7 @@ function AdaptiveExplore({
 }): React.ReactElement {
   const accent = themeAccent(theme);
   const {headerRows, headerGap, bodyRows} = adaptiveExploreFrameMetrics(mode, height);
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const layout = computeAdaptiveExploreLayout(mode, width, Math.max(1, bodyRows));
   const marker = React.useMemo(
     () => [{lat: cursor.latitude, lon: cursor.longitude, selected: true}],
@@ -349,8 +350,8 @@ function AdaptiveExplore({
 
   return (
     <Box flexDirection="column" height={height} width={width} overflow="hidden">
-      <Text color={accent} bold>{truncate(title, width)}</Text>
-      {headerRows > 1 ? <Text color={textMuted}>{truncate(status, width)}</Text> : null}
+      <Text color={accent} bold aria-label={title}>{a(truncate(title, width))}</Text>
+      {headerRows > 1 ? <Text color={textMuted} aria-label={status}>{a(truncate(status, width))}</Text> : null}
       {headerGap ? <Box height={headerGap} flexShrink={0} /> : null}
       {bodyRows > 0 ? layout.split ? (
         <Box flexDirection="row" height={bodyRows} width={width} overflow="hidden">
@@ -403,7 +404,7 @@ function AdaptiveCosmoMap({
   ascii: boolean;
 }): React.ReactElement {
   return (
-    <Box flexDirection="column" width={width} height={height} overflow="hidden" flexShrink={0}>
+    <Box flexDirection="column" width={width} height={height} overflow="hidden" flexShrink={0} aria-hidden>
       {rows.map((row, rowIndex) => {
         const chunks: Array<{kind: CosmoMapCellKind; text: string}> = [];
         for (const cell of row.cells) {
@@ -456,6 +457,7 @@ function AdaptiveFrame({
 }): React.ReactElement {
   const accent = themeAccent(theme);
   const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const titlePrefix = mode === 'micro' ? 'RC / ' : 'RADIOCLI  ';
   const titleText = truncate(`${titlePrefix}${title}${mode === 'micro' && status ? ` · ${status}` : ''}`, width);
   const ruleWidth = Math.max(0, width - displayWidth(titleText) - 1);
@@ -463,10 +465,10 @@ function AdaptiveFrame({
 
   return (
     <Box flexDirection="column" height={height} width={width} overflow="hidden">
-      <Text color={accent} bold>
-        {titleText}<Text color={textDim}>{ruleWidth ? ` ${(ascii ? '-' : '─').repeat(ruleWidth)}` : ''}</Text>
+      <Text color={accent} bold aria-label={`${titlePrefix}${title}${status ? `. ${status}` : ''}`}>
+        {a(titleText)}<Text color={textDim} aria-hidden>{ruleWidth ? ` ${(ascii ? '-' : '─').repeat(ruleWidth)}` : ''}</Text>
       </Text>
-      {mode === 'compact' && height >= 4 ? <Text color={textMuted}>{truncate(status, width)}</Text> : null}
+      {mode === 'compact' && height >= 4 ? <Text color={textMuted} aria-label={status}>{a(truncate(status, width))}</Text> : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       <Box flexDirection="column" height={bodyRows} overflow="hidden" flexShrink={0}>
         {children}
@@ -501,6 +503,8 @@ function AdaptiveHome({
   library: LibraryState;
 }): React.ReactElement {
   const gapRows = height >= 5 ? 1 : 0;
+  const {ascii} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const showSummary = mode === 'compact' && height >= 10;
   const menuRows = Math.max(1, height - 1 - gapRows * 2 - (showSummary ? 1 : 0));
   const selectedIndex = Math.min(Math.max(selected, 0), homeItems.length - 1);
@@ -517,15 +521,15 @@ function AdaptiveHome({
           const active = absoluteIndex === selectedIndex;
           const detail = mode === 'compact' && width >= 52 ? ` · ${item.detail}` : '';
           return (
-            <Text key={item.screen} color={active ? accent : undefined} bold={active}>
-              {active ? '> ' : '  '}{absoluteIndex + 1} {truncate(`${item.label}${detail}`, Math.max(1, width - 4))}
+            <Text key={item.screen} color={active ? accent : undefined} bold={active} aria-label={`${active ? 'Selected: ' : ''}${absoluteIndex + 1}. ${item.label}. ${item.detail}`}>
+              {active ? '> ' : '  '}{absoluteIndex + 1} {a(truncate(`${item.label}${detail}`, Math.max(1, width - 4)))}
             </Text>
           );
         })}
       </Box>
       {showSummary ? (
         <Text color={textMuted}>
-          {truncate(`${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`, width)}
+          {a(truncate(`${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`, width))}
         </Text>
       ) : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
@@ -562,7 +566,7 @@ function AdaptiveList({
         const text = `${row.label}${detail}`;
         const favoriteWidth = row.favoriteGlyph ? 2 : 0;
         return (
-          <Text key={row.key} color={active ? accent : row.heading ? textMuted : undefined} bold={active || row.heading}>
+          <Text key={row.key} color={active ? accent : row.heading ? textMuted : undefined} bold={active || row.heading} aria-label={`${active ? 'Selected: ' : ''}${text}${row.favoriteGlyph ? '. Favorite' : ''}`}>
             {prefix}<AdaptiveMarquee
               text={text}
               width={Math.max(0, width - 2 - favoriteWidth)}
@@ -578,11 +582,12 @@ function AdaptiveList({
 
 function StaticRows({rows, width, theme}: {rows: AdaptiveRow[]; width: number; theme: ThemeName}): React.ReactElement {
   const accent = themeAccent(theme);
+  const {ascii} = useDisplay();
   return (
     <Box flexDirection="column">
       {rows.map(row => (
-        <Text key={row.key} color={row.heading ? textMuted : undefined} bold={row.heading}>
-          {truncate(row.detail ? `${row.label} · ${row.detail}` : row.label, width)}
+        <Text key={row.key} color={row.heading ? textMuted : undefined} bold={row.heading} aria-label={row.detail ? `${row.label}: ${row.detail}` : row.label}>
+          {ascii ? toAsciiSafe(truncate(row.detail ? `${row.label} · ${row.detail}` : row.label, width)) : truncate(row.detail ? `${row.label} · ${row.detail}` : row.label, width)}
           {row.key === 'activity' ? <Text color={accent} /> : null}
         </Text>
       ))}
@@ -614,15 +619,16 @@ function AdaptiveNowPlaying({
   reduceMotion: boolean;
 }): React.ReactElement {
   const pulse = useReceiverPulse();
+  const {screenReader} = useDisplay();
   const accent = themeAccent(theme);
   const stationName = station?.name ?? 'No station tuned';
-  const showMetadata = mode === 'compact' && height >= 9 && Boolean(metadata?.title);
+  const showMetadata = Boolean(metadata?.title) && (screenReader || mode === 'compact' && height >= 9);
   const headerRows = mode === 'compact' ? 2 : 1;
   const metadataRows = showMetadata ? 1 : 0;
   const gapRows = height >= 5 ? 1 : 0;
   const availableVisualRows = Math.max(1, height - headerRows - metadataRows - gapRows * 2);
   const visualHeight = visualizerHeight(receiverStyle, availableVisualRows, width);
-  const visualRows = buildVisualizer(
+  const visualRows = screenReader ? [] : buildVisualizer(
     receiverStyle,
     pulse,
     width,
@@ -639,14 +645,14 @@ function AdaptiveNowPlaying({
 
   return (
     <Box flexDirection="column" height={height} width={width} overflow="hidden">
-      <Text color={accent} bold>
+      <Text color={accent} bold aria-label={mode === 'micro' ? `Now playing. Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}` : undefined}>
         {mode === 'micro'
           ? <AdaptiveMarquee text={header} width={width} active reduceMotion={reduceMotion} />
           : truncate(header, width)}
       </Text>
-      {mode === 'compact' ? <Text color={textMuted}>{truncate(status, width)}</Text> : null}
+      {mode === 'compact' ? <Text color={textMuted} aria-label={`Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}`}>{ascii ? toAsciiSafe(truncate(status, width)) : truncate(status, width)}</Text> : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
-      <Box flexDirection="column" height={availableVisualRows} overflow="hidden">
+      {!screenReader ? <Box flexDirection="column" height={availableVisualRows} overflow="hidden" aria-hidden>
         {visualRows.map((row, index) => (
           <Text key={index} color={row.segments ? undefined : row.color}>
             {row.segments
@@ -656,9 +662,9 @@ function AdaptiveNowPlaying({
                 : row.text}
           </Text>
         ))}
-      </Box>
+      </Box> : null}
       {showMetadata ? (
-        <Text color={accent}>
+        <Text color={accent} aria-label={`Track: ${metadata?.title ?? ''}`}>
           <AdaptiveMarquee text={metadata?.title ?? ''} width={width} active reduceMotion={reduceMotion} />
         </Text>
       ) : null}
@@ -712,6 +718,7 @@ function AdaptiveSearch({
 }): React.ReactElement {
   const accent = themeAccent(theme);
   const {panel: panelBackground} = useDisplay();
+  const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const fieldText = query || 'station, genre, or place';
   const prefix = loading ? (ascii ? '* ' : '⣾ ') : editing ? '› ' : '/ ';
   const fieldRows = height >= 4 ? 3 : 1;
@@ -730,11 +737,11 @@ function AdaptiveSearch({
           height={3}
           flexShrink={0}
         >
-          <Text color={editing || loading ? accent : textMuted}>{prefix}</Text>
-          <Text color={query ? accent : textMuted}>{truncate(fieldText, Math.max(1, width - 5))}</Text>
+          <Text color={editing || loading ? accent : textMuted}>{a(prefix)}</Text>
+          <Text color={query ? accent : textMuted}>{a(truncate(fieldText, Math.max(1, width - 5)))}</Text>
         </Box>
       ) : (
-        <Text color={query ? accent : textMuted}>{truncate(`[${prefix}${fieldText}]`, width)}</Text>
+        <Text color={query ? accent : textMuted}>{a(truncate(`[${prefix}${fieldText}]`, width))}</Text>
       )}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       <Box flexDirection="column" height={listRows} overflow="hidden" flexShrink={0}>
