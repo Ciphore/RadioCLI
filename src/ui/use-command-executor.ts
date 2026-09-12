@@ -5,6 +5,7 @@ import type {PlayerController} from '../player/player-controller.js';
 import type {JsonLibraryStore} from '../storage/store.js';
 import type {MediaTransportAction, SearchFilters, NavigationOptions} from './app-state.js';
 import {favoriteTarget, normalizeMediaKeyBindings, parseMediaActionName} from './app-state.js';
+import {importStreamUrl} from '../streams/import-stream.js';
 
 type SettingsRef = {
   current: AppSettings;
@@ -17,6 +18,7 @@ type UseCommandExecutorOptions = {
   loadCountry: (country: Country) => Promise<void>;
   openAirPlaySettings: () => void;
   openLibrary: () => void;
+  persistLibrary: (write: () => LibraryState) => LibraryState | undefined;
   player: PlayerController;
   playingStation: Station | null;
   providers: ProviderManager;
@@ -46,6 +48,7 @@ export function useCommandExecutor({
   loadCountry,
   openAirPlaySettings,
   openLibrary,
+  persistLibrary,
   player,
   playingStation,
   providers,
@@ -244,9 +247,31 @@ export function useCommandExecutor({
         return;
       }
 
-      if (name === 'import' || name === 'restore') {
+      if (name === 'import') {
         if (!value.trim()) {
-          setMessage('Usage: :import <backup.json>');
+          setMessage('Usage: :import <stream-url> [station name]');
+          return;
+        }
+
+        try {
+          const [url = '', ...nameParts] = rest;
+          setMessage('Reading stream metadata...');
+          const result = await importStreamUrl(url, nameParts.join(' ') || undefined);
+          const nextLibrary = persistLibrary(() => store.addImported([result.station]));
+          if (!nextLibrary) return;
+          openLibrary();
+          setMessage(result.warning
+            ? `Imported ${result.station.name}. ${result.warning}`
+            : `Imported ${result.station.name}${result.station.codec ? ` · ${result.station.codec}` : ''}${result.station.bitrate ? ` · ${result.station.bitrate} kbps` : ''}.`);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : 'Could not import the radio stream.');
+        }
+        return;
+      }
+
+      if (name === 'restore') {
+        if (!value.trim()) {
+          setMessage('Usage: :restore <backup.json>');
           return;
         }
 
@@ -256,11 +281,11 @@ export function useCommandExecutor({
           setLibrary(result.state);
           setMessage(
             result.safetyBackupPath
-              ? `Backup imported. Previous library saved to ${result.safetyBackupPath}`
-              : `Backup imported: ${result.sourcePath}`
+              ? `Backup restored. Previous library saved to ${result.safetyBackupPath}`
+              : `Backup restored: ${result.sourcePath}`
           );
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : 'Could not import the RadioCLI backup.');
+          setMessage(error instanceof Error ? error.message : 'Could not restore the RadioCLI backup.');
         }
         return;
       }
@@ -271,7 +296,7 @@ export function useCommandExecutor({
       }
 
       if (name === 'stop') {
-        setLibrary(store.finishActiveListeningSession());
+        persistLibrary(() => store.finishActiveListeningSession());
         await player.stop();
         return;
       }
@@ -311,6 +336,7 @@ export function useCommandExecutor({
       loadCountry,
       openAirPlaySettings,
       openLibrary,
+      persistLibrary,
       player,
       playingStation,
       providers,

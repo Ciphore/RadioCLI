@@ -1,23 +1,16 @@
+import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageInstallPrerequisites, packageManagerElevation, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
+export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
-import {existsSync, readFileSync, realpathSync} from 'node:fs';
+import {realpathSync} from 'node:fs';
 import {createInterface} from 'node:readline/promises';
 import type {Readable, Writable} from 'node:stream';
-import {clearCommandCache, commandExists} from './player/command.js';
+import {clearCommandCache, commandExists, resolveCommand} from './platform/executables.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {configureMcpIntegrations} from './agent/mcp-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
-
-export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
-export type SetupPackageManager = 'brew' | 'winget' | 'scoop' | 'choco' | 'apt' | 'dnf' | 'pacman' | 'apk' | 'zypper';
-
-type SetupCommand = {
-  component: SetupComponent | null;
-  label: string;
-  program: string;
-  args: string[];
-  display: string;
-};
+import {resolveTerminalCapabilities} from './platform/terminal.js';
+import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './platform/runtime.js';
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -31,11 +24,13 @@ export type SetupPlan = {
 type SetupOptions = {
   platform?: NodeJS.Platform;
   osRelease?: string;
+  env?: NodeJS.ProcessEnv;
   args?: string[];
   input?: Readable;
   output?: Writable;
   hasCommand?: (command: string) => boolean;
   runCommand?: (command: SetupCommand, output: Writable) => Promise<void>;
+  getUid?: () => number | undefined;
 };
 
 type ParsedSetupArgs = {
@@ -49,20 +44,22 @@ type ParsedSetupArgs = {
 };
 
 const components: SetupComponent[] = ['mpv', 'ffmpeg', 'vlc'];
-const packageManagers: SetupPackageManager[] = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper'];
 
 export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const platform = options.platform ?? process.platform;
   const osRelease = options.osRelease ?? readLinuxOsRelease(platform);
+  const env = options.env ?? process.env;
+  const host = identifyPlatform({platform, osRelease, env});
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const hasCommand = options.hasCommand ?? commandExists;
   const parsed = parseSetupArgs(options.args ?? []);
+  if (parsed.packageManager) validateNativePackageManager(parsed.packageManager, host);
   const installed = detectInstalledComponents(hasCommand);
-  const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand);
+  const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand, env);
 
   writeHeader(output);
-  output.write(`System  ${platformLabel(platform, osRelease)} · Node ${process.version}\n`);
+  output.write(`System  ${platformLabel(platform, osRelease, env)} ${separator(output)} Node ${process.version}\n`);
   output.write(`Manager ${packageManager ?? 'not detected'}\n\n`);
 
   let selected = parsed.only ?? defaultComponents(platform, parsed.all);
@@ -81,8 +78,14 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     agentUi = await promptYesNo(input, output, `  Open the RadioCLI TUI for agent playback${note}`, true);
   }
 
-  const plan = createSetupPlan({platform, osRelease, packageManager, installed, selected});
+  const isRoot = (options.getUid ?? process.getuid)?.() === 0;
+  const elevation = packageManagerElevation(hasCommand, isRoot);
+  const plan = createSetupPlan({platform, osRelease, env, packageManager, installed, selected, elevation});
   printPlan(plan, output);
+  if (packageManager && packageManagerNeedsRoot(packageManager) && !isRoot && !elevation) {
+    output.write('  Note: Run package commands as root; sudo/doas unavailable.\n');
+  }
+  for (const note of packageManagerNotes(packageManager, host)) output.write(`  Note: ${note}\n`);
 
   const missing = plan.selected.filter(component => !plan.installed[component]);
 
@@ -108,8 +111,16 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     return;
   }
 
-  if (parsed.packageManager && !hasCommand(parsed.packageManager)) {
-    throw new Error(`Requested package manager is not available: ${parsed.packageManager}.`);
+  const manual = missing.filter(component => !plan.commands.some(command => command.component === component));
+  if (manual.length) throw new Error(`No verified automatic installation command for ${manual.join(', ')} with ${plan.packageManager}. Install these components manually or select --only=mpv.`);
+  if (plan.packageManager === 'termux-pkg' && isRoot) throw new Error('Run setup as the normal Termux app user. Termux pkg refuses root execution.');
+  if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !elevation) {
+    throw new Error('System package installation requires root, sudo, or doas. Review the dry-run plan and install prerequisites with your administrator.');
+  }
+
+  if (parsed.packageManager && !hasCommand(packageManagerProgram(parsed.packageManager))) {
+    const program = packageManagerProgram(parsed.packageManager);
+    throw new Error(`Requested package manager is not available: ${parsed.packageManager}${program !== parsed.packageManager ? ` (${program})` : ''}.`);
   }
 
   if (!parsed.yes && isInteractive(input, output)) {
@@ -124,10 +135,10 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   if (plan.commands.some(command => command.program === 'sudo')) {
     output.write('\nRadioCLI needs administrator approval for the system package manager.\n');
-    await runVisibleCommand('sudo', ['-v']);
+    await runVisibleCommand(resolveCommand('sudo') ?? 'sudo', ['-v']);
   }
 
-  const execute = options.runCommand ?? runInstallCommand;
+  const execute = options.runCommand ?? ((command, destination) => runInstallCommand(command, destination, platform));
   output.write('\nInstalling\n');
   for (const command of plan.commands) {
     await execute(command, output);
@@ -142,32 +153,29 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 export function createSetupPlan({
   platform,
   osRelease = '',
+  env = process.env,
   packageManager,
   installed,
-  selected
+  selected,
+  elevation = 'sudo'
 }: {
   platform: NodeJS.Platform;
   osRelease?: string;
+  env?: NodeJS.ProcessEnv;
   packageManager: SetupPackageManager | null;
   installed: Record<SetupComponent, boolean>;
   selected: SetupComponent[];
+  elevation?: 'sudo' | 'doas' | null;
 }): SetupPlan {
+  if (packageManager) validateNativePackageManager(packageManager, identifyPlatform({platform, osRelease, env}));
   const uniqueSelected = components.filter(component => selected.includes(component));
   const missing = uniqueSelected.filter(component => !installed[component]);
-  const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component)) : [];
-  if (packageManager === 'scoop' && missing.some(component => component === 'mpv' || component === 'vlc')) {
-    commands.unshift({
-      component: null,
-      label: 'Scoop extras bucket',
-      program: 'scoop',
-      args: ['bucket', 'add', 'extras'],
-      display: 'scoop bucket add extras'
-    });
-  }
+  const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component, {elevation})).filter((command): command is SetupCommand => command !== null) : [];
+  if (packageManager) commands.unshift(...packageInstallPrerequisites(packageManager, missing));
 
   return {
     platform,
-    platformLabel: platformLabel(platform, osRelease),
+    platformLabel: platformLabel(platform, osRelease, env),
     packageManager,
     installed,
     selected: uniqueSelected,
@@ -175,28 +183,15 @@ export function createSetupPlan({
   };
 }
 
-export function detectPackageManager(
-  platform: NodeJS.Platform,
-  osRelease: string,
-  hasCommand: (command: string) => boolean = commandExists
-): SetupPackageManager | null {
-  if (platform === 'darwin') return hasCommand('brew') ? 'brew' : null;
-  if (platform === 'win32') return firstAvailable(['winget', 'scoop', 'choco'], hasCommand);
-  if (platform !== 'linux') return null;
-
-  const ids = linuxReleaseIds(osRelease);
-  const preferred: SetupPackageManager[] = hasAny(ids, ['debian', 'ubuntu', 'linuxmint', 'pop'])
-    ? ['apt']
-    : hasAny(ids, ['fedora', 'rhel', 'centos'])
-      ? ['dnf']
-      : hasAny(ids, ['arch', 'manjaro'])
-        ? ['pacman']
-        : hasAny(ids, ['alpine'])
-          ? ['apk']
-          : hasAny(ids, ['opensuse', 'suse'])
-            ? ['zypper']
-            : ['apt', 'dnf', 'pacman', 'apk', 'zypper'];
-  return firstAvailable(preferred, hasCommand);
+function validateNativePackageManager(manager: SetupPackageManager, host: PlatformProfile): void {
+  const required = host.id === 'termux' ? 'termux-pkg' : host.id === 'haiku' ? 'pkgman' : host.id === 'sunos' ? 'pkgin' : null;
+  if ((required && manager !== required)
+    || (manager === 'termux-pkg' && host.id !== 'termux')
+    || (manager === 'pkgman' && host.id !== 'haiku')
+    || (manager === 'pkg' && host.id !== 'freebsd')
+    || ['aix', 'android', 'unknown'].includes(host.id)) {
+    throw new Error(`No verified ${manager} playback package recipe for ${host.id}.${required ? ` Use --package-manager=${required}.` : ' Install a native player manually and run radiocli doctor.'}`);
+  }
 }
 
 export function parseSetupArgs(args: string[]): ParsedSetupArgs {
@@ -279,46 +274,6 @@ function parsePackageManager(value: string | undefined): SetupPackageManager {
   return value as SetupPackageManager;
 }
 
-function packageInstallCommand(manager: SetupPackageManager, component: SetupComponent): SetupCommand {
-  const packages: Record<SetupPackageManager, Record<SetupComponent, string>> = {
-    brew: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    winget: {mpv: 'shinchiro.mpv', ffmpeg: 'Gyan.FFmpeg', vlc: 'VideoLAN.VLC'},
-    scoop: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    choco: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apt: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    dnf: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    pacman: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    apk: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'},
-    zypper: {mpv: 'mpv', ffmpeg: 'ffmpeg', vlc: 'vlc'}
-  };
-  const packageName = packages[manager][component];
-  let program: string = manager;
-  let args: string[];
-
-  if (manager === 'brew') args = ['install', component === 'vlc' ? '--cask' : packageName, ...(component === 'vlc' ? [packageName] : [])];
-  else if (manager === 'winget') args = ['install', '--id', packageName, '-e', '--accept-package-agreements', '--accept-source-agreements'];
-  else if (manager === 'scoop') args = ['install', packageName];
-  else if (manager === 'choco') args = ['install', packageName, '-y'];
-  else if (manager === 'apt') {
-    program = 'sudo';
-    args = ['apt-get', 'install', '-y', packageName];
-  } else if (manager === 'dnf') {
-    program = 'sudo';
-    args = ['dnf', 'install', '-y', packageName];
-  } else if (manager === 'pacman') {
-    program = 'sudo';
-    args = ['pacman', '-S', '--needed', '--noconfirm', packageName];
-  } else if (manager === 'apk') {
-    program = 'sudo';
-    args = ['apk', 'add', packageName];
-  } else {
-    program = 'sudo';
-    args = ['zypper', '--non-interactive', 'install', packageName];
-  }
-
-  return {component, label: componentLabel(component), program, args, display: [program, ...args].join(' ')};
-}
-
 function defaultComponents(platform: NodeJS.Platform, all: boolean): SetupComponent[] {
   if (all) return [...components];
   return platform === 'darwin' ? ['mpv', 'ffmpeg'] : ['mpv'];
@@ -345,9 +300,9 @@ async function promptForComponents({
 }): Promise<SetupComponent[]> {
   output.write('Choose components (installed items will be skipped):\n');
   const selected: SetupComponent[] = [];
-  if (await promptYesNo(input, output, `  mpv      Full playback controls${installed.mpv ? ' · installed' : ''}`, true)) selected.push('mpv');
-  if (await promptYesNo(input, output, `  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ' · installed' : ''}`, platform === 'darwin')) selected.push('ffmpeg');
-  if (await promptYesNo(input, output, `  VLC      Additional playback fallback${installed.vlc ? ' · installed' : ''}`, false)) selected.push('vlc');
+  if (await promptYesNo(input, output, `  mpv      Full playback controls${installed.mpv ? ` ${separator(output)} installed` : ''}`, true)) selected.push('mpv');
+  if (await promptYesNo(input, output, `  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ` ${separator(output)} installed` : ''}`, platform === 'darwin')) selected.push('ffmpeg');
+  if (await promptYesNo(input, output, `  VLC      Additional playback fallback${installed.vlc ? ` ${separator(output)} installed` : ''}`, false)) selected.push('vlc');
   return selected;
 }
 
@@ -364,18 +319,22 @@ async function promptYesNo(input: Readable, output: Writable, question: string, 
 
 function printPlan(plan: SetupPlan, output: Writable): void {
   output.write('\nInstallation plan\n');
+  for (const command of plan.commands.filter(command => command.component === null)) {
+    output.write(`  ${pendingMark(output)} ${command.label} ${separator(output)} ${command.display}\n`);
+  }
   for (const component of plan.selected) {
     if (plan.installed[component]) output.write(`  ${successMark(output)} ${componentLabel(component)} already installed\n`);
     else {
       const command = plan.commands.find(candidate => candidate.component === component);
-      output.write(`  ${pendingMark(output)} ${componentLabel(component)}${command ? ` · ${command.display}` : ' · manual installation required'}\n`);
+      output.write(`  ${pendingMark(output)} ${componentLabel(component)} ${separator(output)} ${command ? command.display : 'manual installation required'}\n`);
     }
   }
   if (plan.selected.length === 0) output.write('  No components selected\n');
 }
 
-async function runInstallCommand(command: SetupCommand, output: Writable): Promise<void> {
-  const interactive = Boolean((output as NodeJS.WriteStream).isTTY);
+async function runInstallCommand(command: SetupCommand, output: Writable, platform: NodeJS.Platform): Promise<void> {
+  const terminal = setupTerminal(output);
+  const interactive = terminal.interactive && !terminal.reduceMotion;
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
   let frame = 0;
@@ -392,7 +351,8 @@ async function runInstallCommand(command: SetupCommand, output: Writable): Promi
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(command.program, command.args, {stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
+      const invocation = packageCommandInvocation(command, platform, resolveCommand);
+      const child = spawn(invocation.program, invocation.args, {shell: false, stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
       child.stdout?.on('data', chunk => { stdout = tail(`${stdout}${String(chunk)}`); });
       child.stderr?.on('data', chunk => { stderr = tail(`${stderr}${String(chunk)}`); });
       child.once('error', reject);
@@ -415,8 +375,9 @@ function progressFrame(label: string, frame: number, elapsedMs: number, output: 
   const cycle = travel * 2;
   const offset = frame % cycle;
   const start = offset <= travel ? offset : cycle - offset;
-  const bar = Array.from({length: width}, (_, index) => index >= start && index < start + segment ? '█' : '░').join('');
-  return `  ${accent(output, '◒')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
+  const unicode = setupTerminal(output).unicode;
+  const bar = Array.from({length: width}, (_, index) => index >= start && index < start + segment ? (unicode ? '█' : '#') : (unicode ? '░' : '.')).join('');
+  return `  ${accent(output, unicode ? '◒' : '*')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
 }
 
 function printVerification(output: Writable): void {
@@ -430,20 +391,7 @@ function printVerification(output: Writable): void {
 
 function writeHeader(output: Writable): void {
   output.write(`${accent(output, 'RADIOCLI')}  SETUP RECEIVER\n`);
-  output.write(`${accent(output, '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')}\n`);
-}
-
-function platformLabel(platform: NodeJS.Platform, osRelease: string): string {
-  if (platform === 'darwin') return `${process.arch === 'arm64' ? 'macOS Apple Silicon' : 'macOS'}`;
-  if (platform === 'win32') return 'Windows';
-  if (platform === 'linux') return osReleaseValue(osRelease, 'PRETTY_NAME') || 'Linux';
-  return platform;
-}
-
-function componentLabel(component: SetupComponent): string {
-  if (component === 'ffmpeg') return 'FFmpeg / ffplay';
-  if (component === 'vlc') return 'VLC fallback';
-  return 'mpv';
+  output.write(`${accent(output, setupTerminal(output).unicode ? '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' : '------------------------------------')}\n`);
 }
 
 function isInteractive(input: Readable, output: Writable): boolean {
@@ -451,23 +399,33 @@ function isInteractive(input: Readable, output: Writable): boolean {
 }
 
 function accent(output: Writable, value: string): string {
-  return colorsEnabled(output) ? `\u001b[38;2;116;242;138m${value}\u001b[0m` : value;
+  const level = setupTerminal(output).colorLevel;
+  const color = level === 3 ? '38;2;116;242;138' : level === 2 ? '38;5;120' : '32';
+  return level > 0 ? `\u001b[${color}m${value}\u001b[0m` : value;
 }
 
 function successMark(output: Writable): string {
-  return accent(output, '✓');
+  return accent(output, setupTerminal(output).unicode ? '✓' : '+');
 }
 
 function pendingMark(output: Writable): string {
-  return accent(output, '◆');
+  return accent(output, setupTerminal(output).unicode ? '◆' : '*');
 }
 
 function failureMark(output: Writable): string {
-  return colorsEnabled(output) ? '\u001b[38;2;255;95;135m✗\u001b[0m' : '✗';
+  const terminal = setupTerminal(output);
+  const value = terminal.unicode ? '✗' : 'x';
+  const color = terminal.colorLevel === 3 ? '38;2;255;95;135' : terminal.colorLevel === 2 ? '38;5;204' : '31';
+  return terminal.colorLevel > 0 ? `\u001b[${color}m${value}\u001b[0m` : value;
 }
 
-function colorsEnabled(output: Writable): boolean {
-  return Boolean((output as NodeJS.WriteStream).isTTY) && !process.env.NO_COLOR;
+function setupTerminal(output: Writable) {
+  const stream = output as NodeJS.WriteStream;
+  return resolveTerminalCapabilities(process.env, {isTTY: Boolean(stream.isTTY), colorDepth: stream.getColorDepth?.()});
+}
+
+function separator(output: Writable): string {
+  return setupTerminal(output).unicode ? '·' : '-';
 }
 
 function clearLine(): string {
@@ -493,36 +451,4 @@ async function runVisibleCommand(program: string, args: string[]): Promise<void>
     child.once('error', reject);
     child.once('close', code => code === 0 ? resolve() : reject(new Error(`${program} ${args.join(' ')} exited with code ${code}.`)));
   });
-}
-
-function firstAvailable<T extends string>(values: T[], hasCommand: (command: string) => boolean): T | null {
-  return values.find(hasCommand) ?? null;
-}
-
-function readLinuxOsRelease(platform: NodeJS.Platform): string {
-  if (platform !== 'linux' || !existsSync('/etc/os-release')) return '';
-  try {
-    return readFileSync('/etc/os-release', 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function linuxReleaseIds(osRelease: string): Set<string> {
-  const ids = new Set<string>();
-  for (const line of osRelease.split('\n')) {
-    const match = /^(ID|ID_LIKE)=(.*)$/.exec(line);
-    if (!match) continue;
-    for (const value of match[2]!.replaceAll('"', '').split(/\s+/)) if (value.trim()) ids.add(value.trim().toLowerCase());
-  }
-  return ids;
-}
-
-function osReleaseValue(osRelease: string, key: string): string {
-  const line = osRelease.split('\n').find(candidate => candidate.startsWith(`${key}=`));
-  return line?.slice(key.length + 1).replace(/^"|"$/g, '') ?? '';
-}
-
-function hasAny(values: Set<string>, candidates: string[]): boolean {
-  return candidates.some(candidate => values.has(candidate));
 }

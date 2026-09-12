@@ -1,11 +1,13 @@
 import {randomBytes} from 'node:crypto';
-import {chmodSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {chmodSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {createServer, request} from 'node:http';
-import {homedir} from 'node:os';
+import {platformPaths} from '../platform/paths.js';
 import {dirname, join} from 'node:path';
 import type {AirPlayDevice, AppSettings, PlaybackState, Station} from '../types.js';
+import {isLoopbackHost, listenLoopback, type LoopbackHost} from '../platform/loopback.js';
 
 export type RadioSessionStatus = {
+  persistenceWarning?: string;
   owner: 'tui' | 'headless';
   playback: PlaybackState;
   station: Station | null;
@@ -32,7 +34,7 @@ export type RadioSessionCommand =
   | {type: 'update-settings'; settings: Partial<Pick<AppSettings, 'theme' | 'receiverStyle' | 'agentControl'>>};
 
 export type RadioSessionResult = {ok: boolean; message: string; status: RadioSessionStatus; data?: AirPlayDevice[]};
-type Discovery = {version: 1; host: '127.0.0.1'; port: number; token: string; pid: number; createdAt: string};
+type Discovery = {version: 1; host: LoopbackHost; port: number; token: string; pid: number; createdAt: string};
 
 export type RadioSessionClient = {
   call(command: RadioSessionCommand): Promise<RadioSessionResult>;
@@ -70,15 +72,10 @@ export async function startRadioSession(
     });
   });
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(0, '127.0.0.1', () => resolve());
-    });
-    const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Unable to create RadioCLI control endpoint.');
+    const address = await listenLoopback(server);
     const discovery: Discovery = {
       version: 1,
-      host: '127.0.0.1',
+      host: address.host,
       port: address.port,
       token,
       pid: process.pid,
@@ -104,7 +101,7 @@ export async function connectRadioSession(filePath = radioSessionPath()): Promis
   let discovery: Discovery;
   try {
     discovery = JSON.parse(readFileSync(filePath, 'utf8')) as Discovery;
-    if (discovery.version !== 1 || discovery.host !== '127.0.0.1' || !Number.isInteger(discovery.port) || !discovery.token) {
+    if (discovery.version !== 1 || !isLoopbackHost(discovery.host) || !Number.isInteger(discovery.port) || !discovery.token) {
       throw new Error('invalid');
     }
   } catch {
@@ -115,7 +112,9 @@ export async function connectRadioSession(filePath = radioSessionPath()): Promis
     const payload = JSON.stringify(command);
     return new Promise<RadioSessionResult>((resolve, reject) => {
       const req = request({
-        host: '127.0.0.1',
+        host: discovery.host,
+        // Local control tokens must never be forwarded by an environment proxy.
+        agent: false,
         port: discovery.port,
         path: '/command',
         method: 'POST',
@@ -141,7 +140,9 @@ export async function connectRadioSession(filePath = radioSessionPath()): Promis
     await call({type: 'status'});
     return {call, status: async () => (await call({type: 'status'})).status};
   } catch {
-    if (!processAlive(discovery.pid) || discoveryAgeMs(filePath, discovery) > 60_000) {
+    // A slow command does not prove that a playback host is dead. Retain both
+    // ownership records while its PID is alive so a second host cannot start.
+    if (!processAlive(discovery.pid)) {
       removeIfOwned(filePath, discovery);
       removeOwner(`${filePath}.owner`, discovery.pid);
     }
@@ -184,9 +185,7 @@ async function waitForSession(timeoutMs: number): Promise<RadioSessionClient> {
 }
 
 function runtimeDirectory(): string {
-  if (process.env.RADIOCLI_HOME) return join(process.env.RADIOCLI_HOME, 'runtime');
-  if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'RadioCLI', 'runtime');
-  return join(process.env.XDG_RUNTIME_DIR ?? join(homedir(), '.local', 'state'), 'radiocli');
+  return platformPaths().runtime;
 }
 
 function acquireOwner(path: string): void {
@@ -231,12 +230,6 @@ function removeIfOwned(path: string, owner: Discovery): void {
 function processAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
-}
-
-function discoveryAgeMs(path: string, discovery: Discovery): number {
-  const created = Date.parse(discovery.createdAt);
-  if (Number.isFinite(created)) return Math.max(0, Date.now() - created);
-  try { return Math.max(0, Date.now() - statSync(path).mtimeMs); } catch { return 0; }
 }
 
 function readBody(req: import('node:http').IncomingMessage): Promise<string> {

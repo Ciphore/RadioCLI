@@ -1,5 +1,5 @@
-import {useEffect} from 'react';
-import {useInput} from 'ink';
+import {useCallback, useEffect} from 'react';
+import {useInput, type Key} from 'ink';
 import type {Dispatch, SetStateAction} from 'react';
 import type {Country, Screen, Station, AppSettings} from '../types.js';
 import type {PlayerController} from '../player/player-controller.js';
@@ -9,9 +9,11 @@ import {
   favoriteTarget,
   isEditableInput,
   isPlainPrintableInput,
+  isSearchFavoriteShortcut,
   mediaTransportActionForInput,
   searchEditingArrowAction,
   shouldHandleKeyboardEvent,
+  shouldTuneSearchResult,
   shouldToggleNearbyLocationShortcut,
   type ExploreMoveDirection,
   type MediaTransportAction
@@ -19,6 +21,7 @@ import {
 import {parseTerminalMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
 import {completeCommand} from './help-content.js';
 import {commitImmediateSelection} from './selection-state.js';
+import {sanitizeTerminalText} from '../safety.js';
 
 type CurrentRef<T> = {
   current: T;
@@ -40,7 +43,7 @@ type AppInputOptions = {
   commandText: string;
   confirmCtrlCExit: () => void;
   copyStationUrl: (station: Station | null) => Promise<void>;
-  openStationHomepage: (station: Station | null) => void;
+  openStationHomepage: (station: Station | null) => Promise<void>;
   currentItemCount: (screen: Screen) => number;
   cycleDisplayColor: () => void;
   cycleAudioOutput: () => void;
@@ -190,6 +193,9 @@ export function useAppInput({
   toggleSkipBrokenStreams,
   updateFromSettings
 }: AppInputOptions): void {
+  const reportInputError = useCallback((error: unknown) => {
+    setMessage(sanitizeTerminalText(error instanceof Error ? error.message : String(error)) ?? 'Could not complete this action.');
+  }, [setMessage]);
   const commitSelection = (next: number): void => {
     commitImmediateSelection(selectedRef, setSelected, next, currentItemCount(screen));
   };
@@ -199,7 +205,7 @@ export function useAppInput({
   };
 
   useEffect(() => {
-    const onData = (data: Buffer | string) => {
+    const handleData = (data: Buffer | string) => {
       const rawInput = String(data);
       if (capturingTransportAction) {
         if (rawInput === '\u001B') {
@@ -253,6 +259,10 @@ export function useAppInput({
       }
     };
 
+    const onData = (data: Buffer | string) => {
+      try { handleData(data); } catch (error) { reportInputError(error); }
+    };
+
     stdin.on('data', onData);
     return () => {
       stdin.off('data', onData);
@@ -268,6 +278,7 @@ export function useAppInput({
     lastRawTransportAtRef,
     playAdjacent,
     player,
+    reportInputError,
     moveExploreCursorToCell,
     saveLearnedTransportKey,
     screen,
@@ -280,7 +291,7 @@ export function useAppInput({
     togglePause
   ]);
 
-  useInput((input, key) => {
+  const handleInput = async (input: string, key: Key): Promise<void> => {
     if (key.ctrl && input === 'c') {
       confirmCtrlCExit();
       return;
@@ -300,9 +311,9 @@ export function useAppInput({
 
     if (commandMode) {
       if (key.return) {
-        void executeCommand(commandText);
         setCommandText('');
         setCommandMode(false);
+        await executeCommand(commandText);
         return;
       }
 
@@ -329,16 +340,21 @@ export function useAppInput({
       return;
     }
 
-    // An active text field owns its keystrokes before app-wide shortcuts. In
-    // particular, a normal "a" in a station query must not invoke the global
-    // schedule-this-station shortcut and leave Search for the alarm editor.
+    // An active text field owns ordinary keystrokes before app-wide shortcuts.
+    // Dedicated modified shortcuts are handled here so plain query characters
+    // never trigger actions or leave Search.
     if (screen === 'search' && editingSearch) {
+      if (isSearchFavoriteShortcut(input, key)) {
+        toggleFavorite(favoriteTarget(screen, selectedStationForInput(), playingStation));
+        return;
+      }
+
       if (key.return) {
         const inputStation = selectedStationForInput();
-        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && inputStation) {
-          void playStation(inputStation);
+        if (inputStation && shouldTuneSearchResult(searchQuery, lastSubmittedSearchRef.current)) {
+          await playStation(inputStation);
         } else {
-          void runSearch();
+          await runSearch();
         }
         return;
       }
@@ -458,7 +474,7 @@ export function useAppInput({
     if (input.startsWith(':')) {
       const seed = input.slice(1).replace(/[\r\n]+$/g, '');
       if (/[\r\n]/.test(input)) {
-        void executeCommand(seed);
+        await executeCommand(seed);
       } else {
         setCommandMode(true);
         setCommandText(seed);
@@ -618,12 +634,12 @@ export function useAppInput({
     }
 
     if (input === 'O') {
-      openStationHomepage(favoriteTarget(screen, selectedStationForInput(), playingStation));
+      await openStationHomepage(favoriteTarget(screen, selectedStationForInput(), playingStation));
       return;
     }
 
     if (input === 'y') {
-      void copyStationUrl(favoriteTarget(screen, selectedStationForInput(), playingStation));
+      await copyStationUrl(favoriteTarget(screen, selectedStationForInput(), playingStation));
       return;
     }
 
@@ -674,7 +690,7 @@ export function useAppInput({
       if (screen === 'countries') {
         const country = filteredCountries[selectedRef.current];
         if (country) {
-          void loadCountry(country);
+          await loadCountry(country);
         }
         return;
       }
@@ -723,9 +739,9 @@ export function useAppInput({
         } else if (item === 'Automatically check for updates') {
           toggleSetting('automaticUpdateChecks');
         } else if (item === 'Allow local agent control') {
-          void setAgentIntegrationEnabled();
+          await setAgentIntegrationEnabled();
         } else if (item === 'Install or repair MCP integrations') {
-          void repairMcpIntegrations();
+          await repairMcpIntegrations();
         } else if (item === 'Open TUI for agent playback') {
           toggleAgentSetting('openUiOnPlay');
         } else if (item === 'Show Now Playing for agent playback') {
@@ -733,11 +749,11 @@ export function useAppInput({
         } else if (item === 'Export preferences and library') {
           setCommandText('export ');
           setCommandMode(true);
-        } else if (item === 'Import preferences and library') {
-          setCommandText('import ');
+        } else if (item === 'Restore preferences and library') {
+          setCommandText('restore ');
           setCommandMode(true);
         } else if (item === 'Check for updates') {
-          void updateFromSettings();
+          await updateFromSettings();
         } else if (item === 'Refresh provider health') {
           refreshProviderHealth();
           setMessage('Provider health refreshed.');
@@ -761,16 +777,20 @@ export function useAppInput({
       if (screen === 'map') {
         const country = filteredCountries[selectedRef.current];
         if (country) {
-          void loadCountry(country);
+          await loadCountry(country);
         }
         return;
       }
 
       const inputStation = selectedStationForInput();
       if (inputStation) {
-        void playStation(inputStation);
+        await playStation(inputStation);
       }
     }
+  };
+
+  useInput((input, key) => {
+    void handleInput(input, key).catch(reportInputError);
   });
 }
 

@@ -14,17 +14,20 @@ radiocli setup
 radiocli
 ```
 
-On macOS, Homebrew is the all-in-one option because the formula also installs
-Node.js, `mpv`, and FFmpeg:
+On macOS configurations supported by Homebrew, its formula also installs Node.js,
+`mpv`, and FFmpeg:
 
 ```bash
 brew install ciphore/tap/radiocli
 radiocli
 ```
 
-Both paths install the same `radiocli` command. The npm package is the universal
-option; its guided `radiocli setup` step installs selected system playback tools
-through Homebrew, WinGet, Scoop, Chocolatey, or the detected Linux package manager.
+Both paths install the same `radiocli` command. The npm package also has
+experimental community installation paths described below. `radiocli setup`
+installs selected system playback tools only after showing a plan and receiving
+confirmation or `--yes`. npm lifecycle scripts never install system packages.
+Consult the [platform matrix](../platforms.mdx) before selecting a runtime or
+claiming that a particular OS/CPU combination has been verified.
 
 ## Upgrade An Existing Installation
 
@@ -49,7 +52,8 @@ older registration is already stale, run `radiocli mcp status` followed by
 
 RadioCLI needs:
 
-- Homebrew on macOS: installs RadioCLI, Node.js, `mpv`, and FFmpeg
+- Homebrew on its supported macOS configurations: installs RadioCLI, Node.js,
+  `mpv`, and FFmpeg
 - npm, pnpm, or Bun on macOS, Linux, and Windows: Node.js 22 or newer
 - `mpv` for playback, pause, mute, volume, media keys, metadata, and readiness
   checks
@@ -71,19 +75,22 @@ npx @ciphore/radiocli
 This is the fastest way to try the TUI. You still need `mpv`, `ffplay`, or VLC
 for audio — run `npx @ciphore/radiocli doctor` to check.
 
-## Recommended: macOS With Homebrew
+## macOS With Homebrew
 
-Homebrew is the lowest-friction macOS path. The tap formula installs RadioCLI,
-Node.js, `mpv`, and FFmpeg through Homebrew:
+The tap formula installs RadioCLI, Node.js, `mpv`, and FFmpeg through Homebrew.
+Check Homebrew's current OS/CPU policy; Intel and older macOS installations may
+need a compatible Node distribution and MacPorts or another native player route.
+See the [platform matrix](../platforms.mdx#installation-and-playback-prerequisites).
 
 ```bash
 brew install ciphore/tap/radiocli
 radiocli
 ```
 
-Run `radiocli doctor` any time you want to verify local playback readiness.
+Run `radiocli doctor` to check executable discovery and launch diagnostics.
+Tuning a station verifies the actual audio path.
 
-## Universal npm Install
+## npm Install
 
 The npm package is `@ciphore/radiocli`, and the installed executable is
 `radiocli`. npm installs RadioCLI and its JavaScript dependencies only; it does
@@ -97,7 +104,7 @@ radiocli
 
 The setup receiver detects tools that are already installed, offers `mpv`,
 FFmpeg/`ffplay`, and VLC, shows every native command before it runs, and finishes
-with playback verification. `mpv` is selected by default everywhere. FFmpeg is
+by checking executable availability. `mpv` is selected by default everywhere. FFmpeg is
 also selected by default on macOS because it enables experimental AirPlay.
 
 ```text
@@ -127,8 +134,9 @@ radiocli setup --mcp --headless-agent  # opt out of external terminal windows
 radiocli setup --no-mcp                # disable/remove MCP entries
 ```
 
-Agent playback opens the RadioCLI TUI in a terminal window by default on every
-platform. On macOS, the first request from each agent host (for example, ChatGPT)
+Agent playback requests the RadioCLI TUI in a supported installed graphical
+terminal. Missing desktop/session support is reported explicitly; select
+`--headless-agent` for command-only playback. On macOS, the first request from each agent host (for example, ChatGPT)
 also produces Apple's Automation consent dialog. RadioCLI cannot grant that
 permission on the host's behalf; approve it when prompted. If a user does not
 want external terminal windows or OS app-control prompts, choose headless mode
@@ -137,7 +145,9 @@ during setup or under **Settings → Agent control & MCP**.
 RadioCLI uses an animated activity bar and elapsed time while each package
 manager runs. Package managers do not report a portable, reliable percentage,
 so the bar intentionally shows activity rather than inventing completion data.
-In redirected output or CI, setup emits plain start/result log lines instead.
+In redirected output, `TERM=dumb`, screen-reader or reduced-motion mode, setup
+emits plain start/result log lines instead. ASCII mode and the terminal's color
+depth also apply to setup.
 
 pnpm and Bun can install the same package for users who already use those
 package managers:
@@ -159,8 +169,9 @@ brew install ffmpeg
 ```
 
 RadioCLI discovers AirPlay/RAOP receivers with Bonjour and decodes streams with
-FFmpeg. The sender bridge is bundled with RadioCLI, so users should not install
-extra AirPlay packages manually. Passcode-protected receivers prompt in the TUI;
+FFmpeg. The sender is an optional package dependency and must install and load
+successfully; `--omit=optional` leaves it out. Sender diagnostics report an absent
+or unusable bridge. Passcode-protected receivers prompt in the TUI;
 enter the code with `:airplay-code 1234` or the AirPlay Code screen. RadioCLI
 requires an explicit AirPlay receiver selection from Settings or `:airplay`
 before it tunes through AirPlay. Changing Audio output while a station is
@@ -197,9 +208,16 @@ radiocli setup
 radiocli
 ```
 
+On Alpine use a musl-native Node package; a glibc binary is not interchangeable.
+Alpine and other musl targets remain experimental until the selected CPU and
+runtime have repeatable execution evidence. On OpenRC, runit, a container, or any
+system without an accessible systemd user manager, the player, library and TUI
+remain usable. Background alarm scheduling is unavailable; RadioCLI does not
+substitute cron/at jobs with weaker occurrence or snooze guarantees.
+
 ## Windows
 
-Use Windows Terminal or PowerShell with Node.js 22 or newer and native `mpv`:
+Use Windows Terminal or PowerShell with a native Node 22/24 runtime and `mpv`:
 
 ```powershell
 winget install --id OpenJS.NodeJS.LTS -e
@@ -222,8 +240,80 @@ scoop bucket add extras
 scoop install mpv
 ```
 
-WSL remains supported through the Linux install path, but native Windows is the
-recommended Windows Terminal path.
+Windows x86 has a Node 22 route; Node 24 no longer provides it. Windows ARM64
+needs matching native binaries: the WinGet mpv recipe above is x64-only, while
+the Node LTS recipe and Scoop's mpv package have ARM64 routes. These catalogs do not establish
+runtime or audio verification on their own. Windows XP and older Windows
+versions below the standard runtime minimum have no legacy client.
+
+WSL uses the Linux installation path and remains experimental. Its Linux audio
+path, user manager and graphical environment need separate verification;
+Windows package discovery does not provide Linux playback tools.
+
+## BSD And Additional Runtimes
+
+Install a native Node 22+ runtime and matching npm first, then install the same
+npm package. These are package instructions, with verification status in the
+[platform matrix](../platforms.mdx). No new background alarm adapter is provided
+for these systems.
+
+| Environment | Explicit prerequisite path | Limitations |
+| --- | --- | --- |
+| FreeBSD | As root: `pkg install -y node22 npm-node22 mpv` | Confirm packages for the OS/CPU; ffplay needs FFmpeg's SDL option. |
+| OpenBSD | `doas pkg_add -I node mpv` | Packaged Node must be 22+; use the release's own repository. |
+| NetBSD/pkgsrc | Install the matching X11 base set, then `pkgin -y install 'nodejs>=22<23' mpv` | The binary mpv package links to OS X11 libraries even for headless audio. Configure the correct pkgsrc repository; run as root or through a privilege helper. |
+| Android/Termux | `pkg install -y nodejs-lts npm mpv` | Run as the app user without sudo/root; Android audio/background limits apply. |
+| Haiku | `pkgman install -y mpv` | HaikuPorts' Node 20 is below the minimum; a working custom Node 22+ port is required before RadioCLI can run. |
+| illumos/SmartOS | `pkgin -y install 'nodejs>=22<23' mpv` | Requires a configured compatible pkgsrc catalog; IPS `pkg` is a different tool and is not used. |
+| AIX | Provision a compatible native Node 22/24 runtime manually | No verified mpv/ffplay package recipe or RadioCLI runtime/audio evidence. DNF availability alone is insufficient. |
+
+Setup detects FreeBSD `pkg`, OpenBSD `pkg_add`, pkgsrc `pkgin`, Haiku `pkgman`,
+and a distinct `termux-pkg` recipe that invokes Termux's `pkg`. For example:
+
+```bash
+radiocli setup --only=mpv --dry-run
+radiocli setup --package-manager=termux-pkg --only=mpv --dry-run
+```
+
+Do not select the FreeBSD `pkg` recipe on Termux or illumos. Setup checks the host
+before invoking these recipes and uses root, sudo or doas where applicable.
+Termux's main FFmpeg package omits ffplay; enabling an X11 repository and its
+display/audio services remains a manual choice. Haiku's `ffmpeg8_tools` recipe
+does not resolve its Node runtime blocker. pkgsrc uses versioned FFmpeg/ffplay
+pairs, so setup reports that component as manual rather than guessing a package.
+On a minimal NetBSD installation, select the matching X11 base distribution set
+through the OS installation tools before installing mpv. See NetBSD's
+[distribution-set instructions](https://www.netbsd.org/docs/guide/en/chap-exinst.html);
+the package manager cannot supply missing base-system X11 libraries itself.
+
+The recorded BSD guests installed a local packed tarball into fresh projects,
+omitting the optional native macOS AirPlay sender. After providing the matching
+Node/npm/player prerequisites, a manual registry installation uses:
+
+```bash
+npm install -g --omit=optional @ciphore/radiocli
+```
+
+## Player Paths And Constrained Sessions
+
+Set an absolute executable path when the player is outside the standard search
+locations. The value is a single executable, with no shell or appended arguments:
+
+```bash
+RADIOCLI_MPV_PATH='/opt/Audio tools/mpv' radiocli doctor
+```
+
+PowerShell uses `$env:RADIOCLI_MPV_PATH = 'C:\Audio tools\mpv.exe'` before the
+command. The other overrides are `RADIOCLI_FFPLAY_PATH`, `RADIOCLI_VLC_PATH` and
+`RADIOCLI_FFMPEG_PATH`. Invalid explicit paths produce diagnostics instead of
+silently choosing another executable. Run `radiocli alarm sync` after changing
+the paths retained by native alarm jobs.
+
+For SSH, use a terminal allocation such as `ssh -t` for the TUI, or use CLI/MCP
+commands and explicit headless playback. Browser, clipboard and terminal
+reopening depend on the actual desktop session. See
+[troubleshooting](../troubleshooting.mdx) for ASCII/color controls, offline caches,
+proxies, IPv6 and writable data directories.
 
 ## Optional ffplay Fallback
 
@@ -248,8 +338,9 @@ control. In `ffplay` mode RadioCLI labels the backend as `ffplay fallback`,
 shows limited-control footer text, and `radiocli doctor` reports
 `controls=limited`.
 
-CI covers command-mode typecheck, tests, builds, package checks, and fresh
-install smoke checks on Ubuntu, macOS, and Windows.
+The required CI matrix covers Node 22/24 on Ubuntu, macOS and Windows with native
+x64/arm64 jobs and packed-install mpv checks. BSD guest jobs are opt-in/weekly.
+The platform matrix records actual results and the limits of those checks.
 
 ## Alarm Scheduling Requirements
 
@@ -260,7 +351,7 @@ RadioCLI on supported hosts:
 - Native Windows uses Task Scheduler interactive-token tasks.
 - Linux requires a working systemd user manager and `systemctl --user`.
 
-Linux systems without systemd user scheduling are reported as unsupported; WSL
+Background alarms are unavailable without systemd user scheduling on Linux; WSL
 must provide a working user manager and an interactive audio path to use alarms.
 All platforms require a logged-in audio session and local speakers when the job
 runs. The terminal itself may close after an alarm is saved and registered.

@@ -6,7 +6,7 @@ import {applyEdits, modify, parse, type FormattingOptions} from 'jsonc-parser';
 import type {Writable} from 'node:stream';
 import {JsonLibraryStore} from '../storage/store.js';
 import {defaultAgentControlSettings} from '../types.js';
-import {resolveExecutable} from './launcher.js';
+import {resolveCommandDetails} from '../platform/executables.js';
 import type {AgentRuntime} from './service.js';
 
 export type McpInstallResult = {client: string; status: 'configured' | 'removed' | 'not-found' | 'failed' | 'inherited'; detail: string};
@@ -41,7 +41,7 @@ export async function configureMcpIntegrations(
       : ['mcp', 'remove', 'radiocli'], ['mcp', 'remove', 'radiocli']));
   } else results.push(notFound('Codex'));
 
-  const claude = resolveExecutable('claude');
+  const claude = resolveCommandDetails('claude', {env: process.env}).path;
   if (claude) {
     results.push(await configureCliClient('Claude Code', claude, enabled
       ? ['mcp', 'add', '--scope', 'user', 'radiocli', '--', ...command]
@@ -49,7 +49,7 @@ export async function configureMcpIntegrations(
   } else results.push(notFound('Claude Code'));
 
   const openCodePath = openCodeConfigPath();
-  if (resolveExecutable('opencode') || existsSync(openCodePath)) {
+  if (resolveCommandDetails('opencode', {env: process.env}).path || existsSync(openCodePath)) {
     try {
       updateOpenCodeConfig(openCodePath, enabled, command);
       results.push({client: 'OpenCode', status: enabled ? 'configured' : 'removed', detail: openCodePath});
@@ -61,14 +61,14 @@ export async function configureMcpIntegrations(
   configureJsonClient(results, 'Cursor', cursorDetected(), join(homedir(), '.cursor', 'mcp.json'), ['mcpServers', 'radiocli'], enabled, {
     command: command[0], args: command.slice(1)
   });
-  configureJsonClient(results, 'Gemini CLI', Boolean(resolveExecutable('gemini')), join(homedir(), '.gemini', 'settings.json'), ['mcpServers', 'radiocli'], enabled, {
+  configureJsonClient(results, 'Gemini CLI', Boolean(resolveCommandDetails('gemini', {env: process.env}).path), join(homedir(), '.gemini', 'settings.json'), ['mcpServers', 'radiocli'], enabled, {
     command: command[0], args: command.slice(1)
   });
   configureJsonClient(results, 'VS Code / Copilot Agent Host', vsCodeDetected(), join(homedir(), '.copilot', 'mcp-config.json'), ['servers', 'radiocli'], enabled, {
     type: 'stdio', command: command[0], args: command.slice(1)
   });
 
-  if (resolveExecutable('orca')) {
+  if (resolveCommandDetails('orca', {env: process.env}).path) {
     results.push({client: 'Orca', status: 'inherited', detail: 'Orca exposes MCP integrations through its configured Codex/Claude agent runtimes.'});
   } else results.push(notFound('Orca'));
 
@@ -195,7 +195,7 @@ export function probeMcpServer(command: string[], timeoutMs = 5_000): Promise<{o
 }
 
 function matchingRadioCliShim(runtime: AgentRuntime, platform: NodeJS.Platform): string | undefined {
-  const candidate = resolveExecutable('radiocli', process.env, platform);
+  const candidate = resolveCommandDetails('radiocli', {env: process.env, platform}).path;
   if (!candidate) return undefined;
   if (!usableDirectLauncher(candidate, platform)) return undefined;
   try {
@@ -216,16 +216,16 @@ async function mcpClientStates(command: string[]): Promise<Record<string, McpCli
   const vscodePath = join(homedir(), '.copilot', 'mcp-config.json');
   return {
     codex: await codexClientState(resolveCodexExecutable(), command),
-    claude: await claudeClientState(resolveExecutable('claude'), command),
-    opencode: jsonClientState(Boolean(resolveExecutable('opencode') || existsSync(openCodePath)), openCodePath, [
+    claude: await claudeClientState(resolveCommandDetails('claude', {env: process.env}).path, command),
+    opencode: jsonClientState(Boolean(resolveCommandDetails('opencode', {env: process.env}).path || existsSync(openCodePath)), openCodePath, [
       ['mcp', 'servers', 'radiocli'], ['mcp', 'radiocli']
     ], command),
     cursor: jsonClientState(cursorDetected(), cursorPath, [['mcpServers', 'radiocli']], command),
-    gemini: jsonClientState(Boolean(resolveExecutable('gemini')), geminiPath, [['mcpServers', 'radiocli']], command),
+    gemini: jsonClientState(Boolean(resolveCommandDetails('gemini', {env: process.env}).path), geminiPath, [['mcpServers', 'radiocli']], command),
     vscode: jsonClientState(vsCodeDetected(), vscodePath, [['servers', 'radiocli']], command),
     orca: {
-      detected: Boolean(resolveExecutable('orca')),
-      state: resolveExecutable('orca') ? 'managed-by-client' : 'not-found',
+      detected: Boolean(resolveCommandDetails('orca', {env: process.env}).path),
+      state: resolveCommandDetails('orca', {env: process.env}).path ? 'managed-by-client' : 'not-found',
       detail: 'inherits MCP configuration from its Codex or Claude runtime'
     },
     portable: jsonClientState(true, portableConfigPath(), [['mcpServers', 'radiocli']], command)
@@ -243,7 +243,7 @@ export function resolveCodexExecutable(
 ): string | undefined {
   const configured = env.CODEX_CLI_PATH;
   if (configured && existsSync(configured)) return configured;
-  const pathExecutable = resolveExecutable('codex', env, platform);
+  const pathExecutable = resolveCommandDetails('codex', {env, platform, home}).path;
   if (pathExecutable) return pathExecutable;
   const candidates = platform === 'darwin'
     ? [
@@ -261,8 +261,8 @@ export function resolveCodexExecutable(
 
 function cursorDetected(): boolean {
   return Boolean(
-    resolveExecutable('cursor') ||
-    resolveExecutable('cursor-agent') ||
+    resolveCommandDetails('cursor', {env: process.env}).path ||
+    resolveCommandDetails('cursor-agent', {env: process.env}).path ||
     existsSync(join(homedir(), '.cursor')) ||
     (process.platform === 'darwin' && existsSync('/Applications/Cursor.app')) ||
     (process.platform === 'win32' && existsSync(join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Programs', 'cursor', 'Cursor.exe')))
@@ -271,7 +271,7 @@ function cursorDetected(): boolean {
 
 function vsCodeDetected(): boolean {
   return Boolean(
-    resolveExecutable('code') ||
+    resolveCommandDetails('code', {env: process.env}).path ||
     (process.platform === 'darwin' && existsSync('/Applications/Visual Studio Code.app')) ||
     (process.platform === 'win32' && existsSync(join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Programs', 'Microsoft VS Code', 'Code.exe')))
   );
@@ -300,7 +300,7 @@ async function codexClientState(executable: string | undefined, expected: string
   }
 }
 
-async function claudeClientState(executable: string | undefined, expected: string[]): Promise<McpClientState> {
+async function claudeClientState(executable: string | null | undefined, expected: string[]): Promise<McpClientState> {
   if (!executable) return managedClientState(false);
   const result = await run(executable, ['mcp', 'get', 'radiocli']);
   const detail = `${result.stdout}\n${result.stderr}`.trim();
