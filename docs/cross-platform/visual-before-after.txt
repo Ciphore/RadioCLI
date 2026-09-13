@@ -1,0 +1,106 @@
+ASCII rendering changes against bc40d1c
+160 ASCII-only snapshots updated; all 335 Unicode/ANSI snapshots are unchanged.
+
+screen baseline / full / ascii > 'home' 1
+BEFORE
+RADIOCLI  ██████████████████
+Live public radio from around the world
+
+
+> 1 Playing          Receiver display and controls
+  2 Library          Favorites, recent stations, imported streams
+  3 Explore          Move a map cursor through geotagged stations
+  4 Search           Find stations by name, genre, language, place
+  5 Countries        Browse by country list with a world-map toggle
+  6 Nearby           Approximate IP location for local stations
+  7 Stats            Listening graph, stations, streaks, hours
+  8 Alarms (beta)    Wake to radio and schedule station playback
+  9 Settings         Audio output, colors, providers
+
+1 recent · 1 favorites · 1 imported
+
+
+
+
+
+
+
+
+
+
+AFTER
+RADIOCLI  ##################
+Live public radio from around the world
+
+
+> 1 Playing          Receiver display and controls
+  2 Library          Favorites, recent stations, imported streams
+  3 Explore          Move a map cursor through geotagged stations
+  4 Search           Find stations by name, genre, language, place
+  5 Countries        Browse by country list with a world-map toggle
+  6 Nearby           Approximate IP location for local stations
+  7 Stats            Listening graph, stations, streaks, hours
+  8 Alarms (beta)    Wake to radio and schedule station playback
+  9 Settings         Audio output, colors, providers
+
+1 recent . 1 favorites . 1 imported
+
+
+
+
+
+
+
+
+
+
+
+receiver baseline / compact / ascii > pulse-grid 1
+BEFORE
+RADIOCLI  Now playing
+KEXP 90.3 FM  playing · vol 70
+
+o o o @ ∘ . . . ∘ o @ @ o @ @ ∘ . . . . o @ o o
+o o o o ∘ . . ∘ o @ o o o o o @ ∘ . . . ∘ @ o o
+o o @ o . . . ∘ @ o o o o o o @ o . . . ∘ @ o o
+o o @ o . . . ∘ @ o o @ @ o o o o ∘ . . ∘ o o o
+o o @ o . . . ∘ @ o o @ @ o o o o ∘ . . ∘ o o o
+o o @ o . . . ∘ @ o o o o o o @ o . . . ∘ @ o o
+o o o o ∘ . . ∘ o @ o o o o o @ ∘ . . . ∘ @ o o
+o o o @ ∘ . . . ∘ o @ @ o @ @ ∘ . . . . o @ o o
+Bjork - Joga
+
+AFTER
+RADIOCLI  Now playing
+KEXP 90.3 FM  playing . vol 70
+
+o o o @ o . . . o o @ @ o @ @ o . . . . o @ o o
+o o o o o . . o o @ o o o o o @ o . . . o @ o o
+o o @ o . . . o @ o o o o o o @ o . . . o @ o o
+o o @ o . . . o @ o o @ @ o o o o o . . o o o o
+o o @ o . . . o @ o o @ @ o o o o o . . o o o o
+o o @ o . . . o @ o o o o o o @ o . . . o @ o o
+o o o o o . . o o @ o o o o o @ o . . . o @ o o
+o o o @ o . . . o o @ @ o @ @ o . . . . o @ o o
+Bjork - Joga
+
+
+screen baseline / micro / ascii > 'settings' 1
+BEFORE
+RC / Settings · Choose …
+
+> Playback …   7 settin…
+  Appearance   6 settin…
+  Discovery…   4 settin…
+  Data & li…   2 settin…
+
+AFTER
+RC / Settings . Choose .
+
+> Playback .   7 settin.
+  Appearance   6 settin.
+  Discovery.   4 settin.
+  Data & li.   2 settin.
+
+
+END OF CAPTURES

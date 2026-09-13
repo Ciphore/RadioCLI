@@ -1,5 +1,6 @@
-import {render} from 'ink-testing-library';
-import {describe, expect, it} from 'vitest';
+import {act} from 'react';
+import {cleanup, render as inkRender} from 'ink-testing-library';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {receiverStyleNames} from '../types.js';
 import type {
   AirPlayDevice,
@@ -16,6 +17,25 @@ import {AdaptiveContent} from './AdaptiveContent.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {displayWidth} from './format.js';
 import {defaultExploreCursor} from './app-state.js';
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // Ink's fixture supplies 100 columns but no rows. Keep its 24-row fallback
+  // deterministic without asking the host terminal through commands like tput.
+  vi.stubEnv('COLUMNS', '100');
+  vi.stubEnv('LINES', '24');
+});
+afterEach(() => {
+  act(() => cleanup());
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+function render(tree: Parameters<typeof inkRender>[0]): ReturnType<typeof inkRender> {
+  let view!: ReturnType<typeof inkRender>;
+  act(() => { view = inkRender(tree); });
+  return view;
+}
 
 const station: Station = {
   id: 'kexp',
@@ -238,7 +258,7 @@ function renderAdaptive(
   renderStations: Station[] = [station]
 ): string {
   const renderLibrary = {...library, settings: {...settings, receiverStyle}};
-  return render(
+  const view = render(
     <DisplayContext.Provider value={resolveDisplayMode(settings, {})}>
       <AdaptiveContent
         mode={mode}
@@ -270,5 +290,13 @@ function renderAdaptive(
         sleepLabel="Sleep off"
       />
     </DisplayContext.Provider>
-  ).lastFrame() ?? '';
+  );
+  try {
+    return view.lastFrame() ?? '';
+  } finally {
+    act(() => {
+      view.unmount();
+      view.cleanup();
+    });
+  }
 }

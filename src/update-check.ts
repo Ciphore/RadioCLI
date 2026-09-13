@@ -2,6 +2,7 @@ import {realpathSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {appVersion} from './version.js';
 import type {UpdateCheckState} from './types.js';
+import {networkPolicy, withExternalResponse} from './platform/network.js';
 
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_PACKAGE_NAME = '@ciphore/radiocli';
@@ -42,12 +43,10 @@ export async function checkForUpdate({
   timeoutMs = 3000
 }: CheckForUpdateOptions = {}): Promise<UpdateCheckState> {
   try {
-    const response = await fetchWithTimeout(registryLatestUrl(packageName), fetchImpl, timeoutMs);
-    if (!response.ok) {
-      throw new Error(`npm registry returned ${response.status}`);
-    }
-
-    const parsed = await response.json() as {version?: unknown};
+    const parsed = await withExternalResponse(registryLatestUrl(packageName), {fetchImpl, timeoutMs}, async response => {
+      if (!response.ok) throw new Error(`npm registry returned ${response.status}`);
+      return await response.json() as {version?: unknown};
+    });
     const latestVersion = typeof parsed.version === 'string' ? parsed.version : undefined;
     if (!latestVersion) {
       throw new Error('npm registry response did not include a version');
@@ -70,7 +69,7 @@ export async function checkForUpdate({
 }
 
 export function shouldCheckForUpdate(updateCheck: UpdateCheckState | undefined, now = Date.now()): boolean {
-  if (process.env.RADIOCLI_DISABLE_UPDATE_CHECK === '1' || process.env.CI === 'true') {
+  if (!automaticUpdateChecksAllowed()) {
     return false;
   }
 
@@ -83,7 +82,7 @@ export function shouldCheckForUpdate(updateCheck: UpdateCheckState | undefined, 
 }
 
 export function automaticUpdateChecksAllowed(enabled = true): boolean {
-  return enabled && process.env.RADIOCLI_DISABLE_UPDATE_CHECK !== '1' && process.env.CI !== 'true';
+  return enabled && !networkPolicy().offline && process.env.RADIOCLI_DISABLE_UPDATE_CHECK !== '1' && process.env.CI !== 'true';
 }
 
 export function updateAvailableForVersion(
@@ -177,16 +176,6 @@ export function compareSemver(left: string, right: string): number {
 
 function registryLatestUrl(packageName: string): string {
   return `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`;
-}
-
-async function fetchWithTimeout(url: string, fetchImpl: FetchLike, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchImpl(url, {signal: controller.signal});
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function semverParts(version: string): [number, number, number] {

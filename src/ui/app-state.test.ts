@@ -9,6 +9,7 @@ import {
   defaultExploreCursor,
   favoriteTarget,
   formatExploreCursor,
+  isSearchFavoriteShortcut,
   mediaTransportActionForInput,
   moveExploreCursor,
   nextPlaybackBackend,
@@ -20,6 +21,7 @@ import {
   shouldAnimateReceiver,
   shouldResetReceiverPulse,
   shouldSkipAfterTuneError,
+  shouldTuneSearchResult,
   shouldToggleNearbyLocationShortcut,
   stationContextKeyForScreen,
   topTabs
@@ -82,8 +84,9 @@ describe('app state helpers', () => {
 
   it('targets favorites based on the active screen', () => {
     const playing = {...station, id: 'playing'};
-    expect(favoriteTarget('library', station, playing)?.id).toBe('station-1');
-    expect(favoriteTarget('search', station, playing)?.id).toBe('station-1');
+    for (const screen of ['explore', 'stations', 'search', 'nearby', 'library'] as const) {
+      expect(favoriteTarget(screen, station, playing)?.id).toBe('station-1');
+    }
     expect(favoriteTarget('now-playing', station, playing)?.id).toBe('playing');
     expect(favoriteTarget('settings', null, playing)?.id).toBe('playing');
   });
@@ -116,6 +119,22 @@ describe('app state helpers', () => {
     expect(searchEditingArrowAction({upArrow: true}, false)).toBe('history-older');
     expect(searchEditingArrowAction({downArrow: true}, false)).toBe('history-newer');
     expect(searchEditingArrowAction({}, true)).toBeNull();
+  });
+
+  it('tunes retained search results after the query is cleared without tuning stale results for a changed query', () => {
+    expect(shouldTuneSearchResult('', 'jazz')).toBe(true);
+    expect(shouldTuneSearchResult('   ', 'jazz')).toBe(true);
+    expect(shouldTuneSearchResult(' jazz ', 'jazz')).toBe(true);
+    expect(shouldTuneSearchResult('news', 'jazz')).toBe(false);
+  });
+
+  it('recognizes cross-platform modified-F favorite shortcuts without consuming plain search text', () => {
+    expect(isSearchFavoriteShortcut('f', {ctrl: true})).toBe(true);
+    expect(isSearchFavoriteShortcut('f', {meta: true})).toBe(true);
+    expect(isSearchFavoriteShortcut('f', {super: true})).toBe(true);
+    expect(isSearchFavoriteShortcut('F', {ctrl: true})).toBe(true);
+    expect(isSearchFavoriteShortcut('f', {})).toBe(false);
+    expect(isSearchFavoriteShortcut('a', {ctrl: true})).toBe(false);
   });
 
   it('maps terminal function-key transport sequences', () => {

@@ -16,10 +16,15 @@ export function isValidTimeZone(timezone: string): boolean {
 
 export function canonicalizeTimeZone(timezone: string): string {
   const value = timezone.trim();
-  if (!isValidTimeZone(value)) {
+  try {
+    if (!value) throw new Error('Empty timezone.');
+    // The constructor validates the zone and resolves its canonical name.
+    // Constructing twice made large-library validation expensive on Node 22
+    // Intel hosts; keep one native validation for every supplied value.
+    return new Intl.DateTimeFormat('en-US', {timeZone: value}).resolvedOptions().timeZone;
+  } catch {
     throw new Error(`Invalid IANA timezone: ${timezone}`);
   }
-  return new Intl.DateTimeFormat('en-US', {timeZone: value}).resolvedOptions().timeZone;
 }
 
 export function canonicalizeAlarmTime(time: string): string {

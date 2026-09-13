@@ -82,6 +82,11 @@ function asciiGlyph(code: number): string {
     return 'o'; // ◉ ◒
   }
 
+  if (code === 0x2218) return 'o'; // ring operator used by receiver patterns
+  if (code === 0x25c6 || code === 0x25c7) return '*'; // decorative diamonds
+  if (code === 0x201c || code === 0x201d) return '"';
+  if (code === 0x2018 || code === 0x2019) return "'";
+
   if (code === 0x25b2) {
     return '^'; // ▲
   }
@@ -131,8 +136,9 @@ function asciiGlyph(code: number): string {
   if (code === 0x2191) return '^';
   if (code === 0x2193) return 'v';
 
-  // Drop zero-width and combining marks entirely so they do not skew widths.
-  if (code === 0x200b || code === 0xfeff || (code >= 0x0300 && code <= 0x036f)) {
+  // Drop invisible separators, but retain combining accents in station data.
+  // Width measurement already accounts for combining marks as zero columns.
+  if (code === 0x200b || code === 0xfeff) {
     return '';
   }
 

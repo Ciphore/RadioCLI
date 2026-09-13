@@ -6,6 +6,71 @@ description: Release history for RadioCLI.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.4 - 2026-09-08
+
+### Added
+
+- Added a shared platform layer for runtime eligibility, capabilities, executable
+  discovery, package installation, storage paths, networking, IPC, desktop
+  helpers, and terminal launching.
+- Added first-class Node.js 22 and 24 CI coverage for macOS Apple Silicon and
+  Intel, Ubuntu x64 and arm64, Windows x64, and Windows 11 arm64, including
+  packed installation and native mpv IPC playback checks.
+- Added repeatable packed CLI and mpv playback checks in full FreeBSD, OpenBSD,
+  and NetBSD guest kernels, plus explicit installation and capability guidance
+  for additional Unix, WSL, Termux, Haiku, illumos, and AIX environments.
+- Added offline, low-bandwidth, screen-reader, reduced-motion, ASCII, limited-
+  color, and noninteractive terminal modes with deterministic full, compact,
+  and micro rendering coverage.
+
+### Changed
+
+- Centralized native package recipes and guided setup so dry runs and executed
+  commands use the same platform-specific definitions.
+- Expanded `radiocli doctor --json` with host, runtime, network, storage,
+  terminal, playback, desktop, scheduling, and optional-feature capabilities.
+- Reorganized installation, platform, architecture, reliability, privacy, and
+  contributor documentation as stable reference material with explicit support
+  boundaries and troubleshooting paths.
+
+### Fixed
+
+- Kept playback and the TUI usable when optional history, presence, cache, or
+  library writes fail, while preserving recoverable data after interrupted or
+  permission-denied writes.
+- Hardened alarm deletion, native scheduler cleanup, terminal reopening, Alarm
+  Guard ownership, system-volume restoration, and forced-process teardown.
+- Preserved exact arguments, data locations, and supported environment selectors
+  across macOS, Linux, BSD, and Windows child processes without forwarding
+  unrelated shell state.
+- Improved player discovery, mpv readiness and IPC handling, provider timeouts,
+  mirror fallback, offline cache behavior, and degraded terminal rendering.
+- Recovered ARM Linux playback from mpv audio-service initialization failures
+  by retrying once with ALSA first, retained bounded player diagnostics, and
+  stopped system-wide backend failures from skipping through every station.
+- Replaced stale Radio Browser hosts with live DNS service discovery and added
+  a TLS-verified resolver fallback for temporary hostname failures without
+  bypassing configured proxies.
+- Preserved full RGB theme colors when a terminal explicitly advertises
+  truecolor, even when its Node.js stream reports a conservative 256-color
+  depth; explicit 256-color, 16-color, and no-color modes remain unchanged.
+- Kept retained Search results playable after clearing the submitted query and
+  added `Ctrl+F` to favorite the selected result while query input is active,
+  without intercepting an ordinary `f` typed into the search text.
+- Matched Search favorite confirmations to the Library by dismissing added and
+  removed messages automatically after the same brief interval.
+- Corrected Windows terminal launches to create independent interactive console
+  handles and retain the intended user data location.
+
+### Security
+
+- Updated documentation-site dependencies to patched releases.
+- Limited child-process environments to the settings required for RadioCLI data
+  identity and native integrations, excluding unrelated credentials and proxy
+  secrets.
+- Made native cleanup and ownership checks fail closed when a job, helper,
+  process, or saved state cannot be identified safely.
+
 ## 0.2.3 - 2026-09-07
 
 ### Added

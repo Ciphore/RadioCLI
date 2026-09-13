@@ -122,7 +122,8 @@ export class MpvIpcClient {
         this.socket = socket;
         this.connectingSocket = null;
         this.buffer = '';
-        socket.on('data', chunk => this.consume(chunk.toString('utf8')));
+        socket.setEncoding('utf8');
+        socket.on('data', chunk => this.consume(String(chunk)));
         socket.on('error', error => this.dropSocket(socket, error));
         socket.on('close', () => this.dropSocket(socket, new Error('mpv IPC connection closed.')));
         resolve(socket);

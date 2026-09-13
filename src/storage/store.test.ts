@@ -1,17 +1,25 @@
-import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import * as fs from 'node:fs';
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {JsonLibraryStore} from './store.js';
+import * as paths from '../platform/paths.js';
 import {AlarmPowerGuardStore} from '../alarms/power-guard-store.js';
 import {defaultReceiverStyle, receiverStyleNames, themeNames, type AlarmCreateInput, type Station} from '../types.js';
 
 const roots: string[] = [];
 const originalRadioCliHome = process.env.RADIOCLI_HOME;
 const originalRadioAtlasHome = process.env.RADIO_ATLAS_HOME;
+// Windows ACLs and a privileged POSIX user do not enforce these chmod fixtures.
+const nativePermissions = process.platform !== 'win32' && process.getuid?.() !== 0;
+
+vi.mock('node:fs', async importOriginal => ({...await importOriginal<typeof import('node:fs')>()}));
+vi.mock('../platform/paths.js', async importOriginal => ({...await importOriginal<typeof import('../platform/paths.js')>()}));
 
 describe('JsonLibraryStore', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const root of roots.splice(0)) {
       rmSync(root, {recursive: true, force: true});
     }
@@ -522,7 +530,236 @@ describe('JsonLibraryStore', () => {
     expect(store.snapshot().settings.theme).toBe('green');
     expect(store.snapshot().settings.receiverStyle).toBe(defaultReceiverStyle);
     expect(store.snapshot().activity.sessions).toEqual([]);
-    expect(readdirSync(root).some(name => name.startsWith('library.json.bad-'))).toBe(true);
+    const backup = readdirSync(root).find(name => name.startsWith('library.json.bad-'));
+    expect(backup).toBeDefined();
+    expect(readFileSync(join(root, backup!), 'utf8')).toBe('{not json');
+  });
+
+  it.skipIf(!nativePermissions)('keeps a readable library usable in a read-only directory and preserves it after a failed commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli library café '));
+    roots.push(root);
+    const file = join(root, '音楽 library.json');
+    const original = JSON.stringify({settings: {theme: 'amber'}});
+    writeFileSync(file, original);
+    chmodSync(root, 0o500);
+    try {
+      const store = new JsonLibraryStore(file);
+      const before = store.snapshot();
+      expect(before.settings.theme).toBe('amber');
+      expect(() => store.updateSettings({theme: 'ruby'})).toThrow(/RADIOCLI_HOME.*writable/i);
+      expect(store.snapshot()).toEqual(before);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+      expect(readdirSync(root)).toEqual(['音楽 library.json']);
+    } finally {
+      chmodSync(root, 0o700);
+    }
+  });
+
+  it.skipIf(!nativePermissions)('does not replace a read-only library through an otherwise writable directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli readonly café '));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const original = JSON.stringify({settings: {theme: 'amber'}});
+    writeFileSync(file, original);
+    chmodSync(file, 0o400);
+    try {
+      const store = new JsonLibraryStore(file);
+      const before = store.snapshot();
+      expect(() => store.updateSettings({theme: 'ruby'})).toThrow(/RADIOCLI_HOME.*writable/i);
+      expect(store.snapshot()).toEqual(before);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+      expect(readdirSync(root)).toEqual(['library.json']);
+    } finally {
+      chmodSync(file, 0o600);
+    }
+  });
+
+  it.skipIf(!nativePermissions)('does not rename an unreadable intact library as corrupt or return empty defaults', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli unreadable café '));
+    roots.push(root);
+    const file = join(root, 'private library.json');
+    const original = JSON.stringify({settings: {theme: 'amber'}});
+    writeFileSync(file, original);
+    chmodSync(file, 0);
+    try {
+      let failure: unknown;
+      try { new JsonLibraryStore(file); } catch (error) { failure = error; }
+      expect(failure).toMatchObject({code: 'EACCES', cause: {code: 'EACCES'}});
+      expect((failure as Error).message).toMatch(/read.*RADIOCLI_HOME.*writable/i);
+      expect((failure as Error).message).not.toContain(root);
+      expect(readdirSync(root)).toEqual(['private library.json']);
+    } finally {
+      chmodSync(file, 0o600);
+    }
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it.skipIf(!nativePermissions)('does not interpret an inaccessible ancestor as an absent library', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli inaccessible café '));
+    roots.push(root);
+    const parent = join(root, 'private');
+    const file = join(parent, 'library.json');
+    mkdirSync(parent);
+    writeFileSync(file, '{"settings":{"theme":"amber"}}');
+    chmodSync(parent, 0);
+    try {
+      expect(() => new JsonLibraryStore(file)).toThrow(/read.*RADIOCLI_HOME.*writable/i);
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+    expect(readFileSync(file, 'utf8')).toBe('{"settings":{"theme":"amber"}}');
+    expect(readdirSync(parent)).toEqual(['library.json']);
+  });
+
+  it.skipIf(!nativePermissions)('does not switch to an older library when the preferred directory is inaccessible', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli migration café '));
+    roots.push(root);
+    const parent = join(root, 'current data');
+    const file = join(parent, 'library.json');
+    const legacy = join(root, 'legacy.json');
+    mkdirSync(parent);
+    writeFileSync(file, '{"settings":{"theme":"ruby"}}');
+    writeFileSync(legacy, '{"settings":{"theme":"amber"}}');
+    vi.spyOn(paths, 'platformPaths').mockReturnValue({...paths.platformPaths(), library: file, legacyLibrary: legacy});
+    chmodSync(parent, 0);
+    try {
+      expect(() => new JsonLibraryStore()).toThrow(/read.*RADIOCLI_HOME.*writable/i);
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+    expect(readFileSync(file, 'utf8')).toBe('{"settings":{"theme":"ruby"}}');
+    expect(readFileSync(legacy, 'utf8')).toBe('{"settings":{"theme":"amber"}}');
+  });
+
+  it.skipIf(!nativePermissions)('preserves corrupt data when a backup cannot be written', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli corrupt café '));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(file, '{not json');
+    chmodSync(root, 0o500);
+    try {
+      expect(() => new JsonLibraryStore(file)).toThrow(/corrupt.*RADIOCLI_HOME.*writable/i);
+      expect(readFileSync(file, 'utf8')).toBe('{not json');
+      expect(readdirSync(root)).toEqual(['library.json']);
+    } finally {
+      chmodSync(root, 0o700);
+    }
+  });
+
+  it('retains I/O failure details without classifying the library as corrupt', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    writeFileSync(file, '{"settings":{"theme":"amber"}}');
+    const failure = Object.assign(new Error(`disk failure at ${file}`), {code: 'EIO'});
+    vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => { throw failure; });
+
+    let reported: unknown;
+    try { new JsonLibraryStore(file); } catch (error) { reported = error; }
+    expect(reported).toMatchObject({code: 'EIO', cause: failure});
+    expect((reported as Error).message).not.toContain(file);
+    expect(readFileSync(file, 'utf8')).toBe('{"settings":{"theme":"amber"}}');
+    expect(readdirSync(root)).toEqual(['library.json']);
+  });
+
+  it('preserves committed data and the original write failure when temporary and lock cleanup also fail', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'amber'});
+    const before = store.snapshot();
+    const original = readFileSync(file, 'utf8');
+    const failure = Object.assign(new Error(`rename failed at ${file}`), {code: 'ENOSPC'});
+    const cleanup = Object.assign(new Error('cleanup failed'), {code: 'EACCES'});
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw failure; });
+    vi.spyOn(fs, 'rmSync').mockImplementation(() => { throw cleanup; });
+
+    let reported: unknown;
+    try { store.updateSettings({theme: 'ruby'}); } catch (error) { reported = error; }
+    expect(reported).toMatchObject({code: 'ENOSPC', cause: failure});
+    expect((reported as Error).message).toMatch(/RADIOCLI_HOME.*writable/i);
+    expect((reported as Error).message).not.toContain(file);
+    expect(store.snapshot()).toEqual(before);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('reports a busy library without revealing the private path or changing state', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli busy café '));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'amber'});
+    const before = store.snapshot();
+    const original = readFileSync(file, 'utf8');
+    mkdirSync(`${file}.lock`);
+
+    let reported: unknown;
+    try { store.updateSettings({theme: 'ruby'}); } catch (error) { reported = error; }
+    expect((reported as Error).message).toMatch(/busy/i);
+    expect((reported as Error).message).not.toContain(root);
+    expect(store.snapshot()).toEqual(before);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('preserves the library if setting private temporary-file permissions fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'amber'});
+    const before = store.snapshot();
+    const original = readFileSync(file, 'utf8');
+    const failure = Object.assign(new Error('chmod failed'), {code: 'EPERM'});
+    const chmod = vi.spyOn(fs, 'chmodSync').mockImplementationOnce(() => { throw failure; });
+
+    if (process.platform === 'win32') {
+      store.updateSettings({theme: 'ruby'});
+      expect(chmod).not.toHaveBeenCalled();
+      expect(new JsonLibraryStore(file).snapshot().settings.theme).toBe('ruby');
+    } else {
+      expect(() => store.updateSettings({theme: 'ruby'})).toThrow(expect.objectContaining({code: 'EPERM', cause: failure}));
+      expect(store.snapshot()).toEqual(before);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+    }
+    expect(readdirSync(root)).toEqual(['library.json']);
+  });
+
+  it('keeps the saved state accurate if lock release fails after a successful replacement', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => { throw Object.assign(new Error('release failed'), {code: 'EACCES'}); });
+
+    expect(store.updateSettings({theme: 'ruby'}).settings.theme).toBe('ruby');
+    expect(new JsonLibraryStore(file).snapshot().settings.theme).toBe('ruby');
+  });
+
+  it('reports lock-inspection failures without retrying them as a missing lock', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'amber'});
+    const before = store.snapshot();
+    const original = readFileSync(file, 'utf8');
+    const lockPath = `${file}.lock`;
+    mkdirSync(lockPath);
+    const failure = Object.assign(new Error(`lock inspection failed at ${lockPath}`), {code: 'EIO'});
+    const stat = fs.statSync;
+    let inspected = false;
+    vi.spyOn(fs, 'statSync').mockImplementation(((...args: Parameters<typeof fs.statSync>) => {
+      if (args[0] === lockPath && !inspected) {
+        inspected = true;
+        throw failure;
+      }
+      return stat(...args);
+    }) as typeof fs.statSync);
+
+    expect(() => store.updateSettings({theme: 'ruby'})).toThrow(expect.objectContaining({code: 'EIO', cause: failure}));
+    expect(store.snapshot()).toEqual(before);
+    expect(readFileSync(file, 'utf8')).toBe(original);
   });
 
   it.each(['scope', 'spectrum', 'oscilloscope', 'motion-bars', 'radar', 'dual-ripple', 'perspective-floor', 'bloom-bars', 'running-horse', 'starlink', 'tuning-dial', 'cassette', `${'term'}${'flix'}-plasma`, 'sierpinksi', 'voronoi', 'orbits', 'chromatic', 'ferro-crown', 'origami-tide', 'tv-static', 'sunspot', 'plasma', 'metaballs', 'motion-blob', 'clifford', 'mirror', 'paris', 'kyoto', 'sahara'])(
