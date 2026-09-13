@@ -28,6 +28,7 @@ type SettingsScreenProps = {
   diagnostics: PlaybackDiagnostics;
   width: number;
   height?: number;
+  airPlaySupported?: boolean;
 };
 
 export function SettingsScreen({
@@ -44,7 +45,8 @@ export function SettingsScreen({
   theme,
   diagnostics,
   width,
-  height
+  height,
+  airPlaySupported = true
 }: SettingsScreenProps): React.ReactElement {
   const {ascii} = useDisplay();
   const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
@@ -84,7 +86,7 @@ export function SettingsScreen({
           selected={menuWindow.selectedOffset}
           keyFor={item => item}
           render={(item, _index, active) => {
-            const label = settingLabel(item, updateCheck, appVersion);
+            const label = settingLabel(item, updateCheck, appVersion, airPlaySupported);
             const value = page === 'root'
               ? settingsRootValue(item)
               : settingValue(item, settings, diagnostics, backends, airPlayDevices, updateCheck, appVersion);
@@ -203,7 +205,10 @@ export function settingValue(
   }
 }
 
-export function settingLabel(item: string, updateCheck: UpdateCheckState | undefined, currentVersion?: string): string {
+export function settingLabel(item: string, updateCheck: UpdateCheckState | undefined, currentVersion?: string, airPlaySupported = true): string {
+  if (item === 'AirPlay receiver' && !airPlaySupported) {
+    return 'AirPlay receiver (macOS only)';
+  }
   if (item === 'Check for updates') {
     return updateStatusText(updateCheck, currentVersion).endsWith('available') ? 'Install update' : 'Check now';
   }

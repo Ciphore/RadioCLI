@@ -87,7 +87,7 @@ export const commandHelp: CommandHelp[] = [
   {name: 'ascii', args: '<on|off>', description: 'ASCII-safe display'},
   {name: 'motion', args: '<on|off>', description: 'Reduce motion'},
   {name: 'background', args: '<on|off>', description: 'Transparent background'},
-  {name: 'airplay', description: 'Open AirPlay settings'},
+  {name: 'airplay', description: 'Open AirPlay settings (macOS only)'},
   {name: 'learn', args: '<previous|play|next>', description: 'Learn a media key'},
   {name: 'keys', args: '[reset]', description: 'Show or reset learned media keys'},
   {name: 'favorite', description: 'Favorite the current station (alias :fav)'},

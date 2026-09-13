@@ -8,7 +8,7 @@ import {connectActiveAlarms, type ActiveAlarmStatus} from '../alarms/active-sess
 import {connectRadioSession, ensureRadioSession, type RadioSessionCommand, type RadioSessionResult} from './session.js';
 import {launchHeadlessHost, launchRadioTui} from './launcher.js';
 import {PlayerController} from '../player/player-controller.js';
-import {detectPlaybackBackends} from '../player/backend-install.js';
+import {airPlayMacOSOnlyMessage, detectPlaybackBackends, isAirPlayPlatformSupported} from '../player/backend-install.js';
 import {AgentAlarmService, type AgentAlarmCreate, type AgentAlarmUpdate} from './alarm-service.js';
 import {appVersion} from '../version.js';
 import {checkForUpdate, updateCommandForInstall} from '../update-check.js';
@@ -321,7 +321,7 @@ export class AgentRadioService {
   }
 
   private assertAirPlayPlatform(): void {
-    if (process.platform !== 'darwin') throw new Error('AirPlay control is available only on macOS.');
+    if (!isAirPlayPlatformSupported()) throw new Error(airPlayMacOSOnlyMessage);
   }
 }
 

@@ -252,6 +252,28 @@ describe('SettingsScreen rendering', () => {
     expect(frame).not.toContain('ASCII-safe display');
   });
 
+  it('labels AirPlay as macOS-only on unsupported operating systems', () => {
+    const {lastFrame} = render(
+      <SettingsScreen
+        page="playback"
+        selected={1}
+        settings={settings}
+        appVersion="0.2.4"
+        storePath="/tmp/radiocli.json"
+        playback={playback}
+        backends={['mpv']}
+        airPlayDevices={[]}
+        providerHealth={{}}
+        theme="green"
+        diagnostics={diagnostics}
+        width={80}
+        airPlaySupported={false}
+      />
+    );
+
+    expect(lastFrame()).toContain('AirPlay receiver (macOS only)');
+  });
+
   it('changes the update settings row when an update is available', () => {
     const settingsIndex = Math.max(0, settingsGroups.find(group => group.id === 'updates')?.items.indexOf('Check for updates') ?? 0);
     const {lastFrame} = render(

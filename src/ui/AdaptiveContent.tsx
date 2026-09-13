@@ -64,6 +64,7 @@ type AdaptiveContentProps = {
   stationError?: string;
   filterLabel: string;
   sleepLabel: string;
+  airPlaySupported?: boolean;
 };
 
 type AdaptiveRow = {
@@ -110,6 +111,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     appVersion,
     favoriteKeys,
     stationTitle,
+    airPlaySupported = true,
   } = props;
   const accent = themeAccent(theme);
   const {ascii, reduceMotion} = useDisplay();
@@ -182,7 +184,8 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
       selected,
       width,
       mode,
-      ascii
+      ascii,
+      airPlaySupported
     });
     const empty = adaptiveEmptyState({
       screen,
@@ -257,7 +260,8 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     selected,
     width,
     mode,
-    ascii
+    ascii,
+    airPlaySupported
   });
   const empty = adaptiveEmptyState({
     screen,
@@ -779,6 +783,7 @@ function adaptiveRows(input: {
   width: number;
   mode: 'compact' | 'micro';
   ascii: boolean;
+  airPlaySupported: boolean;
 }): AdaptiveRow[] {
   const {screen, stations, countries, airPlayDevices, library, diagnostics, backends, updateCheck, favoriteKeys, selected, width, mode, ascii} = input;
   if (screen === 'home') {
@@ -791,11 +796,11 @@ function adaptiveRows(input: {
   }
   if (screen === 'settings') {
     const pageItems = settingsItemsForPage(input.settingsPage);
-    const labels = pageItems.map(item => settingLabel(item, updateCheck, input.appVersion));
+    const labels = pageItems.map(item => settingLabel(item, updateCheck, input.appVersion, input.airPlaySupported));
     const labelWidth = pairedColumnWidth(labels, width, mode);
     return pageItems.map((item, index) => ({
       key: item,
-      label: padDisplayEnd(truncate(settingLabel(item, updateCheck, input.appVersion), labelWidth), labelWidth),
+      label: padDisplayEnd(truncate(settingLabel(item, updateCheck, input.appVersion, input.airPlaySupported), labelWidth), labelWidth),
       detail: input.settingsPage === 'root'
         ? adaptiveSettingsRootValue(item)
         : settingValue(item, library.settings, diagnostics, backends, airPlayDevices, updateCheck, input.appVersion),

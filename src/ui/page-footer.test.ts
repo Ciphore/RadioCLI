@@ -160,6 +160,20 @@ describe('page footer shortcuts', () => {
     ).toBe('↑/↓ choose · Enter select receiver · r refresh · b settings');
   });
 
+  it('does not advertise the AirPlay shortcut on unsupported operating systems', () => {
+    expect(pageFooterText({
+      capturingTransportAction: null,
+      commandMode: false,
+      commandText: '',
+      editingCountryFilter: false,
+      editingSearch: false,
+      screen: 'settings',
+      airPlaySupported: false
+    })).toBe(
+      '↑/↓ choose · Enter open · o output · b Overview'
+    );
+  });
+
   it('advertises the dedicated AirPlay receiver picker controls', () => {
     expect(
       pageFooterText({

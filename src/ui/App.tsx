@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {Box, Text, useApp, useIsScreenReaderEnabled, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
-import {playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
+import {airPlayMacOSOnlyMessage, isAirPlayPlatformSupported, playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import {defaultAgentControlSettings, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
 import {nextReceiverStyle, nextTheme, textDim, textMuted, themeAccent} from './theme.js';
@@ -74,10 +74,11 @@ type AppProps = {
   initialAgentCommand?: RadioSessionCommand;
   mcpConfigurator?: typeof configureMcpIntegrations;
   updateChecker?: typeof checkForUpdate;
+  platform?: NodeJS.Platform;
 };
 
 const LOADING_SPINNER_MS = 120;
-const VISUALIZER_MESSAGE_MS = 4500;
+const TRANSIENT_NOTICE_MS = 4500;
 const LISTENING_HEARTBEAT_MS = 30_000;
 const COUNTRY_STATIONS_PAGE_SIZE = 120;
 const COUNTRY_STATIONS_LOAD_AHEAD = 12;
@@ -96,7 +97,7 @@ const settingToggleLabel: Record<BooleanSetting, string> = {
   automaticUpdateChecks: 'Automatic update checks'
 };
 
-export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate}: AppProps): React.ReactElement {
+export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate, platform = process.platform}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
   const {stdout} = useStdout();
@@ -106,6 +107,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
   const alarmService = useMemo(() => providedAlarmService ? serializeAlarmTuiService(providedAlarmService) : createAlarmTuiService(), [providedAlarmService]);
   const installedVersion = useMemo(() => appVersion(), []);
+  const airPlaySupported = isAirPlayPlatformSupported(platform);
 
   const [library, setLibrary] = useState<LibraryState>(() => store.snapshot());
   const settingsRef = useRef(library.settings);
@@ -197,6 +199,18 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const agentHandlerRef = useRef<(command: RadioSessionCommand) => Promise<RadioSessionResult>>(async () => {
     throw new Error('RadioCLI is still starting.');
   });
+
+  const showTransientMessage = useCallback((nextMessage: string) => {
+    if (transientMessageTimerRef.current) {
+      clearTimeout(transientMessageTimerRef.current);
+    }
+
+    setMessage(nextMessage);
+    transientMessageTimerRef.current = setTimeout(() => {
+      setMessage(currentMessage => currentMessage === nextMessage ? null : currentMessage);
+      transientMessageTimerRef.current = null;
+    }, TRANSIENT_NOTICE_MS);
+  }, []);
 
   const theme = library.settings.theme;
   const displayMode = useMemo(
@@ -480,13 +494,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
     const network = networkPolicy();
-    if (!network.offline && !network.lowBandwidth) {
+    if (airPlaySupported && !network.offline && !network.lowBandwidth) {
       void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
     }
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
-  }, [player]);
+  }, [airPlaySupported, player]);
 
   const refreshProviderHealth = useCallback(() => {
     providers.health(settingsRef.current).then(setProviderHealth).catch(() => setProviderHealth({}));
@@ -649,9 +663,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [go, openSettingsPage]);
 
   const openAirPlayCode = useCallback(() => {
+    if (!airPlaySupported) {
+      showTransientMessage(airPlayMacOSOnlyMessage);
+      return;
+    }
     setAirPlayCode('');
     go('airplay-code', {resetSelection: true, clearMessage: false});
-  }, [go]);
+  }, [airPlaySupported, go, showTransientMessage]);
 
   useEffect(() => {
     if (isAirPlayCodePromptActive(playback) && screenRef.current !== 'airplay-code') {
@@ -1199,7 +1217,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     setMessage('Auto-skip canceled. Choose a station and press Enter.');
   }, []);
 
-  const showTransientFooterMessage = useCallback((nextMessage: string, durationMs = VISUALIZER_MESSAGE_MS) => {
+  const showTransientFooterMessage = useCallback((nextMessage: string, durationMs = TRANSIENT_NOTICE_MS) => {
     if (transientFooterMessageTimerRef.current) {
       clearTimeout(transientFooterMessageTimerRef.current);
     }
@@ -1236,14 +1254,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       if (screenRef.current === 'library' || screenRef.current === 'search') {
         showTransientFooterMessage(favoriteMessage);
       } else {
-        setMessage(favoriteMessage);
+        showTransientMessage(favoriteMessage);
       }
       if (!wasFavorite && settingsRef.current.shareDirectoryVotes) {
         // Best-effort upvote back to the directory; never blocks favoriting.
         void providers.vote(station).catch(reportActionError);
       }
     },
-    [providers, reportActionError, showTransientFooterMessage, store]
+    [providers, reportActionError, showTransientFooterMessage, showTransientMessage, store]
   );
 
   const showControlResult = useCallback((result: PlaybackControlResult) => {
@@ -1347,18 +1365,6 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     void player.togglePause().then(showControlResult).catch(reportActionError);
   }, [player, reportActionError, showControlResult]);
 
-  const showTransientMessage = useCallback((nextMessage: string) => {
-    if (transientMessageTimerRef.current) {
-      clearTimeout(transientMessageTimerRef.current);
-    }
-
-    setMessage(nextMessage);
-    transientMessageTimerRef.current = setTimeout(() => {
-      setMessage(currentMessage => currentMessage === nextMessage ? null : currentMessage);
-      transientMessageTimerRef.current = null;
-    }, VISUALIZER_MESSAGE_MS);
-  }, []);
-
   const cycleDisplayColor = useCallback(() => {
     const theme = nextTheme(settingsRef.current.theme);
     updateSettings({theme});
@@ -1401,6 +1407,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [updateSettings]);
 
   const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
+    if (!airPlaySupported) {
+      if (announce) showTransientMessage(airPlayMacOSOnlyMessage);
+      return [];
+    }
     if (networkPolicy().offline) {
       setMessage('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.');
       return [];
@@ -1429,14 +1439,18 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
       return [];
     }
-  }, [player]);
+  }, [airPlaySupported, player, showTransientMessage]);
 
   const openAirPlaySettings = useCallback(() => {
+    if (!airPlaySupported) {
+      showTransientMessage(airPlayMacOSOnlyMessage);
+      return;
+    }
     const preferredIndex = availableAirPlayDevices.findIndex(device => device.id === settingsRef.current.preferredAirPlayDevice);
     selectedByScreenRef.current['airplay-settings'] = Math.max(0, preferredIndex);
     go('airplay-settings', {resetSelection: false});
     void refreshAirPlayTargets(false);
-  }, [availableAirPlayDevices, go, refreshAirPlayTargets]);
+  }, [airPlaySupported, availableAirPlayDevices, go, refreshAirPlayTargets, showTransientMessage]);
 
   const selectAirPlayDeviceAt = useCallback(
     (index: number) => {
@@ -1802,6 +1816,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       }
     });
     const respond = (message: string, ok = true, data?: RadioSessionResult['data']): RadioSessionResult => ({ok, message, status: sessionStatus(), ...(data ? {data} : {})});
+    if (['airplay-list', 'airplay-select', 'airplay-passcode'].includes(command.type) && !airPlaySupported) {
+      return respond(airPlayMacOSOnlyMessage, false, command.type === 'airplay-list' ? [] : undefined);
+    }
     if (command.type === 'status') return respond(playingStationRef.current ? `${player.getState().state}: ${playingStationRef.current.name}` : 'RadioCLI is idle.');
     if (command.type === 'play') {
       if (command.ifPlaying === 'keep' && ['playing', 'paused', 'loading'].includes(player.getState().state)) {
@@ -2026,6 +2043,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     spinnerFrame
   });
   const basePageFooter = pageFooterText({
+    airPlaySupported,
     canEnterAirPlayCode,
     capturingTransportAction,
     commandMode,
@@ -2102,6 +2120,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={displayMode.app}>
         <AppContent
           airPlayDevices={availableAirPlayDevices}
+          airPlaySupported={airPlaySupported}
           airPlayCode={airPlayCode}
           appVersion={installedVersion}
           backends={availableBackends}

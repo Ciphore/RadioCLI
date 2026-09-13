@@ -11,6 +11,11 @@ type PlaybackBackendDetectionOptions = {
 
 export const ffplayLimitedControlsMessage = 'ffplay fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
 export const vlcLimitedControlsMessage = 'VLC fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
+export const airPlayMacOSOnlyMessage = 'AirPlay output is available only on macOS and is not supported on this operating system.';
+
+export function isAirPlayPlatformSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return nativeAdapters(identifyPlatform({platform})).airPlay;
+}
 
 export type PlaybackBackendCapabilities = {
   backend: string;
@@ -31,7 +36,7 @@ export function detectPlaybackBackends({
     backends.push('vlc');
   }
 
-  if (nativeAdapters(identifyPlatform({platform})).airPlay && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
+  if (isAirPlayPlatformSupported(platform) && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
     backends.push('airplay');
   }
 

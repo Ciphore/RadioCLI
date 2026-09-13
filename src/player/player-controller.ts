@@ -3,7 +3,7 @@ import {existsSync, unlinkSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import type {AirPlayDevice, AppSettings, IcyNowPlaying, PlaybackDiagnostics, PlaybackState, Station} from '../types.js';
-import {detectPlaybackBackends, ffplayLimitedControlsMessage, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
+import {airPlayMacOSOnlyMessage, detectPlaybackBackends, ffplayLimitedControlsMessage, isAirPlayPlatformSupported, playbackBackendInstallHint, vlcLimitedControlsMessage} from './backend-install.js';
 import {resolveCommand} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
@@ -119,7 +119,7 @@ export class PlayerController {
   }
 
   refreshDetectedBackends(): string[] {
-    this.availableBackends = detectPlaybackBackends();
+    this.availableBackends = detectPlaybackBackends({platform: this.runtime.platform});
     return this.detectedBackends();
   }
 
@@ -424,7 +424,7 @@ export class PlayerController {
   }
 
   async refreshAirPlayDevices(): Promise<AirPlayDevice[]> {
-    this.availableAirPlayDevices = await discoverAirPlayDevices();
+    this.availableAirPlayDevices = await discoverAirPlayDevices({platform: this.runtime.platform});
     return [...this.availableAirPlayDevices];
   }
 
@@ -469,6 +469,9 @@ export class PlayerController {
   private playbackUnavailableMessage(): string {
     const preferred = this.getSettings().preferredBackend;
     if (preferred === 'airplay') {
+      if (!isAirPlayPlatformSupported(this.runtime.platform)) {
+        return airPlayMacOSOnlyMessage;
+      }
       return `AirPlay is not ready on this install. Run radiocli doctor. ${airPlaySenderHealth().message}`;
     }
 

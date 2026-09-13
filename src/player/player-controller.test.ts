@@ -78,13 +78,31 @@ describe('PlayerController lifecycle', () => {
 
   it('explains when the preferred AirPlay backend is unavailable', async () => {
     commandExistsMock.mockImplementation(command => command === 'mpv');
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}));
+    const controller = new PlayerController(
+      () => settings({preferredBackend: 'airplay'}),
+      {platform: 'darwin', arch: 'arm64', env: {}}
+    );
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
       'AirPlay is not ready on this install. Run radiocli doctor.'
     );
     expect(spawnMock).not.toHaveBeenCalled();
   });
+
+  it.each(['win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const)(
+    'explains that AirPlay is macOS-only on %s',
+    async platform => {
+      const controller = new PlayerController(
+        () => settings({preferredBackend: 'airplay'}),
+        {platform, arch: 'x64', env: {}}
+      );
+
+      await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
+        'AirPlay output is available only on macOS and is not supported on this operating system.'
+      );
+      expect(spawnMock).not.toHaveBeenCalled();
+    }
+  );
 
   it('does not use AirPlay as the automatic fallback backend', async () => {
     const controller = new PlayerController(() => settings({preferredBackend: 'auto'}));

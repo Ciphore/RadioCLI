@@ -125,6 +125,71 @@ describe('App terminal integration', () => {
     expect(store.isFavorite(portable)).toBe(true);
   });
 
+  it('dismisses favorite confirmations after 4.5 seconds on every station view', async () => {
+    const explore: Station = {id: 'explore', provider: 'radio-browser', name: 'Explore FM', tags: []};
+    const country: Station = {id: 'country', provider: 'radio-browser', name: 'Country FM', tags: []};
+    vi.spyOn(ProviderManager.prototype, 'nearby').mockResolvedValue([explore]);
+    vi.spyOn(ProviderManager.prototype, 'countries').mockResolvedValue([{name: 'Canada', code: 'CA', stationCount: 1}]);
+    vi.spyOn(ProviderManager.prototype, 'byCountry').mockResolvedValue([country]);
+    vi.spyOn(ProviderManager.prototype, 'resolve').mockResolvedValue({url: 'https://example.test/portable'});
+    vi.spyOn(ProviderManager.prototype, 'vote').mockResolvedValue(false);
+    vi.spyOn(PlayerController.prototype, 'play').mockResolvedValue(undefined);
+    const {input, lastFrame} = await openApp(false);
+
+    await input('2');
+    await input('\r');
+    await input('f');
+    await expectNoticeToExpire(lastFrame, 'Removed from favorites: Portable Radio');
+
+    await input('b');
+    await input('f');
+    await expectNoticeToExpire(lastFrame, 'Added to favorites: Portable Radio');
+
+    await input('2');
+    await input('f');
+    await expectNoticeToExpire(lastFrame, 'Removed from favorites: Portable Radio');
+
+    await input('b');
+    await input('3');
+    await input('f');
+    await expectNoticeToExpire(lastFrame, 'Added to favorites: Explore FM');
+
+    await input('b');
+    await input('5');
+    await input('\r');
+    await input('f');
+    await expectNoticeToExpire(lastFrame, 'Added to favorites: Country FM');
+  });
+
+  it('blocks AirPlay navigation with a clear macOS-only notice on unsupported systems', async () => {
+    const {input, lastFrame} = await openApp(false, false, 'linux');
+    await input('9');
+    expect(lastFrame()).not.toContain('a AirPlay');
+
+    await input('a');
+    expect(lastFrame()).toContain('AirPlay output is available only on macOS');
+    expect(lastFrame()).toContain('Settings');
+    expect(lastFrame()).not.toContain('Choose where AirPlay playback should go');
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(4500); });
+    expect(lastFrame()).not.toContain('AirPlay output is available only on macOS');
+
+    await input('\r');
+    await input('\u001B[B');
+    expect(lastFrame()).toContain('AirPlay receiver (macOS only)');
+    await input('\r');
+    expect(lastFrame()).toContain('AirPlay output is available only on macOS');
+    expect(lastFrame()).not.toContain('Choose where AirPlay playback should go');
+  });
+
+  it('keeps AirPlay navigation available on macOS', async () => {
+    const {input, lastFrame} = await openApp(false, false, 'darwin');
+    await input('9');
+    expect(lastFrame()).toContain('a AirPlay');
+    await input('a');
+    expect(lastFrame()).toContain('Choose where AirPlay playback should go');
+  });
+
   it('keeps the TUI usable when its optional alarm presence directory is read-only', async () => {
     vi.mocked(presence.registerTuiPresence).mockImplementation(() => {throw new Error('EACCES: private runtime directory');});
     const {input, lastFrame} = await openApp(false);
@@ -199,7 +264,7 @@ function setPlayback(state: 'playing' | 'loading'): void {
   vi.spyOn(PlayerController.prototype, 'onChange').mockImplementation(listener => { listener(playback); return () => undefined; });
 }
 
-async function openApp(screenReader: boolean, redirected = false) {
+async function openApp(screenReader: boolean, redirected = false, platform: NodeJS.Platform = process.platform) {
   const directory = mkdtempSync(join(tmpdir(), 'radiocli-portable-app-'));
   directories.push(directory);
   vi.stubEnv('RADIOCLI_HOME', directory);
@@ -212,7 +277,7 @@ async function openApp(screenReader: boolean, redirected = false) {
   const stderr = new Writable({write(chunk, _encoding, done) { errors.push(String(chunk)); done(); }}) as NodeJS.WriteStream;
   const stdin = Object.assign(new PassThrough(), {isTTY: true, setRawMode: () => undefined, ref: () => undefined, unref: () => undefined}) as unknown as NodeJS.ReadStream;
   await act(async () => {
-    instances.push(render(<App store={store} alarmService={service} />, {stdout, stderr, stdin, debug: true, patchConsole: false, exitOnCtrlC: false, isScreenReaderEnabled: screenReader, kittyKeyboard: {mode: 'disabled'}}));
+    instances.push(render(<App store={store} alarmService={service} platform={platform} />, {stdout, stderr, stdin, debug: true, patchConsole: false, exitOnCtrlC: false, isScreenReaderEnabled: screenReader, kittyKeyboard: {mode: 'disabled'}}));
   });
   expect(errors.join('')).toBe('');
   return {
@@ -220,4 +285,12 @@ async function openApp(screenReader: boolean, redirected = false) {
     lastFrame: () => stripVTControlCharacters(frames.slice().reverse().find(frame => frame.toLowerCase().includes('radiocli')) ?? ''),
     input: async (data: string) => { await act(async () => { (stdin as unknown as PassThrough).write(data); }); }
   };
+}
+
+async function expectNoticeToExpire(lastFrame: () => string, notice: string): Promise<void> {
+  expect(lastFrame()).toContain(notice);
+  await act(async () => { await vi.advanceTimersByTimeAsync(4499); });
+  expect(lastFrame()).toContain(notice);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(lastFrame()).not.toContain(notice);
 }

@@ -1,10 +1,16 @@
 import {describe, expect, it} from 'vitest';
-import {detectPlaybackBackends, playbackBackendInstallHint, playbackBackendCapabilities, playbackBackendLabel, playbackBackendStatusLines} from './backend-install.js';
+import {detectPlaybackBackends, isAirPlayPlatformSupported, playbackBackendInstallHint, playbackBackendCapabilities, playbackBackendLabel, playbackBackendStatusLines} from './backend-install.js';
 import {mpvInstallCommand} from '../platform/packages.js';
 
 const hintOptions = {hasCommand: () => true, getUid: () => 1000};
 
 describe('playback backend install guidance', () => {
+  it('limits AirPlay output to macOS across every supported platform family', () => {
+    expect(isAirPlayPlatformSupported('darwin')).toBe(true);
+    for (const platform of ['win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const) {
+      expect(isAirPlayPlatformSupported(platform)).toBe(false);
+    }
+  });
   it('uses Homebrew for macOS mpv guidance', () => {
     expect(mpvInstallCommand('darwin', '', {}, hintOptions)).toBe('brew install mpv');
   });

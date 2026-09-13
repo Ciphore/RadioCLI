@@ -56,8 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept retained Search results playable after clearing the submitted query and
   added `Ctrl+F` to favorite the selected result while query input is active,
   without intercepting an ordinary `f` typed into the search text.
-- Matched Search favorite confirmations to the Library by dismissing added and
-  removed messages automatically after the same brief interval.
+- Dismissed added and removed favorite confirmations after 4.5 seconds on
+  Overview, Now Playing, Library, Explore, Search, Nearby, and country station
+  views.
+- Marked AirPlay controls as macOS-only, hid the unsupported Settings shortcut,
+  and kept non-macOS users on their current screen with a direct platform notice.
 - Corrected Windows terminal launches to create independent interactive console
   handles and retain the intended user data location.
 

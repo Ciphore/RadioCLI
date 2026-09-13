@@ -11,6 +11,7 @@ type PageFooterInput = {
   editingCountryFilter: boolean;
   editingSearch: boolean;
   canEnterAirPlayCode?: boolean;
+  airPlaySupported?: boolean;
   playbackBackend?: string;
   screen: Screen;
   settingsPage?: SettingsPage;
@@ -43,6 +44,7 @@ export function pageFooterText({
   editingCountryFilter,
   editingSearch,
   canEnterAirPlayCode,
+  airPlaySupported = true,
   playbackBackend,
   screen,
   settingsPage = 'root'
@@ -106,7 +108,7 @@ export function pageFooterText({
 
   if (screen === 'settings') {
     return settingsPage === 'root'
-      ? '↑/↓ choose · Enter open · o output · a AirPlay · b Overview'
+      ? `↑/↓ choose · Enter open · o output${airPlaySupported ? ' · a AirPlay' : ''} · b Overview`
       : '↑/↓ choose · Enter change · b Settings · shortcuts still work';
   }
 

@@ -3,7 +3,7 @@ import {ProviderManager} from '../providers/provider-manager.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import type {Station} from '../types.js';
 import {startRadioSession, type RadioSessionCommand, type RadioSessionResult, type RadioSessionStatus} from './session.js';
-import {detectPlaybackBackends} from '../player/backend-install.js';
+import {airPlayMacOSOnlyMessage, detectPlaybackBackends, isAirPlayPlatformSupported} from '../player/backend-install.js';
 
 export async function runHeadlessAgentHost(): Promise<void> {
   const store = new JsonLibraryStore();
@@ -48,6 +48,9 @@ export async function runHeadlessAgentHost(): Promise<void> {
   };
 
   const handle = async (command: RadioSessionCommand): Promise<RadioSessionResult> => {
+    if (['airplay-list', 'airplay-select', 'airplay-passcode'].includes(command.type) && !isAirPlayPlatformSupported()) {
+      return result(airPlayMacOSOnlyMessage, false, command.type === 'airplay-list' ? [] : undefined);
+    }
     if (command.type === 'status') return result(station ? `${player.getState().state}: ${station.name}` : 'RadioCLI is idle.');
     if (command.type === 'play') {
       if (command.ifPlaying === 'keep' && ['playing', 'paused', 'loading'].includes(player.getState().state)) return result(`Kept current station ${station?.name ?? ''}.`);
