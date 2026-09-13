@@ -1,9 +1,16 @@
+import type {SrvRecord} from 'node:dns';
+import {resolveSrv} from 'node:dns/promises';
 import {z} from 'zod';
 import type {Country, LocationGuess, ResolvedStream, SearchOptions, Station} from '../types.js';
 import {ProviderCache} from './cache.js';
 import {userAgent} from '../version.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
-import {networkPolicy, withExternalResponse} from '../platform/network.js';
+import {
+  allowsDirectDnsFallback,
+  fetchHttpsWithSystemResolver,
+  networkPolicy,
+  withExternalResponse
+} from '../platform/network.js';
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -54,12 +61,23 @@ const locationSchema = z
 
 const geoAtlasLimit = 100_000;
 const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
-// The atlas is much larger than ordinary directory responses. A single shared
-// 20-second deadline used to give each of four mirrors roughly five seconds to
-// connect, download, and parse up to 100k rows. Use a size-aware per-attempt
-// budget while retaining an overall bound and stale-cache fallback.
+// The atlas is much larger than ordinary directory responses. Give each live,
+// discovered server enough time to connect, download, and parse up to 100k rows
+// while retaining an overall bound and stale-cache fallback.
 const geoAtlasAttemptTimeoutMs = 30_000;
 const geoAtlasTotalTimeoutMs = 75_000;
+const mirrorDiscoveryTimeoutMs = 750;
+const radioBrowserService = '_api._tcp.radio-browser.info';
+const radioBrowserApiSuffix = '.api.radio-browser.info';
+const nameResolutionErrorCodes = new Set(['EAI_AGAIN', 'ENOTFOUND', 'ESERVFAIL', 'ETIMEOUT', 'EREFUSED']);
+
+type RadioBrowserRuntime = {
+  resolveSrv?: (hostname: string) => Promise<SrvRecord[]>;
+  fetchWithSystemResolver?: typeof fetchHttpsWithSystemResolver;
+  allowsDirectDnsFallback?: () => boolean;
+};
+
+const defaultRuntime: RadioBrowserRuntime = {};
 
 class ProviderUnavailableError extends Error {
   constructor(message: string, cause?: Error) {
@@ -76,12 +94,19 @@ export class RadioBrowserProvider {
   readonly id = 'radio-browser' as const;
   readonly label = 'Radio Browser';
   private readonly baseUrls: string[];
+  private readonly discoverMirrors: boolean;
   private activeBaseUrl: string;
   private geoAtlasPromise: Promise<Station[]> | null = null;
   private geoAtlasLoadedAt = 0;
+  private mirrorDiscoveryPromise: Promise<string[]> | null = null;
 
-  constructor(baseUrls = defaultRadioBrowserMirrors(), private readonly cache = new ProviderCache()) {
-    this.baseUrls = baseUrls.map(url => url.replace(/\/$/, ''));
+  constructor(
+    baseUrls: string[] | undefined = undefined,
+    private readonly cache = new ProviderCache(),
+    private readonly runtime: RadioBrowserRuntime = defaultRuntime
+  ) {
+    this.discoverMirrors = baseUrls === undefined;
+    this.baseUrls = (baseUrls ?? defaultRadioBrowserMirrors()).map(url => url.replace(/\/$/, ''));
     this.activeBaseUrl = this.baseUrls[0] ?? 'https://all.api.radio-browser.info';
   }
 
@@ -374,9 +399,10 @@ export class RadioBrowserProvider {
     }
 
     let lastError: Error | null = null;
-    const mirrors = preferActiveMirror(this.baseUrls, this.activeBaseUrl);
     const totalTimeoutMs = options.timeoutMs ?? 9000;
     const deadline = Date.now() + totalTimeoutMs;
+    const mirrors = preferActiveMirror(this.baseUrls, this.activeBaseUrl);
+    let discoveryAttempted = !this.discoverMirrors;
     for (let mirrorIndex = 0; mirrorIndex < mirrors.length; mirrorIndex += 1) {
       const baseUrl = mirrors[mirrorIndex]!;
       const remainingMs = deadline - Date.now();
@@ -389,13 +415,13 @@ export class RadioBrowserProvider {
       }
 
       try {
-        const mirrorsLeft = mirrors.length - mirrorIndex;
+        const mirrorsLeft = mirrors.length - mirrorIndex + (discoveryAttempted ? 0 : 1);
         const fairShareTimeoutMs = Math.max(1, Math.floor(remainingMs / mirrorsLeft));
         const attemptTimeoutMs = Math.max(
           1,
           Math.min(remainingMs, options.attemptTimeoutMs ?? fairShareTimeoutMs)
         );
-        const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs);
+        const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs, this.runtime);
         this.activeBaseUrl = baseUrl;
         if (options.maxAgeMs) {
           try {
@@ -409,6 +435,15 @@ export class RadioBrowserProvider {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
       }
+
+      if (!discoveryAttempted && mirrorIndex === mirrors.length - 1) {
+        discoveryAttempted = true;
+        const discoveryBudgetMs = Math.min(mirrorDiscoveryTimeoutMs, Math.max(1, deadline - Date.now()));
+        const discovered = await this.loadDiscoveredMirrors(discoveryBudgetMs);
+        for (const baseUrl of discovered) {
+          if (!mirrors.includes(baseUrl)) mirrors.push(baseUrl);
+        }
+      }
     }
 
     const stale = this.cache.getStale<T>(cacheKey);
@@ -421,10 +456,18 @@ export class RadioBrowserProvider {
       lastError ?? undefined
     );
   }
+
+  private async loadDiscoveredMirrors(timeoutMs: number): Promise<string[]> {
+    this.mirrorDiscoveryPromise ??= settleWithin(discoverRadioBrowserMirrors(this.runtime), timeoutMs, []);
+    return this.mirrorDiscoveryPromise;
+  }
 }
 
 function describeRequestError(error: Error | null): string {
   if (!error) return 'request failed';
+  const nestedCode = findErrorCode(error);
+  if (nestedCode === 'EAI_AGAIN') return 'temporary DNS lookup failed (EAI_AGAIN)';
+  if (nestedCode && nameResolutionErrorCodes.has(nestedCode)) return `DNS lookup failed (${nestedCode})`;
   const cause = error.cause;
   if (cause && typeof cause === 'object') {
     const code = 'code' in cause && typeof cause.code === 'string' ? cause.code : null;
@@ -438,12 +481,7 @@ function describeRequestError(error: Error | null): string {
 }
 
 function defaultRadioBrowserMirrors(): string[] {
-  return [
-    'https://all.api.radio-browser.info',
-    'https://de1.api.radio-browser.info',
-    'https://nl1.api.radio-browser.info',
-    'https://at1.api.radio-browser.info'
-  ];
+  return ['https://all.api.radio-browser.info'];
 }
 
 function preferActiveMirror(baseUrls: string[], active: string): string[] {
@@ -455,20 +493,95 @@ function buildCacheKey(path: string, params: Record<string, string>): string {
   return `${path}?${new URLSearchParams(pairs).toString()}`;
 }
 
-async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number): Promise<T> {
-  return withExternalResponse(url, {
-    timeoutMs,
-    init: {
-      headers: {
-        'User-Agent': userAgent(' (+https://radio-browser.info)'),
-        Accept: 'application/json'
-      }
+async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number, runtime: RadioBrowserRuntime): Promise<T> {
+  const startedAt = Date.now();
+  const init = {
+    headers: {
+      'User-Agent': userAgent(' (+https://radio-browser.info)'),
+      Accept: 'application/json'
     }
-  }, async response => {
+  } satisfies RequestInit;
+  const consume = async (response: Response): Promise<T> => {
     if (!response.ok) {
       throw new Error(`Radio Browser request failed: ${response.status} ${response.statusText}`);
     }
     return (await response.json()) as T;
+  };
+
+  try {
+    return await withExternalResponse(url, {timeoutMs, init}, consume);
+  } catch (error) {
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (
+      remainingMs <= 0 ||
+      !isNameResolutionError(error) ||
+      !isRadioBrowserApiHostname(url.hostname) ||
+      !(runtime.allowsDirectDnsFallback ?? allowsDirectDnsFallback)()
+    ) {
+      throw error;
+    }
+
+    return withExternalResponse(url, {
+      timeoutMs: remainingMs,
+      init,
+      fetchImpl: runtime.fetchWithSystemResolver ?? fetchHttpsWithSystemResolver
+    }, consume);
+  }
+}
+
+async function discoverRadioBrowserMirrors(runtime: RadioBrowserRuntime): Promise<string[]> {
+  const records = await (runtime.resolveSrv ?? resolveSrv)(radioBrowserService);
+  return dedupeUrls(
+    records
+      .filter(record => record.port === 443)
+      .sort((a, b) => a.priority - b.priority || b.weight - a.weight || a.name.localeCompare(b.name))
+      .flatMap(record => {
+        const hostname = record.name.replace(/\.$/, '').toLowerCase();
+        return isRadioBrowserApiHostname(hostname) ? [`https://${hostname}`] : [];
+      })
+  );
+}
+
+function isRadioBrowserApiHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'api.radio-browser.info' || normalized.endsWith(radioBrowserApiSuffix);
+}
+
+function isNameResolutionError(error: unknown): boolean {
+  const code = findErrorCode(error);
+  return code !== null && nameResolutionErrorCodes.has(code);
+}
+
+function findErrorCode(error: unknown): string | null {
+  const seen = new Set<unknown>();
+  const pending = [error];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    if (typeof value === 'object') {
+      if ('code' in value && typeof value.code === 'string') return value.code;
+      if ('cause' in value) pending.push(value.cause);
+      if (value instanceof AggregateError) pending.push(...value.errors);
+    }
+  }
+  return null;
+}
+
+function dedupeUrls(urls: string[]): string[] {
+  return [...new Set(urls)];
+}
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => resolve(fallback), timeoutMs);
+    promise.then(value => {
+      clearTimeout(timeout);
+      resolve(value);
+    }, () => {
+      clearTimeout(timeout);
+      resolve(fallback);
+    });
   });
 }
 

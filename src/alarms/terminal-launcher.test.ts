@@ -1,6 +1,7 @@
 import {EventEmitter} from 'node:events';
 import {spawn as nodeSpawn,type ChildProcess} from 'node:child_process';
 import {connect, type Socket} from 'node:net';
+import {homedir} from 'node:os';
 import {describe,expect,it,vi} from 'vitest';
 import {openAlarmControls,prepareAlarmTerminalAccess,verifyAlarmTerminalLaunch} from './terminal-launcher.js';
 import {detectGraphicalTerminal} from '../platform/terminals.js';
@@ -55,7 +56,7 @@ describe('alarm terminal launcher',()=>{
     expect(recorded.calls[0]?.args.slice(0,7)).toEqual(['-w','new','new-tab','--title','RadioCLI Alarm','powershell.exe','-NoLogo']);
     const invocation=powershellInvocation(recorded.calls[0]!.args);
     expect(invocation.command).toBe('C:\\Node\\node.exe');
-    expect(bootstrapPayload(invocation.args)).toEqual({args:['C:\\RadioCLI\\cli.js'],environment:{RADIOCLI_HOME:home}});
+    expect(bootstrapPayload(invocation.args)).toEqual({args:['C:\\RadioCLI\\cli.js'],environment:{RADIOCLI_HOME:home,...(process.platform==='win32'?{USERPROFILE:homedir()}:{})}});
   });
 
   it.each(['freebsd','openbsd','netbsd'] as const)('requests an installed graphical terminal on %s',async platform=>{

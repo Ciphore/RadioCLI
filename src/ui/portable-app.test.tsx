@@ -13,7 +13,7 @@ import * as session from '../agent/session.js';
 import * as presence from '../alarms/tui-presence.js';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {JsonLibraryStore} from '../storage/store.js';
-import type {PlaybackState} from '../types.js';
+import type {PlaybackState, Station} from '../types.js';
 import {App} from './App.js';
 import type {AlarmTuiService} from './alarm-tui-service.js';
 import * as visualizers from './visualizers/receiver-visualizers.js';
@@ -52,6 +52,79 @@ afterEach(() => {
 });
 
 describe('App terminal integration', () => {
+  it('tunes the selected retained result after its search query is cleared', async () => {
+    const result: Station = {id: 'search-result', provider: 'radio-browser', name: 'Search Result FM', tags: []};
+    const search = vi.spyOn(ProviderManager.prototype, 'search').mockResolvedValue([result]);
+    vi.spyOn(ProviderManager.prototype, 'resolve').mockResolvedValue({url: 'https://example.test/search-result'});
+    const play = vi.spyOn(PlayerController.prototype, 'play').mockResolvedValue(undefined);
+    const {input, lastFrame} = await openApp(false);
+
+    await input('4');
+    await input('jazz');
+    await input('\r');
+    expect(lastFrame()).toContain('Search Result FM');
+
+    for (let index = 0; index < 4; index += 1) await input('\u007f');
+    expect(lastFrame()).toContain('Search Result FM');
+    await input('\r');
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledWith(result, 'https://example.test/search-result');
+  });
+
+  it.each([
+    ['Ctrl+F', '\u0006'],
+    ['legacy Meta+F', '\u001bf'],
+    ['Kitty Super+F', '\u001b[102;9u']
+  ])('favorites a selected Search result with %s while the query remains editable', async (_label, shortcut) => {
+    const result: Station = {id: 'favorite-result', provider: 'radio-browser', name: 'Favorite Result FM', tags: []};
+    vi.spyOn(ProviderManager.prototype, 'search').mockResolvedValue([result]);
+    vi.spyOn(ProviderManager.prototype, 'vote').mockResolvedValue(false);
+    const {store, input, lastFrame} = await openApp(false);
+
+    await input('4');
+    await input('jazz');
+    await input('\r');
+    await input('f');
+    expect(store.isFavorite(result)).toBe(false);
+    expect(lastFrame()).toContain('jazzf');
+    await input(shortcut);
+
+    expect(store.isFavorite(result)).toBe(true);
+    expect(lastFrame()).toContain('Added to favorites: Favorite Result FM');
+    expect(lastFrame()).toContain('jazzf');
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(4499); });
+    expect(lastFrame()).toContain('Added to favorites: Favorite Result FM');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(lastFrame()).not.toContain('Added to favorites: Favorite Result FM');
+
+    await input(shortcut);
+    expect(store.isFavorite(result)).toBe(false);
+    expect(lastFrame()).toContain('Removed from favorites: Favorite Result FM');
+    expect(lastFrame()).toContain('jazzf');
+    await act(async () => { await vi.advanceTimersByTimeAsync(4500); });
+    expect(lastFrame()).not.toContain('Removed from favorites: Favorite Result FM');
+  });
+
+  it('keeps plain f favoriting available in station lists and Now Playing', async () => {
+    vi.spyOn(ProviderManager.prototype, 'resolve').mockResolvedValue({url: 'https://example.test/portable'});
+    vi.spyOn(ProviderManager.prototype, 'vote').mockResolvedValue(false);
+    vi.spyOn(PlayerController.prototype, 'play').mockResolvedValue(undefined);
+    const {store, input} = await openApp(false);
+    const portable = store.snapshot().favorites.find(item => item.id === 'portable')!;
+
+    await input('2');
+    await input('\r');
+    await input('f');
+    expect(store.isFavorite(portable)).toBe(false);
+
+    await input('b');
+    await input('1');
+    await input('f');
+    expect(store.isFavorite(portable)).toBe(true);
+  });
+
   it('keeps the TUI usable when its optional alarm presence directory is read-only', async () => {
     vi.mocked(presence.registerTuiPresence).mockImplementation(() => {throw new Error('EACCES: private runtime directory');});
     const {input, lastFrame} = await openApp(false);

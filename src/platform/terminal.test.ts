@@ -65,6 +65,21 @@ describe('terminal capabilities', () => {
     expect(resolveTerminalCapabilities({}, {colorDepth}).colorLevel).toBe(colorLevel);
   });
 
+  it.each([
+    [{COLORTERM: 'truecolor'}, {colorDepth: 8}, 3],
+    [{COLORTERM: '24bit'}, {colorDepth: 4}, 3],
+    [{TERM: 'xterm-direct'}, {colorDepth: 8}, 3],
+    [{TERM: 'xterm-256color'}, {colorDepth: 8}, 2],
+    [{TERM: 'xterm'}, {colorDepth: 4}, 1]
+  ] as const)('honors explicit color capabilities for %j with stream evidence %j', (env, evidence, colorLevel) => {
+    expect(resolveTerminalCapabilities(env, evidence).colorLevel).toBe(colorLevel);
+  });
+
+  it('keeps explicit user color overrides above terminal capability declarations', () => {
+    expect(resolveTerminalCapabilities({FORCE_COLOR: '2', COLORTERM: 'truecolor'}, {colorDepth: 24}).colorLevel).toBe(2);
+    expect(resolveTerminalCapabilities({NO_COLOR: '1', COLORTERM: 'truecolor'}, {colorDepth: 24}).colorLevel).toBe(0);
+  });
+
   it('keeps piped output plain and static unless color is explicitly requested', () => {
     expect(resolveTerminalCapabilities({}, {isTTY: false})).toMatchObject({colorLevel: 0, interactive: false, reduceMotion: true});
     expect(resolveTerminalCapabilities({FORCE_COLOR: '2'}, {isTTY: false}).colorLevel).toBe(2);
@@ -90,21 +105,23 @@ describe('terminal capabilities', () => {
 
 describe('terminal color startup', () => {
   it.each([
-    {env: {NO_COLOR: '1', FORCE_COLOR: '3'}, expected: 0},
-    {env: {TERM: 'dumb', FORCE_COLOR: '3'}, expected: 0},
-    {env: {TERM: 'xterm'}, expected: 1},
-    {env: {TERM: 'xterm-256color'}, expected: 2},
-    {env: {TERM: 'xterm-256color', COLORTERM: 'truecolor'}, expected: 3},
-    {env: {FORCE_COLOR: '1', COLORTERM: 'truecolor'}, expected: 1},
-    {env: {FORCE_COLOR: '2', GITHUB_ACTIONS: 'true', CI: 'true'}, expected: 2}
-  ])('configures real Ink before its color dependency loads for $env', ({env, expected}) => {
+    {env: {NO_COLOR: '1', FORCE_COLOR: '3'}, evidence: {}, expected: 0},
+    {env: {TERM: 'dumb', FORCE_COLOR: '3'}, evidence: {}, expected: 0},
+    {env: {TERM: 'xterm'}, evidence: {}, expected: 1},
+    {env: {TERM: 'xterm-256color'}, evidence: {}, expected: 2},
+    {env: {TERM: 'xterm-256color', COLORTERM: 'truecolor'}, evidence: {}, expected: 3},
+    {env: {TERM: 'xterm-256color', COLORTERM: 'truecolor'}, evidence: {isTTY: true, colorDepth: 8}, expected: 3},
+    {env: {FORCE_COLOR: '1', COLORTERM: 'truecolor'}, evidence: {}, expected: 1},
+    {env: {FORCE_COLOR: '2', GITHUB_ACTIONS: 'true', CI: 'true'}, evidence: {}, expected: 2}
+  ])('configures real Ink before its color dependency loads for $env with $evidence', ({env, evidence, expected}) => {
     const output = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', `
       import {configureTerminalRenderer} from './src/ui/terminal-renderer.ts';
-      const terminal = await configureTerminalRenderer();
+      const evidence = ${JSON.stringify(evidence)};
+      const terminal = await configureTerminalRenderer(process.env, evidence);
       const [{createElement}, {Box, Text, renderToString}, {resolveDisplayMode}] = await Promise.all([
         import('react'), import('ink'), import('./src/ui/display-context.ts')
       ]);
-      const display = resolveDisplayMode({});
+      const display = resolveDisplayMode({}, process.env, evidence);
       const frame = renderToString(createElement(Box, {backgroundColor: display.app},
         createElement(Text, {color: '#74f28a', backgroundColor: display.panel}, '東京 / Café')));
       process.stdout.write(JSON.stringify({terminal, frame}));

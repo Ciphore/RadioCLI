@@ -32,7 +32,7 @@ npm pack --dry-run
 Test the packed tarball locally:
 
 ```bash
-VERSION=0.2.3
+VERSION=0.2.4
 npm pack
 npm install -g "./ciphore-radiocli-$VERSION.tgz"
 radiocli --help
@@ -102,7 +102,8 @@ records actual outcomes and remaining verification gaps.
 
 Do not publish a release with a failed required job. An experimental job failure
 must remain visible and its platform tier must retain the corresponding limit.
-This initiative changes no external tap, registry, or release ownership.
+Repository protection settings, registry access, and release ownership remain
+under maintainer control.
 
 ## Homebrew Tap
 
@@ -116,7 +117,7 @@ The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`
 After each npm publish, fetch the npm tarball URL and SHA:
 
 ```bash
-VERSION=0.2.3
+VERSION=0.2.4
 TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
 curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
 shasum -a 256 "/tmp/radiocli-$VERSION.tgz"

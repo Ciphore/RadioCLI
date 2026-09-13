@@ -104,11 +104,10 @@ overrides are listed in [TUI Controls](getting-started/tui-controls.mdx).
 
 ### Visual Regression Captures
 
-The portability work began with 578 deterministic Ink captures. They cover
-every screen and settings group, all receiver styles at full size,
-representative receivers at smaller sizes, Unicode and ASCII decoration,
-output without color, and focused ANSI color and selection checks. The capture
-fixtures use these sizes:
+The deterministic Ink snapshot suite covers every screen and settings group,
+all receiver styles at full size, representative receivers at smaller sizes,
+Unicode and ASCII decoration, output without color, and focused ANSI color and
+selection checks. The fixtures use these sizes:
 
 | Layout | Columns × rows |
 | --- | --- |
@@ -116,21 +115,13 @@ fixtures use these sizes:
 | Compact | 50 × 16 |
 | Micro | 24 × 8 |
 
-All 335 Unicode/ANSI captures remain unchanged. Of the 243 ASCII captures,
-160 intentionally changed to remove remaining block characters, small circles,
-bullets, and ellipses; 83 were already compatible and remain unchanged.
-
-| Capture | Before | After |
-| --- | --- | --- |
-| Full Overview logo | `████` | `####` |
-| Compact receiver status | `playing · vol 70` | `playing . vol 70` |
-| Micro Settings header | `Settings · Choose …` | `Settings . Choose .` |
-
-The repository contains [full before-and-after terminal text](https://github.com/Ciphore/RadioCLI/blob/master/docs/cross-platform/visual-before-after.txt)
-and the [complete snapshot suite](https://github.com/Ciphore/RadioCLI/blob/master/src/ui/visual-baseline.test.tsx).
-Time, timezone, station data, and animation frame are fixed. These captures
-verify renderer output; native font, audio, and desktop integration results are
-tracked separately in [Platforms](/docs/platforms).
+Time, timezone, station data, and animation frames are fixed so failures show
+real rendering differences. ASCII fixtures use ASCII only for decoration while
+preserving international station names. The
+[snapshot suite](https://github.com/Ciphore/RadioCLI/blob/master/src/ui/visual-baseline.test.tsx)
+verifies renderer output; native fonts, physical displays, audio, and desktop
+integration are outside its scope. See [Platforms](/docs/platforms) for native
+feature coverage.
 
 ## Navigation And Stats
 

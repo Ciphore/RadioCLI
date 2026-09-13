@@ -20,7 +20,7 @@ requirement.
 
 ## Current Defenses
 
-- Radio Browser mirror fallback
+- Radio Browser DNS service discovery and mirror fallback
 - sharded, bounded provider cache with per-entry corruption isolation and stale fallback
 - cached geotagged station atlas for Explore and Nearby, with local
   distance-first ranking
@@ -50,10 +50,18 @@ requirement.
 
 ## Network Requests
 
-Radio Browser mirror attempts share a bounded deadline. A response that sends
-headers but stalls while sending JSON cannot keep a request open indefinitely.
-Usable stale cache entries remain available after a request fails, and a failed
-cache write does not turn a successful response into a directory outage.
+Fallback Radio Browser endpoints come from its current DNS service record
+instead of a fixed list of server names. Mirror attempts share a bounded
+deadline. If the native hostname lookup reports a temporary `EAI_AGAIN`
+failure, RadioCLI can retry through Node's DNS-protocol resolver. The original
+hostname remains in the HTTPS request and certificate check. This recovery is
+disabled whenever a proxy is configured so it cannot bypass the requested
+network route.
+
+A response that sends headers but stalls while sending JSON cannot keep a
+request open indefinitely. Usable stale cache entries remain available after a
+request fails, and a failed cache write does not turn a successful response into
+a directory outage.
 
 RadioCLI's public HTTP client supports HTTP(S) proxies through Node's native
 `fetch`. On Node 22.21 or newer in the 22 release line, or Node 24 or newer, set
@@ -259,13 +267,4 @@ the launchd label alone does not change executable identity.
   with a movable scan cursor and true distance ranking, but it can only place
   stations that providers expose with valid coordinates.
 
-## Next Reliability Work
-
-- per-station health cache
-- explicit failed-stream reasons in station lists
-- "never show again" station hiding
-- retry/backoff by station/provider
-- optional stream HEAD/probe before tune
-
-See [Architecture](./architecture.mdx) for the provider and playback boundaries,
-and [Roadmap](./roadmap.mdx) for planned follow-up work.
+See [Architecture](./architecture.mdx) for the provider and playback boundaries.

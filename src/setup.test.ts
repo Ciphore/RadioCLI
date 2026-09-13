@@ -40,7 +40,7 @@ describe('RadioCLI setup', () => {
     if (manager === 'scoop') expect(hints.mpv).toContain('scoop bucket add extras');
   });
 
-  it('shows every Scoop prerequisite in the reviewed dry-run plan', async () => {
+  it('shows every Scoop prerequisite in the dry-run plan', async () => {
     const output = new PassThrough();
     let text = '';
     output.on('data', chunk => {text += String(chunk);});
@@ -67,6 +67,7 @@ describe('RadioCLI setup', () => {
 
   it('caps setup colors at the terminal depth', async () => {
     vi.stubEnv('TERM', 'xterm');
+    vi.stubEnv('COLORTERM', undefined);
     vi.stubEnv('FORCE_COLOR', undefined);
     vi.stubEnv('NO_COLOR', undefined);
     const output = Object.assign(new PassThrough(), {isTTY: true, getColorDepth: () => 4});
@@ -201,7 +202,7 @@ describe('RadioCLI setup', () => {
     {platform: 'freebsd' as const, manager: 'pkg', uid: 0, commands: ['pkg'], expected: 'pkg install -y mpv'},
     {platform: 'openbsd' as const, manager: 'pkg_add', uid: 1000, commands: ['pkg_add', 'doas'], expected: 'doas pkg_add -I mpv'},
     {platform: 'linux' as const, manager: 'apk', uid: 0, commands: ['apk'], expected: 'apk add mpv'}
-  ])('executes the reviewed $manager privilege plan', async ({platform, manager, uid, commands, expected}) => {
+  ])('executes the $manager privilege plan', async ({platform, manager, uid, commands, expected}) => {
     const execute = vi.fn(async (_command: {display: string}) => undefined);
     await runSetup({platform, osRelease: 'ID=alpine', args: ['--yes', '--only=mpv', `--package-manager=${manager}`],
       input: new PassThrough(), output: new PassThrough(), hasCommand: command => commands.includes(command),

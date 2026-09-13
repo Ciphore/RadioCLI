@@ -70,9 +70,9 @@ checks.
 
 ## Platform verification
 
-Run the Node 22/24 matrix and preserve its strict gates. Expanded native jobs
-test x64 and arm64 installation and actual mpv control; weekly or opt-in BSD
-checks execute the packed JavaScript in guest kernels. Changes to script harnesses
+The required Node 22/24 CI matrix tests x64 and arm64 installations and real mpv
+control. Weekly or manually triggered BSD checks execute the packed JavaScript
+in guest kernels. Changes to script harnesses
 also require `node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs`.
 
 Record OS release, CPU, endianness, libc, Node/npm versions, artifact hash, and
@@ -80,10 +80,10 @@ whether execution was native, virtualized, emulated, or mocked. An installation
 test, native command mock, or foreign binary inspection alone cannot promote a
 platform to supported. Follow the [support tiers](apps/docs/content/docs/platforms.mdx).
 
-The deterministic visual fixtures cover full, compact and micro layouts, all
-major screens and receiver styles. Preserve Unicode captures. Explain intentional
-portable-rendering changes with before/after captures; do not update snapshots
-just to hide failures. See [the captures](docs/cross-platform/visual-before-after.txt).
+The deterministic visual fixtures cover full, compact, and micro layouts, all
+major screens, and receiver styles. Preserve Unicode captures. When rendering
+changes intentionally, describe the visible effect in the pull request and do
+not update snapshots merely to hide failures.
 
 ## Issue Triage
 

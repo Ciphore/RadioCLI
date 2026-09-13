@@ -1,5 +1,6 @@
 import {EventEmitter} from 'node:events';
 import {spawn as nodeSpawn,type ChildProcess,type SpawnOptions} from 'node:child_process';
+import {homedir} from 'node:os';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {launchRadioTui} from './launcher.js';
 
@@ -27,7 +28,7 @@ describe('agent graphical launcher',()=>{
     const script=Buffer.from(encoded!,'base64').toString('utf16le');
     const invocation=nodeInvocation(call.args,call.options?.env);expect(invocation.command).toBe(nodePath);
     const payload=JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8'));
-    expect(payload).toEqual({args:[cliPath,'agent-ui','encoded-agent-command'],environment:{RADIOCLI_HOME:home}});expect(script).not.toContain(home);expect(script).not.toContain(cliPath);
+    expect(payload).toEqual({args:[cliPath,'agent-ui','encoded-agent-command'],environment:{RADIOCLI_HOME:home,...(process.platform==='win32'?{USERPROFILE:homedir()}:{})}});expect(script).not.toContain(home);expect(script).not.toContain(cliPath);
   });
 
   it('surfaces an immediate native launcher failure after spawn',async()=>{

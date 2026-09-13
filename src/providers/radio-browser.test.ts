@@ -175,6 +175,79 @@ describe('RadioBrowserProvider', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('discovers the current Radio Browser servers and ignores unsafe or non-HTTPS SRV records', async () => {
+    const resolveSrv = vi.fn(async () => [
+      {name: 'de1.api.radio-browser.info', port: 443, priority: 1, weight: 1},
+      {name: 'DE1.api.radio-browser.info.', port: 443, priority: 1, weight: 1},
+      {name: 'wrong.example.com', port: 443, priority: 1, weight: 100},
+      {name: 'insecure.api.radio-browser.info', port: 80, priority: 1, weight: 100}
+    ]);
+    const fetch = mockFetch(url => {
+      if (url.origin === 'https://all.api.radio-browser.info') {
+        return jsonResponse({message: 'unavailable'}, {status: 503, statusText: 'Service Unavailable'});
+      }
+      return jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}]);
+    });
+    const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});
+
+    await expect(provider.countries(10)).resolves.toEqual([{name: 'Japan', code: 'JP', stationCount: 500}]);
+    expect(resolveSrv).toHaveBeenCalledOnce();
+    expect(resolveSrv).toHaveBeenCalledWith('_api._tcp.radio-browser.info');
+    expect(fetch.mock.calls.map(([input]) => new URL(String(input)).origin)).toEqual([
+      'https://all.api.radio-browser.info',
+      'https://de1.api.radio-browser.info'
+    ]);
+
+    fetch.mockClear();
+    await provider.health();
+    expect(resolveSrv).toHaveBeenCalledOnce();
+  });
+
+  it('uses the canonical endpoint without waiting for DNS service discovery when it is healthy', async () => {
+    const resolveSrv = vi.fn(() => new Promise<never>(() => {}));
+    const fetch = mockFetch(() => jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}]));
+    const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});
+
+    await expect(provider.countries(10)).resolves.toEqual([{name: 'Japan', code: 'JP', stationCount: 500}]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(resolveSrv).not.toHaveBeenCalled();
+  });
+
+  it('recovers an EAI_AGAIN lookup with the TLS-preserving system-resolver fallback', async () => {
+    const systemFetch = mockFetch(() => {
+      throw new TypeError('fetch failed', {cause: Object.assign(new Error('temporary failure in name resolution'), {code: 'EAI_AGAIN'})});
+    });
+    const fallbackFetch = vi.fn(async (_input: string | URL, _init?: RequestInit) => jsonResponse([
+      {stationuuid: 'recovered-fm', name: 'Recovered FM', url: 'https://stream.example/live'}
+    ]));
+    const provider = new RadioBrowserProvider(
+      ['https://all.api.radio-browser.info'],
+      cacheForTest(),
+      {fetchWithSystemResolver: fallbackFetch, allowsDirectDnsFallback: () => true}
+    );
+
+    await expect(provider.popular(1)).resolves.toMatchObject([{id: 'recovered-fm', name: 'Recovered FM'}]);
+    expect(systemFetch).toHaveBeenCalledOnce();
+    expect(fallbackFetch).toHaveBeenCalledOnce();
+    expect(String(fallbackFetch.mock.calls[0]?.[0])).toContain('all.api.radio-browser.info/json/stations/search');
+  });
+
+  it('does not use the direct DNS fallback when proxy routing forbids it', async () => {
+    const systemFetch = mockFetch(() => {
+      throw new TypeError('fetch failed', {cause: Object.assign(new Error('temporary failure in name resolution'), {code: 'EAI_AGAIN'})});
+    });
+    const fallbackFetch = vi.fn(async (_input: string | URL, _init?: RequestInit) => jsonResponse([]));
+    const provider = new RadioBrowserProvider(
+      ['https://all.api.radio-browser.info'],
+      cacheForTest(),
+      {fetchWithSystemResolver: fallbackFetch, allowsDirectDnsFallback: () => false}
+    );
+
+    await expect(provider.popular(1)).rejects.toThrow(/EAI_AGAIN|temporary failure|fetch failed/i);
+    expect(systemFetch).toHaveBeenCalledOnce();
+    expect(fallbackFetch).not.toHaveBeenCalled();
+  });
+
   it('returns stale cached data when every mirror is offline', async () => {
     const cacheFile = cacheFileForTest();
     writeFileSync(

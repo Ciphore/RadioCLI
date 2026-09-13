@@ -131,11 +131,13 @@ operational machine state, not portable library state.
   by edge protection.
 - Playlist imports are modeled as first-class `playlist` stations.
 
-Radio Browser calls use mirror fallback and a durable cache. If a live request
-fails and stale cached data exists, the provider returns stale data rather than
-blanking the interface. A cache write failure does not discard a successful
-directory response. Request deadlines remain active while response bodies are
-consumed, and unused bodies are canceled where possible.
+Radio Browser calls use the canonical endpoint first, discover current HTTPS
+servers from the directory's DNS service record when fallback is needed, and
+keep a durable cache. If a live request fails and stale cached data exists, the
+provider returns stale data rather than blanking the interface. A cache write failure
+does not discard a successful directory response. Request deadlines remain
+active while response bodies are consumed, and unused bodies are canceled
+where possible.
 
 `RADIOCLI_OFFLINE=1` blocks public requests made by RadioCLI's Node HTTP client.
 Cached directory results and saved direct stream URLs remain usable.

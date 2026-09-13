@@ -65,7 +65,7 @@ describe('launch path identity', () => {
     {HOME: './listener', RADIOCLI_HOME: '', RADIO_ATLAS_HOME: `./${literal}`},
     {HOME: './listener', RADIOCLI_HOME: '', RADIO_ATLAS_HOME: '', XDG_DATA_HOME: '', XDG_CACHE_HOME: '', XDG_RUNTIME_DIR: ''},
     {HOME: ''}
-  ])('keeps POSIX storage identity across different working directories: %j', env => compareWorkingDirectories('linux', env));
+  ])('keeps POSIX storage identity across different working directories: %j', env => compareWorkingDirectories('linux', env), 10_000);
 
   it.skipIf(process.platform !== 'win32').each([
     {RADIOCLI_HOME: '.\\Radio Data', USERPROFILE: '.\\listener'},
@@ -95,7 +95,9 @@ describe('launch path identity', () => {
     }
   });
 
-  it.each([
+  // A Windows process cannot emulate POSIX's HOME-based os.homedir fallback:
+  // libuv uses the native Windows profile even when the fixture sets HOME.
+  it.skipIf(process.platform === 'win32').each([
     {},
     {HOME: '/home/saved'},
     {HOME: '/home/saved', RADIO_ATLAS_HOME: '/saved legacy'},

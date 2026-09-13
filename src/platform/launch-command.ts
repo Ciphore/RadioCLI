@@ -1,5 +1,6 @@
 import {pathEnvironmentKeys} from './paths.js';
 import type {ChildProcess} from 'node:child_process';
+import {homedir} from 'node:os';
 import {posix, win32} from 'node:path';
 
 const applicationEnvironmentKeys = [
@@ -26,17 +27,23 @@ export function launchEnvironment(
     if (/[\r\n\0]/.test(value)) throw new Error(`${key} cannot contain control characters in a launch environment.`);
     result[key] = value;
   };
-  for (const key of pathEnvironmentKeys) {
-    const value = env[key];
+  const capturePath = (key: string, value: string | undefined) => {
     add(key, value);
-    if (value === undefined) continue;
+    if (value === undefined) return;
     // Empty overrides fall back; empty roots select the invoking directory.
     // Windows rejects an empty USERPROFILE, while HOME is unused there.
-    if (value === '' && (key === 'RADIOCLI_HOME' || key === 'RADIO_ATLAS_HOME' || key === 'USERPROFILE' || key === 'HOME' && platform === 'win32')) continue;
+    if (value === '' && (key === 'RADIOCLI_HOME' || key === 'RADIO_ATLAS_HOME' || key === 'USERPROFILE' || key === 'HOME' && platform === 'win32')) return;
     // Windows root-relative paths also depend on the invoking drive. Fully
     // qualified values need no cwd lookup (which can fail after cwd removal).
     const absolute = path.isAbsolute(value) && (platform !== 'win32' || /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(value));
     if (!absolute) add(key, path.resolve(options.cwd ?? process.cwd(), value));
+  };
+  for (const key of pathEnvironmentKeys) capturePath(key, env[key]);
+  // On Windows, removing USERPROFILE from a child environment does not
+  // reliably erase a differently-cased inherited value. Persist the effective
+  // account home so an absent selector cannot be replaced by the launcher.
+  if (platform === 'win32' && process.platform === 'win32' && env.USERPROFILE === undefined) {
+    capturePath('USERPROFILE', homedir());
   }
   for (const key of applicationEnvironmentKeys) add(key, env[key]);
   if (options.includeDesktop) for (const key of desktopEnvironmentKeys) add(key, env[key]);
@@ -55,7 +62,7 @@ export function nodeLaunchCommand(nodePath: string, args: readonly string[], env
   // complete identity before restoring this launch's snapshot, preserving absent
   // selectors and the path layer's existing empty-value/default semantics.
   const keys = pathEnvironmentKeys.map(key => `'${key}'`).join(',');
-  const program = `const p=JSON.parse(Buffer.from(process.argv[1],'base64url').toString('utf8'));const e={...process.env};for(const k of Object.keys(e))if([${keys}].includes(process.platform==='win32'?k.toUpperCase():k))delete e[k];const r=require('node:child_process').spawnSync(process.execPath,p.args,{stdio:'inherit',env:{...e,...p.environment}});if(r.error)console.error(r.error.message);process.exit(r.status??1);`;
+  const program = `const p=JSON.parse(Buffer.from(process.argv[1],'base64url').toString('utf8'));const s=new Set([${keys}]);const e=Object.fromEntries(Object.entries(process.env).filter(([k])=>!s.has(process.platform==='win32'?k.toUpperCase():k)));const r=require('node:child_process').spawnSync(process.execPath,p.args,{stdio:'inherit',env:{...e,...p.environment}});if(r.error)console.error(r.error.message);process.exit(r.status??1);`;
   return [nodePath, '-e', program, Buffer.from(JSON.stringify({args, environment}), 'utf8').toString('base64url')];
 }
 

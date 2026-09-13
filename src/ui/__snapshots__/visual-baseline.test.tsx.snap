@@ -6015,7 +6015,7 @@ space or F8     Pause / resume
 , / . or F7/F9  Previous / next station
 + / -           Volume up / down
 m               Mute / unmute
-f               Favorite the station
+f / Ctrl+F      Favorite the station (Ctrl+F while typing in Search)
 O               Open station homepage
 y               Copy stream URL
 s               Sleep timer (Now Playing)
@@ -7079,7 +7079,7 @@ space or F8     Pause / resume
 , / . or F7/F9  Previous / next station
 + / -           Volume up / down
 m               Mute / unmute
-f               Favorite the station
+f / Ctrl+F      Favorite the station (Ctrl+F while typing in Search)
 O               Open station homepage
 y               Copy stream URL
 s               Sleep timer (Now Playing)
@@ -8143,7 +8143,7 @@ space or F8     Pause / resume
 , / . or F7/F9  Previous / next station
 + / -           Volume up / down
 m               Mute / unmute
-f               Favorite the station
+f / Ctrl+F      Favorite the station (Ctrl+F while typing in Search)
 O               Open station homepage
 y               Copy stream URL
 s               Sleep timer (Now Playing)
@@ -9207,7 +9207,7 @@ space or F8     Pause / resume
 , / . or F7/F9  Previous / next station
 + / -           Volume up / down
 m               Mute / unmute
-f               Favorite the station
+f / Ctrl+F      Favorite the station (Ctrl+F while typing in Search)
 O               Open station homepage
 y               Copy stream URL
 s               Sleep timer (Now Playing)

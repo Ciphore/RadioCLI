@@ -122,7 +122,7 @@ choose headless mode with `radiocli setup --mcp --headless-agent`. See
 
 Check the network policy in `radiocli doctor --json`. `RADIOCLI_OFFLINE=1`
 blocks RadioCLI's public directory, location, vote, update, and receiver-discovery
-requests. Previously cached directories and saved or imported direct station
+requests. Cached directories and saved or imported direct station
 URLs remain usable. A cache miss stays a cache miss until you run online again;
 offline mode does not download stations or audio in the background.
 
@@ -146,6 +146,13 @@ and media connectivity still depend on each endpoint's addresses and the host's
 DNS and routing. A successful local IPv6 control check does not establish public
 IPv6 reachability. Diagnose the provider request and the external player's
 stream connection separately; neither requires exposing local control to the LAN.
+
+RadioCLI discovers current Radio Browser servers automatically. It also recovers
+from many temporary `EAI_AGAIN` lookup failures without weakening HTTPS checks.
+If every request still reports a name-resolution error, the machine cannot reach
+its configured DNS service; correct that system or network configuration and
+retry. When a proxy is configured, RadioCLI leaves name resolution to that route
+instead of bypassing it.
 
 ## Library Is Read-Only Or Cannot Be Saved
 

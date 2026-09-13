@@ -116,7 +116,7 @@ These recordings come from the built TUI. Generate them locally with
 | `space` or `F8` | Pause or resume with `mpv` |
 | `,` / `.` or `F7` / `F9` | Previous or next station |
 | `+` / `-` | Change volume |
-| `f` | Save or remove a favorite |
+| `f` (`Ctrl+F` while typing in Search) | Save or remove a favorite |
 | `?` | Open all shortcuts and commands |
 | `q` or `Ctrl+C` twice | Quit cleanly |
 
@@ -283,7 +283,6 @@ include `radiocli check` output with playback reports.
 - [Troubleshooting](apps/docs/content/docs/troubleshooting.mdx)
 - [Controls](apps/docs/content/docs/getting-started/tui-controls.mdx)
 - [Architecture](apps/docs/content/docs/architecture.mdx)
-- [Roadmap](apps/docs/content/docs/roadmap.mdx)
 - [Release packaging](apps/docs/content/docs/release-packaging.mdx)
 
 Run the documentation site locally with `npm run docs:dev`.

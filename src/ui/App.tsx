@@ -1233,7 +1233,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       setLibrary(store.toggleFavorite(station));
       setPersistenceWarning(null);
       const favoriteMessage = `${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`;
-      if (screenRef.current === 'library') {
+      if (screenRef.current === 'library' || screenRef.current === 'search') {
         showTransientFooterMessage(favoriteMessage);
       } else {
         setMessage(favoriteMessage);

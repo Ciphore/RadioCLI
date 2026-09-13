@@ -49,10 +49,14 @@ function resolveColorLevel(env: NodeJS.ProcessEnv, evidence: TerminalEvidence): 
   if (forced === '3') return 3;
   if (forced === '' || forced === '1' || forced === 'true') return 1;
   if (evidence.isTTY === false) return 0;
+  // COLORTERM=truecolor/24bit and direct-color TERM values are explicit
+  // capability declarations. Some terminals expose those declarations while
+  // Node's getColorDepth() still reports 8 bits, so honor them before the
+  // conservative stream probe to avoid silently quantizing RGB themes.
+  if (/^(truecolor|24bit)$/i.test(env.COLORTERM ?? '') || /(?:direct|truecolor)/i.test(env.TERM ?? '')) return 3;
   if (evidence.colorDepth !== undefined) {
     return evidence.colorDepth <= 1 ? 0 : evidence.colorDepth <= 4 ? 1 : evidence.colorDepth <= 8 ? 2 : 3;
   }
-  if (/^(truecolor|24bit)$/i.test(env.COLORTERM ?? '') || /(?:direct|truecolor)/i.test(env.TERM ?? '')) return 3;
   if (/256color/i.test(env.TERM ?? '')) return 2;
   if (env.TERM) return 1;
   // Preserve the existing rich display unless the environment supplies a

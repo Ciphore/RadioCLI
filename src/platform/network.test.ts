@@ -4,7 +4,13 @@ import {connect} from 'node:net';
 import {spawn} from 'node:child_process';
 import type {Duplex} from 'node:stream';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {networkDiagnostic, networkPolicy, withExternalResponse} from './network.js';
+import {
+  allowsDirectDnsFallback,
+  fetchHttpsWithSystemResolver,
+  networkDiagnostic,
+  networkPolicy,
+  withExternalResponse
+} from './network.js';
 
 const servers: Server[] = [];
 const sockets = new Set<Duplex>();
@@ -44,6 +50,14 @@ describe('public network policy', () => {
     expect(networkPolicy({RADIOCLI_OFFLINE: '1'})).toEqual({offline: true, lowBandwidth: false});
     expect(networkPolicy({RADIOCLI_LOW_BANDWIDTH: '1'})).toEqual({offline: false, lowBandwidth: true});
     expect(networkPolicy({RADIOCLI_OFFLINE: '0', RADIOCLI_LOW_BANDWIDTH: 'true'})).toEqual({offline: false, lowBandwidth: false});
+  });
+
+  it('permits direct DNS recovery only when no proxy route is configured', () => {
+    expect(allowsDirectDnsFallback({})).toBe(true);
+    expect(allowsDirectDnsFallback({NO_PROXY: '*'})).toBe(true);
+    for (const name of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
+      expect(allowsDirectDnsFallback({[name]: 'http://proxy.example:8080'})).toBe(false);
+    }
   });
 
   it('does not invoke fetch in offline mode', async () => {
@@ -131,6 +145,43 @@ describe('public network policy', () => {
 });
 
 describe('external response lifetime', () => {
+  it('uses resolved IP addresses while preserving the HTTPS hostname and Host header', async () => {
+    let host: string | undefined;
+    const server = createHttpsServer({key: fixtureKey, cert: fixtureCertificate}, (request, response) => {
+      host = request.headers.host;
+      response.end('{"route":"resolved"}');
+    });
+    const bound = new URL(await start(server));
+    const resolve4 = vi.fn(async () => ['127.0.0.1']);
+    const resolve6 = vi.fn(async () => []);
+
+    const response = await fetchHttpsWithSystemResolver(
+      `https://localhost:${bound.port}/json/stats`,
+      {headers: {Accept: 'application/json'}},
+      {resolve4, resolve6, ca: fixtureCertificate}
+    );
+
+    await expect(response.json()).resolves.toEqual({route: 'resolved'});
+    expect(response.status).toBe(200);
+    expect(host).toBe(`localhost:${bound.port}`);
+    expect(resolve4).toHaveBeenCalledWith('localhost');
+    expect(resolve6).toHaveBeenCalledWith('localhost');
+  });
+
+  it('keeps certificate verification enabled for resolved-address HTTPS requests', async () => {
+    let requests = 0;
+    const server = createHttpsServer({key: fixtureKey, cert: fixtureCertificate}, (_request, response) => {
+      requests += 1;
+      response.end('{}');
+    });
+    const bound = new URL(await start(server));
+    const runtime = {resolve4: async () => ['127.0.0.1'], resolve6: async () => []};
+
+    await expect(fetchHttpsWithSystemResolver(`https://localhost:${bound.port}`, {}, runtime))
+      .rejects.toMatchObject({code: 'DEPTH_ZERO_SELF_SIGNED_CERT'});
+    expect(requests).toBe(0);
+  });
+
   it('keeps the deadline alive after real response headers while the body is stalled', async () => {
     const server = createServer((_request, response) => {response.writeHead(200, {'content-type': 'application/json'});response.flushHeaders();response.write('{');});
     const url = await start(server);

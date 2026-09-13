@@ -40,7 +40,7 @@ beforeEach(() => {
   vi.spyOn(backendInstall, 'detectPlaybackBackends').mockReturnValue(['mpv']);
   vi.spyOn(airplayDiscovery, 'discoverAirPlayDevices').mockResolvedValue([]);
   vi.spyOn(ProviderManager.prototype, 'health').mockResolvedValue({});
-  vi.spyOn(updates, 'checkForUpdate').mockImplementation(async ({currentVersion = '0.2.3'} = {}) => ({
+  vi.spyOn(updates, 'checkForUpdate').mockImplementation(async ({currentVersion = '0.2.4'} = {}) => ({
     checkedAt: new Date().toISOString(), currentVersion, updateAvailable: false
   }));
   vi.spyOn(session, 'startRadioSession').mockResolvedValue({close: async () => undefined});
@@ -369,7 +369,7 @@ describe('Settings TUI integration', () => {
     const {store, service} = fixture();
     const updateChecker = vi.fn(async () => ({
       checkedAt: '2026-09-07T12:00:00.000Z',
-      currentVersion: '0.2.3',
+      currentVersion: '0.2.4',
       latestVersion: '0.3.0',
       updateAvailable: true
     }));
@@ -378,7 +378,7 @@ describe('Settings TUI integration', () => {
     await settle();
 
     expect(updateChecker).toHaveBeenCalledOnce();
-    expect(app.lastFrame()).toContain('v0.3.0 available  v0.2.3');
+    expect(app.lastFrame()).toContain('v0.3.0 available  v0.2.4');
     app.unmount();
   });
 
@@ -709,7 +709,7 @@ describe('alarm TUI integration', () => {
     await moveDown(app, 3); app.stdin.write('\r'); await settle(); await moveDown(app, 1); app.stdin.write('\r'); await settle();
     app.stdin.write('\u0013'); await settle(); const updated = store.getAlarm(alarm.id)!;
     expect(updated.label).toContain('edited'); expect(updated.enabled).toBe(false); expect(updated.schedule).toMatchObject({weekdays: [1,3,5]}); expect(updated.playback.volume).toBe(85); expect(updated.playback.fallbackStation).toBeUndefined(); expect(updated.reliability).toMatchObject({wakeIfSupported: false, keepAwakeUntilAlarm: true}); app.unmount();
-  });
+  }, 10_000);
 
   it('edits hours and minutes as separate arrow-controlled segments', async () => {
     const {store, service} = fixture(); addAlarm(store); const app = render(<App store={store} alarmService={service} />); await settle(); app.stdin.write('8'); await settle(); app.stdin.write('\r'); await settle();

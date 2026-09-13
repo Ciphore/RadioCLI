@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
 import {existsSync,mkdirSync,mkdtempSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {homedir,tmpdir} from 'node:os';
 import {basename,dirname,join,posix,win32} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -135,7 +135,7 @@ describe('native alarm schedulers', () => {
     expect(artifact).toContain('encoding="UTF-8"');
     const invocation=windowsTaskInvocation(artifact);
     expect(invocation.command).toBe('C:\\Node A\\node.exe');
-    expect(JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8')).environment).toEqual({LOCALAPPDATA:'C:\\Data A',RADIOCLI_HOME:'C:\\Profile & A',RADIOCLI_ALARM_TERMINAL:'win32:console'});
+    expect(JSON.parse(Buffer.from(invocation.args.at(-1)!,'base64url').toString('utf8')).environment).toEqual({LOCALAPPDATA:'C:\\Data A',RADIOCLI_HOME:'C:\\Profile & A',RADIOCLI_ALARM_TERMINAL:'win32:console',...(process.platform==='win32'?{USERPROFILE:homedir()}:{})});
     expect(artifact).not.toContain('&amp;amp;');
     expect(adapter.capabilities().exactWake).toBe(false);
     expect((run.mock.calls as unknown as Array<[string,string[]]>)[0]?.[1]).toContain('/XML');
@@ -150,7 +150,7 @@ describe('native alarm schedulers', () => {
       const adapter=createSchedulerAdapter({platform:'win32',home:root,nodePath:process.execPath,cliPath,env:{...configured,HTTPS_PROXY:'https://private-password@proxy.invalid'},writeFile:(path,body)=>writes.push([path,body]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
       await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));
       const {command,args}=windowsTaskInvocation(writes[0]![1]);expect(command).toBe(process.execPath);expect(args).toHaveLength(3);expect(args[0]).toBe('-e');
-      const payload=JSON.parse(Buffer.from(args.at(-1)!,'base64url').toString('utf8'));expect(payload.environment).toEqual({...configured,RADIOCLI_ALARM_TERMINAL:'win32:console'});expect(JSON.stringify(payload)).not.toContain('private-password');
+      const payload=JSON.parse(Buffer.from(args.at(-1)!,'base64url').toString('utf8'));expect(payload.environment).toEqual({...configured,RADIOCLI_ALARM_TERMINAL:'win32:console',...(process.platform==='win32'?{USERPROFILE:homedir()}:{})});expect(JSON.stringify(payload)).not.toContain('private-password');
       const output=execFileSync(command,args,{encoding:'utf8',windowsHide:true});
       expect(JSON.parse(output)).toEqual({args:['alarm','internal-run',alarm.id,'2030-02-03T14:05:00.000Z'],environment:configured});
     }finally{rmSync(root,{recursive:true,force:true});}
@@ -188,7 +188,9 @@ describe('native alarm schedulers', () => {
       const cliPath = join(root, "inspect $ % & ' 単播.cjs");
       writeFileSync(cliPath, `process.stdout.write(JSON.stringify({args:process.argv.slice(2),env:Object.fromEntries(${JSON.stringify(pathEnvironmentKeys)}.filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]))}))`);
       const path = platform === 'win32' ? win32 : posix;
-      const dataRoot = platform === 'win32' ? 'C:\\Users\\scheduler-fixture' : root;
+      // A Windows filesystem path is not an absolute POSIX path. Use a virtual
+      // POSIX identity when exercising Darwin/Linux artifacts on Windows.
+      const dataRoot = platform === 'win32' ? 'C:\\Users\\scheduler-fixture' : process.platform === 'win32' ? '/scheduler-fixture' : root;
       const configured = {HOME: dataRoot, USERPROFILE: path.join(dataRoot, 'profile'), APPDATA: '', LOCALAPPDATA: path.join(dataRoot, 'local'), RADIO_ATLAS_HOME: path.join(dataRoot, "alias $ % & ' 単播"), XDG_DATA_HOME: path.join(dataRoot, 'data'), XDG_CACHE_HOME: path.join(dataRoot, 'cache'), XDG_RUNTIME_DIR: path.join(dataRoot, 'runtime')};
       const writes: Array<[string, string]> = [];
       const adapter = createSchedulerAdapter({platform, home: root, nodePath: process.execPath, cliPath, env: {...configured, HTTPS_PROXY: 'private-proxy-secret'}, commandExists: () => true, writeFile: (path, body) => writes.push([path, body]), removeFile: vi.fn(), run: vi.fn(async () => ({code: 0, stdout: '', stderr: ''}))});

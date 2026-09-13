@@ -9,9 +9,11 @@ import {
   favoriteTarget,
   isEditableInput,
   isPlainPrintableInput,
+  isSearchFavoriteShortcut,
   mediaTransportActionForInput,
   searchEditingArrowAction,
   shouldHandleKeyboardEvent,
+  shouldTuneSearchResult,
   shouldToggleNearbyLocationShortcut,
   type ExploreMoveDirection,
   type MediaTransportAction
@@ -338,13 +340,18 @@ export function useAppInput({
       return;
     }
 
-    // An active text field owns its keystrokes before app-wide shortcuts. In
-    // particular, a normal "a" in a station query must not invoke the global
-    // schedule-this-station shortcut and leave Search for the alarm editor.
+    // An active text field owns ordinary keystrokes before app-wide shortcuts.
+    // Dedicated modified shortcuts are handled here so plain query characters
+    // never trigger actions or leave Search.
     if (screen === 'search' && editingSearch) {
+      if (isSearchFavoriteShortcut(input, key)) {
+        toggleFavorite(favoriteTarget(screen, selectedStationForInput(), playingStation));
+        return;
+      }
+
       if (key.return) {
         const inputStation = selectedStationForInput();
-        if (searchQuery.trim() && searchQuery.trim() === lastSubmittedSearchRef.current && inputStation) {
+        if (inputStation && shouldTuneSearchResult(searchQuery, lastSubmittedSearchRef.current)) {
           await playStation(inputStation);
         } else {
           await runSearch();

@@ -17,7 +17,8 @@ volume or mute state, and an active sleep timer.
 | `t` | Cycle display color |
 | `v` | Cycle receiver style |
 | `+` / `-` | Adjust volume |
-| `f` | Favorite the selected or playing station |
+| `f` | Favorite the selected or playing station outside active text input |
+| `Ctrl+F` | Favorite the selected Search result while its query input is active |
 | `a` | Schedule the selected or playing station |
 | `!` | Open controls for any alarm already playing in the background |
 | `O` | Open the station homepage in your browser |
@@ -35,7 +36,7 @@ available but labels interactive playback controls as limited and shows an
 | Screen | Controls |
 | --- | --- |
 | Overview | `Up` / `Down` move, `Enter` open, number jump, `:` command |
-| Search input | type query, `Up` / `Down` move results, `Ctrl+Up` / `Ctrl+Down` recall search history, `Enter` search or tune, `Esc` finish |
+| Search input | type query, `Up` / `Down` move results, `Ctrl+Up` / `Ctrl+Down` recall search history, `Enter` search or tune, `Ctrl+F` favorite, `Esc` finish |
 | Search results | `/` edit query, `Up` / `Down` or `n` / `p` move, `Enter` tune, `f` favorite, `b` home |
 | Explore | click map, `WASD` fine move, `Shift+WASD` jump, `Up` / `Down` station, `Enter` tune, `f` favorite, `[` / `]` page, `b` home |
 | Countries | `/` filter, `Up` / `Down` move, `Enter` open stations, `w` map, `b` home |
@@ -83,7 +84,7 @@ The editor covers:
 - independent alarm volume, fade-in seconds, automatic stop time, optional
   fallback station, and fixed local-speaker output
 - missed-run grace, best-effort OS wake request, and Alarm Guard
-- a next-occurrence review, a no-state-change test tune, Save, and Cancel
+- a next-occurrence preview, a no-state-change test tune, Save, and Cancel
 
 Time is a segmented digital control whose active hours or minutes are highlighted
 in the current display color. Use `Up` and `Down` to change hours, press `Enter`

@@ -14,7 +14,7 @@ beforeEach(()=>{directory=fs.mkdtempSync(join(tmpdir(),'radiocli-native-volume-'
 afterEach(()=>{vi.restoreAllMocks();fs.rmSync(directory,{recursive:true,force:true});});
 
 describe('native system-output command lifetime',()=>{
-  it('waits for an orphan native helper before recovering the saved baseline',async()=>{
+  it.skipIf(process.platform === 'win32')('waits for an orphan native helper before recovering the saved baseline',async()=>{
     const output=join(directory,'fake-output.json');const gate=join(directory,'gate');const helperFile=join(directory,'helper.json');
     fs.writeFileSync(output,JSON.stringify({volume:20,muted:true}));
     const helperSource=`

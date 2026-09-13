@@ -143,7 +143,7 @@ describe('page footer shortcuts', () => {
         playbackBackend: 'mpv',
         screen: 'search'
       })
-    ).toBe('Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Esc finish');
+    ).toBe('Type query · ↑/↓ move results · Ctrl+↑/↓ history · Enter search/tune · Ctrl+F favorite · Esc finish');
   });
 
   it('keeps AirPlay code entry hidden until AirPlay streaming is ready', () => {

@@ -8,12 +8,11 @@ The reference matrix below covers Node.js 22 and 24. Runtime eligibility,
 installed tools, and verified RadioCLI behavior are tracked separately for each
 OS version, CPU, libc, and Node release line.
 
-This evidence snapshot was reviewed on **September 7, 2026**. Native runner
-and full BSD guest results are recorded separately below. Run
-`radiocli doctor --json` for the capabilities detected on your own machine;
-use `radiocli setup --dry-run` to inspect its playback installation plan.
+Run `radiocli doctor --json` to inspect the capabilities of the current machine.
+Use `radiocli setup --dry-run` to preview the native playback packages and
+commands for the detected operating system.
 
-## Project Tiers And Current Evidence
+## Support Tiers
 
 | Tier | Required evidence |
 | --- | --- |
@@ -39,37 +38,35 @@ even when the reference configuration below is supported or first-class. A known
 runtime blocker is reported as unsupported. Individual capability results explain
 what can be used in the current session.
 
-| Configuration | Recorded evidence | Current project tier |
+## Tested Configurations
+
+The required CI matrix covers macOS, Ubuntu, and Windows on Node.js 22 and 24.
+BSD package checks run in full guest kernels. The table describes exactly what
+those checks exercise; it does not imply support for unlisted desktop, audio,
+terminal, or hardware combinations.
+
+| Configuration | Automated coverage | Project tier |
 | --- | --- | --- |
-| macOS 26.5.2, Darwin 25.5.0, arm64; Node 22.23.2 and 24.20.0 | Local packed installs passed with normal dependencies and with `--omit=optional`; real mpv decoded a generated WAV with `ao=null`, and IPC volume, pause, resume, and stop passed. MCP checks exposed 31 tools. | Supported for the recorded local builds |
-| macOS 26.6.2 / Darwin 25.6.0, arm64; Node 22.23.2 and 24.20.0 | Required native CI passed the complete tests and both packed-install/playback modes. | First-class for these reference configurations and recorded capabilities |
-| Ubuntu 24.04.4 glibc, kernel 6.17.0-1022-azure, x64 and arm64; Node 22.23.2 and 24.20.0 | All four required native combinations passed complete tests, both packed-install/playback modes, and separate source playback jobs. | First-class for these reference configurations and recorded capabilities |
-| macOS 15.7.9 / Darwin 24.6.0, Intel x64; Node 22.23.2 and 24.19.0 | Required native CI passed complete tests and both packed-install/playback modes. | First-class for these reference configurations and recorded capabilities |
-| Windows Server 2025 Datacenter, kernel 10.0.26100, x64; Node 22.23.2 and 24.19.0 | Required native CI passed regression tests, real PowerShell literal-argument and independent-console TTY checks, and both packed-install/mpv named-pipe playback modes. | First-class for these reference configurations and recorded capabilities; Windows 10/11 x64 desktop editions need separate verification |
-| Windows 11 Enterprise, kernel 10.0.26200, arm64; Node 22.23.2 and 24.20.0 | Required native CI passed the same Windows tests and both packed-install/playback modes using a native arm64 mpv binary. | First-class for these reference configurations and recorded capabilities |
-| FreeBSD 14.4-RELEASE x64, Node 22.23.2/npm 11.19.1; OpenBSD 7.9 x64, Node 22.23.2/npm 10.9.8 | Repeated full QEMU guest runs passed packed CLI/cache/import/export/MCP checks and real mpv 0.41 null-output IPC playback with `--omit=optional`. | Supported for this explicit core package route; desktop/TUI applications and background native integrations remain unverified or unavailable |
-| NetBSD 10.1 x64, Node 22.23.0/npm 10.9.8 | Repeated full QEMU guest runs passed the same core checks with `--omit=optional`, after installing the matching OS X11 base libraries. | Supported for this explicit core package route; desktop/TUI applications and background native integrations remain unverified or unavailable |
-| Alpine/musl, WSL, other Linux CPUs, other BSD CPUs, Termux, illumos, AIX | Runtime or package routes have been reviewed; no matching RadioCLI installation and playback result is recorded here. | Experimental; not yet verified |
+| macOS arm64; Node 22 and 24 | Full tests plus packed installation with normal and omitted optional dependencies; native mpv decoding and IPC controls through null audio output | First-class |
+| macOS Intel x64; Node 22 and 24 | Full tests plus both packed-install and native mpv playback modes | First-class |
+| Ubuntu glibc x64 and arm64; Node 22 and 24 | Full tests, both packed-install modes, native mpv IPC playback, and separate source playback checks | First-class |
+| Windows Server x64; Node 22 and 24 | Full tests, both packed-install modes, native mpv named-pipe playback, PowerShell argument handling, and console TTY checks | First-class for the tested server environment; Windows desktop behavior depends on the local terminal and audio setup |
+| Windows 11 arm64; Node 22 and 24 | Full tests, both packed-install modes, native arm64 mpv named-pipe playback, PowerShell argument handling, and console TTY checks | First-class for the tested Windows 11 environment |
+| FreeBSD 14.4 and OpenBSD 7.9 x64; Node 22 | Packed CLI, cache, import/export, MCP, and native mpv IPC playback with `--omit=optional` in full QEMU guests | Supported for the core package route; desktop applications and background scheduling are not covered |
+| NetBSD 10.1 x64; Node 22 | The same core guest checks after installation of the matching X11 base libraries | Supported for the core package route; desktop applications and background scheduling are not covered |
+| Alpine/musl, WSL, other Linux CPUs, other BSD CPUs, Termux, illumos, AIX | Runtime and package detection paths are available, but complete installation and playback checks are not part of the maintained matrix | Experimental |
 | Standard HaikuPorts Node 20 installation; Node below 22; Windows XP; 32-bit macOS; Windows x86 with Node 24 | The normal runtime route does not meet RadioCLI's requirement. A Haiku player package does not resolve its Node version blocker. | Unsupported for these configurations |
 
-The successful expanded workflow contains 12 native OS/CPU/Node combinations: macOS
-arm64 and Intel, Linux x64 and arm64, and Windows x64 and arm64, each on Node
-22 and 24. All required jobs and three BSD guests passed at the `fd57fda` code
-checkpoint. Required checks must remain release gates; merely configuring a job
-does not establish first-class status.
-Windows Server runners do not verify Windows 10/11 desktop behavior; a Node 22
-x86 process under WoW64 would not verify a native 32-bit Windows installation.
-See the [GitHub runner definitions](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-and the [recorded expanded CI run](https://github.com/MrSeizy/RadioCLI/actions/runs/34180703652).
-The [draft PR](https://github.com/Ciphore/RadioCLI/pull/36) links the full
-verification record, exact npm versions and tarball hashes, and verification
-of its final documentation commit.
+The native matrix contains 12 required OS, CPU, and Node combinations: macOS
+arm64 and Intel, Ubuntu x64 and arm64, and Windows x64 and arm64, each on Node 22
+and 24. A configured job counts as first-class only while its installation,
+test, packaging, and playback checks remain required release gates.
 
-The recorded mpv checks verify decoding and IPC through a null audio output.
-Physical audio devices, terminal applications, screen-reader applications,
-desktop window opening, and actual wake delivery require their own verification.
-The [578 terminal captures](design.mdx#visual-regression-captures) verify
-renderer output at fixed sizes.
+The mpv checks verify decoding and IPC through null audio output. Physical audio
+devices, terminal applications, screen readers, desktop window opening, and
+actual wake delivery depend on the user's hardware and operating-system policy.
+The [visual regression suite](design.mdx#visual-regression-captures) verifies
+terminal output at fixed sizes.
 
 ## Node.js Runtime Reference
 
@@ -102,7 +99,7 @@ Linux ppc64le is little-endian; it is distinct from both Linux big-endian ppc64
 and the big-endian POWER runtime used by AIX. A generic `arm` label alone does
 not establish ARMv7 compatibility.
 
-Node 24 now publishes x64-musl archives while retaining an experimental musl
+Node 24 publishes x64-musl archives while retaining an experimental musl
 rating. Its current release files do not include ARMv7 binaries. Use the
 [Node 24 release manifest](https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt)
 and [distribution image architecture records](https://github.com/nodejs/docker-node/blob/main/versions.json)
@@ -158,10 +155,10 @@ Termux `pkg` and Haiku `pkgman` run without `sudo`.
 | Haiku | `pkgman install -y mpv`; `ffmpeg8_tools` provides FFmpeg/ffplay | These [player recipes](https://github.com/haikuports/haikuports/tree/master/media-video) do not resolve the Node 20 runtime blocker. No working normal RadioCLI install is claimed. |
 | AIX | Provision a compatible Node runtime and native player manually | No verified `mpv` or `ffplay` package recipe was established. The [IBM Toolbox catalog](https://www.ibm.com/support/pages/aix-toolbox-open-source-software-downloads-alpha) is not evidence that a `dnf install mpv` command exists. |
 
-As of the review date, Homebrew classifies Intel macOS as Tier 3 and has stopped
-building new Intel bottles. Its [support policy](https://docs.brew.sh/Support-Tiers)
-is independent of Node's x64 runtime eligibility. Likewise, a Windows x64 media
-package is not evidence of native ARM64 or x86 playback; use a matching executable.
+Homebrew applies its own [support-tier policy](https://docs.brew.sh/Support-Tiers)
+to Intel macOS. That policy is independent of Node's x64 runtime eligibility.
+Likewise, a Windows x64 media package does not establish native ARM64 or x86
+playback; use an executable built for the target architecture.
 
 The optional AirPlay sender has native installation dependencies. A package
 installed with `--omit=optional` retains the normal local-player path but omits
@@ -173,7 +170,7 @@ manual registry installation, use `npm install -g --omit=optional @ciphore/radio
 that global registry route and normal optional-dependency installation were
 not the recorded guest checks.
 
-## Implemented Playback And Desktop Paths
+## Playback And Desktop Compatibility
 
 These tables describe implemented adapters and their prerequisites. Tool
 discovery is checked separately from successful execution. Shared TUI code
