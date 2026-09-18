@@ -11,5 +11,3 @@ coverage/
 *.log
 *.tsbuildinfo
 .radiocli-test/
-.antigravitycli/
-.claude/

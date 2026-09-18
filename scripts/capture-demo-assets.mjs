@@ -20,12 +20,11 @@ const baseTape = [
   'Set Height 760',
   'Set Padding 16',
   'Set Framerate 12',
-  'Set WindowBar Rings',
   'Set Theme "TokyoNight"',
   'Set TypingSpeed 24ms'
 ];
 
-const launchCommand = `cd ${shellEscape(root)} && RADIOCLI_HOME=${shellEscape(demoHome)} node dist/cli.js`;
+const launchCommand = `cd ${shellEscape(root)} && NO_COLOR= FORCE_COLOR=3 COLORTERM=truecolor TERM=xterm-256color RADIOCLI_HOME=${shellEscape(demoHome)} node dist/cli.js`;
 
 const tapes = [
   {
@@ -212,9 +211,26 @@ async function main() {
 
   if (selectedTapeNames.size === 0 || selectedTapeNames.has('radiocli-now-playing')) {
     const nowPlayingGif = join(outputDir, 'radiocli-now-playing.gif');
-    run('magick', [
-      `${nowPlayingGif}[0]`,
+    run('ffmpeg', [
+      '-y',
+      '-ss',
+      '0.5',
+      '-i',
+      nowPlayingGif,
+      '-frames:v',
+      '1',
+      '-update',
+      '1',
       join(outputDir, 'radiocli-fullscreen.png')
+    ]);
+    run('magick', [
+      join(outputDir, 'radiocli-fullscreen.png'),
+      '-gravity',
+      'north',
+      '-crop',
+      '1280x640+0+0',
+      '+repage',
+      join(root, '.github', 'social-preview.png')
     ]);
     run('ffmpeg', [
       '-y',
