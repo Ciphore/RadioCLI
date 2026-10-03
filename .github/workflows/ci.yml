@@ -313,7 +313,7 @@ jobs:
           path: portability-artifact
 
       - name: Install and exercise JavaScript in NetBSD
-        uses: vmactions/netbsd-vm@7f23a491dcc69c34195721ab67934917707f84c7 # v1.4.9
+        uses: vmactions/netbsd-vm@c8a0d7ddb84619a7a8cc4e652efa7950b3fd9f92 # v1.5.2
         with:
           release: '10.1'
           arch: x86_64
