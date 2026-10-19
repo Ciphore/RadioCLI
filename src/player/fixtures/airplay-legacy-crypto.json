@@ -1,0 +1,62 @@
+[
+  {
+    "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+    "K": "12121212121212121212121212121212121212121212121212121212121212121212121212121212",
+    "clientPublic": "2323232323232323232323232323232323232323232323232323232323232323",
+    "receiverPublic": "abababababababababababababababababababababababababababababababab",
+    "shared": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "receiverData": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "public": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+    "confirm": {
+      "epk": "4c8d88586b29dfb0c053e4a62ec8930061b87420e7a7c6a384dd57f37b8c3629",
+      "authTag": "1f451e5478af84b4f9b290f85cbf646f"
+    },
+    "signed": "33AF0FE667102E0D1A69DEF5F22C76236584C69BC47BBA299316DCD78F26C53989C603B2A4D5E6167D2E7C8015FCF2539A105D850F1E0AAD7F67ED365AF07F0B",
+    "signature": "85949ca0957cac08f427b58538de24eef8da0eee1fd3ddff6a04c582881861ecd56c532e9a0b3efcda05cafe05372d16878567344322f1308d25ce797fe556ae"
+  },
+  {
+    "seed": "0101010101010101010101010101010101010101010101010101010101010101",
+    "K": "12121212121212121212121212121212121212121212121212121212121212121212121212121212",
+    "clientPublic": "2323232323232323232323232323232323232323232323232323232323232323",
+    "receiverPublic": "abababababababababababababababababababababababababababababababab",
+    "shared": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "receiverData": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "public": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+    "confirm": {
+      "epk": "fd6f4c39d1968a085fa2975b381dc301ceed68e8e7d1971e4d69975344da835c",
+      "authTag": "196148873cf22ebf58e04c8c1e265a25"
+    },
+    "signed": "A352908426E6629B63287705ACD91E93704CE1E0682FB81EDC2C993D88B41961F6E605593F2B19B3907EF940E3B371EB009D587BC6CE5D4E0C47C4DC29937D07",
+    "signature": "156903c2d48ae09e8d661c75662b4c5eed122995b387dfc8253e80688f8abdb4aa4c55c501f5c15937554f3ef378aeae1d0862ca8af2a6d3fe05e7930c8654a2"
+  },
+  {
+    "seed": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "K": "12121212121212121212121212121212121212121212121212121212121212121212121212121212",
+    "clientPublic": "2323232323232323232323232323232323232323232323232323232323232323",
+    "receiverPublic": "abababababababababababababababababababababababababababababababab",
+    "shared": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "receiverData": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "confirm": {
+      "epk": "a0bd37e5272e712a77bbb2a5cdc399490a6b13a420e3a620111f053a07d2bd1a",
+      "authTag": "36ba179621da585f76c001e5996da941"
+    },
+    "signed": "3F4E0B1DF3BC170FFA8CFA4231BFB64618416DB1F5E6C128FB87C28897E1DC74B5701F18BDD9846F779FF1B42B2B3A9754B89483533F92E2CE665C450270EF09",
+    "signature": "8975985b01d0950a14c29132fb4de48b851fa5c42e4ea6fe0295dbdd90df78a1e9da4f8483075c85d0b447ca3be0e5d2492dae321f03697f3c247f0a2765c6ac"
+  },
+  {
+    "seed": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "K": "12121212121212121212121212121212121212121212121212121212121212121212121212121212",
+    "clientPublic": "2323232323232323232323232323232323232323232323232323232323232323",
+    "receiverPublic": "abababababababababababababababababababababababababababababababab",
+    "shared": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "receiverData": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "public": "76a1592044a6e4f511265bca73a604d90b0529d1df602be30a19a9257660d1f5",
+    "confirm": {
+      "epk": "0146f6c4e1399f68b3d617bc77019aaa0f8f48862525aee6b404b67786b53df5",
+      "authTag": "e1db8c357dbb751aa9115202b985ef2c"
+    },
+    "signed": "CEEABD4F57DA6188B9523A9298CC05E926639BEC92B85BB2E4F4B0CC22FBA4818CB966713AC2E1D352839D545998066A0F6939E820DFA18F7C3BC08235E4F90A",
+    "signature": "78d12e09a5b6e38d571c51e2523e5724bb3d539949103c641de6a99925c50054d01336ed041c3939f5a82b2a4953d92f12fc03596ce35a128e79e3cd10f1d0af"
+  }
+]

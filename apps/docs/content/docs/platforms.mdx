@@ -68,6 +68,39 @@ actual wake delivery depend on the user's hardware and operating-system policy.
 The [visual regression suite](design.mdx#visual-regression-captures) verifies
 terminal output at fixed sizes.
 
+## Omarchy Quattro
+
+RadioCLI keeps Omarchy under the Linux platform ID. Packaged stable 4.x releases
+are distinguished from development checkouts, legacy Omarchy, unknown versions,
+and ordinary Arch/Hyprland installations. The integration contract was inspected
+against [Omarchy v4.0.4](https://github.com/omacom/omarchy/releases/tag/v4.0.4).
+This is an experimental desktop integration: a fresh or upgraded Quattro desktop,
+hardware media keys, physical audio outputs, suspend/wake, and physical AirPlay
+receivers have not completed acceptance. Detection does not promote support tiers
+or establish that every 4.x release has been exercised.
+
+In a detected local Quattro desktop session, the native terminal route uses
+`omarchy-launch-tui`, UWSM, and `xdg-terminal-exec` with the RadioCLI app ID.
+Explicit RadioCLI terminal choices and valid `TERMINAL`/`TERM_PROGRAM` selections
+keep precedence. The existing direct terminal routes remain fallbacks.
+
+`radiocli media-controls auto` enables the application-owned MPRIS bridge only
+for packaged Quattro, a local Unix session bus, and a compatible mpv configuration.
+Use `on` to opt in on another Linux desktop, or `off` to disable it, then restart
+active sessions. `RADIOCLI_DESKTOP_MEDIA=off` overrides the saved setting.
+The bridge controls the real station queue independently of MCP, yields during
+alarms, and publishes no stream URLs or fabricated duration/seek support. It
+suppresses only the recognized packaged mpv MPRIS script in its own player
+process; unrelated mpv configuration and scripts are retained. An ambiguous
+configuration disables the bridge with a Doctor explanation. RadioCLI does not
+change Hyprland bindings, themes, or the optional Quickshell media widget.
+
+Local Linux arm64 checks exercised real D-Bus transport, packaged mpv MPRIS
+coexistence, PipeWire/PulseAudio null outputs, and a Shairport Sync software
+receiver on Node 22 and 24. They verify protocols and decoded PCM, not speaker
+output or a Quattro desktop. The new Linux CI checks cover those protocols;
+the existing OS/CPU matrix and support distinctions remain in place.
+
 ## Node.js Runtime Reference
 
 The version numbers here are upstream binary or build baselines. Node.js also
@@ -201,7 +234,7 @@ Android permission and execution checks still apply.
 | --- | --- | --- | --- | --- |
 | macOS | Per-user launchd LaunchAgent | macOS output-volume scripting | `caffeinate` for idle sleep; no privileged exact-wake event | Experimental; FFmpeg, Bonjour, usable sender, and explicit receiver selection required |
 | Windows | Task Scheduler with interactive user token | Core Audio through PowerShell | `SetThreadExecutionState`; `WakeToRun` can be requested, subject to hardware and policy | No adapter |
-| Linux, including musl | Accessible systemd user manager and timer required | Working `wpctl`, `pactl`, or `amixer` | Live `systemd-inhibit` lease; no privileged `WakeSystem` request | No adapter |
+| Linux, including musl | Accessible systemd user manager and timer required | Working `wpctl`, `pactl`, or `amixer` | Live `systemd-inhibit` lease; no privileged `WakeSystem` request | Experimental, off by default; opt in with `radiocli setup --airplay`. FFmpeg, Avahi, usable optional sender, and explicit receiver selection required; each CPU/libc combination needs verification |
 | WSL | Linux systemd user path only when its session is usable; unverified | Linux mixer path, not Windows host volume | Linux inhibitor path; Windows wake behavior is not inferred | No adapter |
 | FreeBSD / OpenBSD / NetBSD | No background scheduler adapter | No system-volume adapter | No sleep-inhibitor or wake adapter | No adapter |
 | Termux / illumos / AIX / Haiku / other ports | No background scheduler adapter | No system-volume adapter | No sleep-inhibitor or wake adapter | No adapter |

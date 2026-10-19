@@ -5,9 +5,12 @@ import {mpvInstallCommand} from '../platform/packages.js';
 const hintOptions = {hasCommand: () => true, getUid: () => 1000};
 
 describe('playback backend install guidance', () => {
-  it('limits AirPlay output to macOS across every supported platform family', () => {
+  it('limits experimental AirPlay to macOS and native Linux', () => {
     expect(isAirPlayPlatformSupported('darwin')).toBe(true);
-    for (const platform of ['win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const) {
+    expect(isAirPlayPlatformSupported('linux', {}, '6.6')).toBe(true);
+    expect(isAirPlayPlatformSupported('linux', {WSL_INTEROP: '1'}, '6.6')).toBe(false);
+    expect(isAirPlayPlatformSupported('linux', {TERMUX_VERSION: '1'}, '6.6')).toBe(false);
+    for (const platform of ['win32', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const) {
       expect(isAirPlayPlatformSupported(platform)).toBe(false);
     }
   });
@@ -86,6 +89,13 @@ describe('playback backend install guidance', () => {
     expect(detectPlaybackBackends({platform: 'darwin', hasCommand, hasAirPlaySender: () => false})).toEqual([]);
     expect(detectPlaybackBackends({platform: 'darwin', hasCommand, hasAirPlaySender: () => true})).toEqual(['airplay']);
     expect(detectPlaybackBackends({platform: 'linux', hasCommand, hasAirPlaySender: () => true})).toEqual([]);
+  });
+
+  it('uses Avahi on Linux without loading native code or probing a service at startup', () => {
+    const hasCommand = (command: string) => ['mpv', 'ffmpeg', 'avahi-browse'].includes(command);
+    expect(detectPlaybackBackends({platform: 'linux', settings: {linuxAirPlayEnabled: true}, env: {}, release: '6.6', hasCommand, hasAirPlaySender: () => true})).toEqual(['mpv', 'airplay']);
+    expect(detectPlaybackBackends({platform: 'linux', settings: {linuxAirPlayEnabled: true}, env: {}, release: '6.6', hasCommand, hasAirPlaySender: () => false})).toEqual(['mpv']);
+    expect(detectPlaybackBackends({platform: 'linux', env: {WSL_INTEROP: '1'}, release: '6.6', hasCommand, hasAirPlaySender: () => true})).toEqual(['mpv']);
   });
 
   it('reports AirPlay as limited output-only playback when it is the only backend', () => {

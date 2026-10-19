@@ -11,6 +11,7 @@ type MpvResponse = {
   error?: string;
   data?: unknown;
 };
+export type MpvEvent = {event: string; name?: string; id?: number; data?: unknown; reason?: string; error?: string};
 
 /**
  * Multiplexes mpv JSON IPC requests over one reusable socket.
@@ -25,13 +26,28 @@ export class MpvIpcClient {
   private connecting: Promise<Socket> | null = null;
   private pending = new Map<number, PendingRequest>();
   private buffer = '';
+  private bufferBytes = 0;
+  private bufferScanFrom = 0;
   private nextRequestId = 1;
   private closed = false;
+  private connectedOnce = false;
+  private readonly observers = new Map<number, string>();
+  private readonly eventListeners = new Set<(event: MpvEvent) => void>();
 
   constructor(
     private readonly path: string,
     private readonly timeoutMs = 1000
   ) {}
+
+  onEvent(listener: (event: MpvEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  async observe(id: number, property: string): Promise<void> {
+    this.observers.set(id, property);
+    await this.query({command: ['observe_property', id, property]});
+  }
 
   async query<T = unknown>(payload: unknown): Promise<T | null> {
     if (this.closed) {
@@ -71,6 +87,8 @@ export class MpvIpcClient {
     }
 
     this.closed = true;
+    this.eventListeners.clear();
+    this.observers.clear();
     this.rejectPending(reason);
     this.socket?.destroy();
     this.connectingSocket?.destroy();
@@ -78,6 +96,8 @@ export class MpvIpcClient {
     this.connectingSocket = null;
     this.connecting = null;
     this.buffer = '';
+    this.bufferBytes = 0;
+    this.bufferScanFrom = 0;
   }
 
   private connect(): Promise<Socket> {
@@ -122,11 +142,17 @@ export class MpvIpcClient {
         this.socket = socket;
         this.connectingSocket = null;
         this.buffer = '';
+        this.bufferBytes = 0;
+        this.bufferScanFrom = 0;
         socket.setEncoding('utf8');
-        socket.on('data', chunk => this.consume(String(chunk)));
+        socket.on('data', chunk => { if (this.socket === socket) this.consume(String(chunk)); });
         socket.on('error', error => this.dropSocket(socket, error));
         socket.on('close', () => this.dropSocket(socket, new Error('mpv IPC connection closed.')));
         resolve(socket);
+        if (this.connectedOnce) {
+          for (const [id, property] of this.observers) void this.query({command: ['observe_property', id, property]}).catch(() => undefined);
+        }
+        this.connectedOnce = true;
       };
 
       socket.once('error', failConnection);
@@ -150,10 +176,20 @@ export class MpvIpcClient {
 
   private consume(chunk: string): void {
     this.buffer += chunk;
-    let newlineIndex = this.buffer.indexOf('\n');
+    this.bufferBytes += Buffer.byteLength(chunk);
+    if (this.bufferBytes > 4 * 1024 * 1024) {
+      const socket = this.socket;
+      if (socket) {
+        this.dropSocket(socket, new Error('mpv IPC message exceeds 4 MiB.'));
+        socket.destroy();
+      }
+      return;
+    }
+    let newlineIndex = this.buffer.indexOf('\n', this.bufferScanFrom);
     while (newlineIndex !== -1) {
       const line = this.buffer.slice(0, newlineIndex);
       this.buffer = this.buffer.slice(newlineIndex + 1);
+      this.bufferBytes -= Buffer.byteLength(line) + 1;
       newlineIndex = this.buffer.indexOf('\n');
       if (!line.trim()) {
         continue;
@@ -165,8 +201,13 @@ export class MpvIpcClient {
       } catch {
         continue;
       }
+      if (!response || typeof response !== 'object' || Array.isArray(response)) continue;
 
       if (typeof response.request_id !== 'number' || !this.pending.has(response.request_id)) {
+        const event = response as MpvResponse & Partial<MpvEvent>;
+        if (typeof event.event === 'string') {
+          for (const listener of this.eventListeners) { try { listener(event as MpvEvent); } catch { /* Isolate event consumers. */ } }
+        }
         continue;
       }
       if (response.error && response.error !== 'success') {
@@ -175,6 +216,7 @@ export class MpvIpcClient {
         this.settleRequest(response.request_id, pending => pending.resolve(response.data));
       }
     }
+    this.bufferScanFrom = this.buffer.length;
   }
 
   private dropSocket(socket: Socket, error: Error): void {
@@ -184,6 +226,8 @@ export class MpvIpcClient {
 
     this.socket = null;
     this.buffer = '';
+    this.bufferBytes = 0;
+    this.bufferScanFrom = 0;
     this.rejectPending(error);
   }
 

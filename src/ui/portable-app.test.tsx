@@ -10,10 +10,11 @@ import {PlayerController} from '../player/player-controller.js';
 import * as backendInstall from '../player/backend-install.js';
 import * as airplayDiscovery from '../player/airplay-discovery.js';
 import * as session from '../agent/session.js';
+import {TuiSession} from '../agent/tui-session.js';
 import * as presence from '../alarms/tui-presence.js';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {JsonLibraryStore} from '../storage/store.js';
-import type {PlaybackState, Station} from '../types.js';
+import type {AppSettings, PlaybackState, Station} from '../types.js';
 import {App} from './App.js';
 import type {AlarmTuiService} from './alarm-tui-service.js';
 import * as visualizers from './visualizers/receiver-visualizers.js';
@@ -38,6 +39,12 @@ beforeEach(() => {
   vi.spyOn(backendInstall, 'detectPlaybackBackends').mockReturnValue(['mpv']);
   vi.spyOn(airplayDiscovery, 'discoverAirPlayDevices').mockResolvedValue([]);
   vi.spyOn(ProviderManager.prototype, 'health').mockResolvedValue({});
+  vi.spyOn(ProviderManager.prototype, 'searchPage').mockImplementation(async function(this: ProviderManager, query, settings, options) {
+    return {items: await this.search(query, settings, options), exhausted: true, sources: []};
+  });
+  vi.spyOn(ProviderManager.prototype, 'byCountryPage').mockImplementation(async function(this: ProviderManager, code, options) {
+    return {items: await this.byCountry(code, options?.limit), exhausted: true, sources: []};
+  });
   vi.spyOn(session, 'startRadioSession').mockResolvedValue({close: async () => undefined});
   vi.spyOn(presence, 'registerTuiPresence').mockReturnValue(() => undefined);
   vi.spyOn(PlayerController.prototype, 'stop').mockResolvedValue(undefined);
@@ -52,6 +59,46 @@ afterEach(() => {
 });
 
 describe('App terminal integration', () => {
+  it('restores Now Playing and sends transport controls to the surviving playback owner', async () => {
+    const first: Station = {id: 'recovered-first', provider: 'playlist', name: 'Recovered Radio', tags: [], streamUrl: 'https://example.test/recovered'};
+    const second: Station = {...first, id: 'recovered-next', name: 'Recovered Next'};
+    const status: session.RadioSessionStatus = {
+      owner: 'tui', station: first, queue: [first, second], nowPlaying: {title: 'Artist - Surviving Song', updatedAt: '2026-09-07T12:00:00Z'},
+      playback: {backend: 'mpv', state: 'playing', volume: 40, muted: false, ready: true, stationName: first.name, streamUrl: first.streamUrl},
+      tui: {tuningStation: null, selectionRequired: false, desktopMediaCompatible: true, devices: [], diagnostics: {
+        backend: 'mpv', availableBackends: ['mpv'], preferredBackend: 'mpv', active: true, ready: true, volume: 40, muted: false
+      }}
+    };
+    const call = vi.fn(async (command: session.RadioSessionCommand): Promise<session.RadioSessionResult> => {
+      if (command.type === 'tui-adjust-volume') status.playback = {...status.playback, volume: status.playback.volume + command.delta};
+      if (command.type === 'tui-toggle-muted') status.playback = {...status.playback, muted: !status.playback.muted};
+      if (command.type === 'tui-toggle-pause') status.playback = {...status.playback, state: 'paused'};
+      if (command.type === 'play') { status.station = command.station; status.queue = command.queue ?? [command.station]; status.playback = {...status.playback, state: 'playing', stationName: command.station.name}; }
+      return {ok: true, message: 'ok', status: structuredClone(status)};
+    });
+    vi.spyOn(session, 'ensureRadioSession').mockResolvedValue({call, status: async () => structuredClone(status)});
+    const play = vi.spyOn(PlayerController.prototype, 'play');
+    const resolve = vi.spyOn(ProviderManager.prototype, 'resolve');
+    const playbackSession = await TuiSession.connect();
+    try {
+      const {input, lastFrame} = await openApp(false, false, process.platform, {resumeOnLaunch: true}, {columns: 100, rows: 30}, playbackSession);
+      expect(lastFrame()).toContain('Recovered Radio');
+      expect(lastFrame()).toContain('Artist - Surviving Song');
+      await input('+');
+      expect(playbackSession.status.playback.volume).toBe(45);
+      await input('m');
+      expect(playbackSession.status.playback.muted).toBe(true);
+      await input(' ');
+      expect(playbackSession.status.playback.state).toBe('paused');
+      await input('.');
+      expect(lastFrame()).toContain('Recovered Next');
+      expect(call).toHaveBeenCalledWith(expect.objectContaining({type: 'play', station: second, queue: [first, second]}));
+      expect(play).not.toHaveBeenCalled();
+      expect(resolve).not.toHaveBeenCalled();
+      expect(session.startRadioSession).not.toHaveBeenCalled();
+    } finally { await act(async () => { await playbackSession.close(); }); }
+  });
+
   it('tunes the selected retained result after its search query is cleared', async () => {
     const result: Station = {id: 'search-result', provider: 'radio-browser', name: 'Search Result FM', tags: []};
     const search = vi.spyOn(ProviderManager.prototype, 'search').mockResolvedValue([result]);
@@ -69,7 +116,7 @@ describe('App terminal integration', () => {
     await input('\r');
 
     expect(search).toHaveBeenCalledTimes(1);
-    expect(play).toHaveBeenCalledWith(result, 'https://example.test/search-result');
+    expect(play).toHaveBeenCalledWith(result, 'https://example.test/search-result', expect.objectContaining({signal: expect.any(AbortSignal)}));
   });
 
   it.each([
@@ -161,25 +208,75 @@ describe('App terminal integration', () => {
     await expectNoticeToExpire(lastFrame, 'Added to favorites: Country FM');
   }, 20_000);
 
-  it('blocks AirPlay navigation with a clear macOS-only notice on unsupported systems', async () => {
-    const {input, lastFrame} = await openApp(false, false, 'linux');
+  it.each([{platform: 'linux' as const, message: 'Experimental Linux AirPlay is disabled'}, {platform: 'win32' as const, message: 'not supported in this environment'}])('hides unavailable AirPlay while retaining explicit guidance on $platform', async ({platform, message}) => {
+    const {input, lastFrame} = await openApp(false, false, platform);
     await input('9');
     expect(lastFrame()).not.toContain('a AirPlay');
-
+    expect(lastFrame()).not.toContain('volume, AirPlay');
+    expect(lastFrame()).toContain('6 settings');
     await input('a');
-    expect(lastFrame()).toContain('AirPlay output is available only on macOS');
-    expect(lastFrame()).toContain('Settings');
+    expect(lastFrame()).toContain(message);
     expect(lastFrame()).not.toContain('Choose where AirPlay playback should go');
-
     await act(async () => { await vi.advanceTimersByTimeAsync(4500); });
-    expect(lastFrame()).not.toContain('AirPlay output is available only on macOS');
-
     await input('\r');
+    expect(lastFrame()).not.toContain('AirPlay receiver');
     await input('\u001B[B');
-    expect(lastFrame()).toContain('AirPlay receiver (macOS only)');
+    // Removing the receiver row must also remove it from keyboard dispatch.
+    const volume = vi.spyOn(PlayerController.prototype, 'setVolume').mockResolvedValue({ok: true});
     await input('\r');
-    expect(lastFrame()).toContain('AirPlay output is available only on macOS');
-    expect(lastFrame()).not.toContain('Choose where AirPlay playback should go');
+    expect(volume).toHaveBeenCalled();
+    await input(':'); await input('airplay-code'); await input('\r');
+    expect(lastFrame()).toContain(message);
+    expect(lastFrame()).not.toContain('Type the code');
+  });
+
+  it.each(['ffmpeg', 'avahi-browse', 'sender'])('returns actionable active TUI RPC failures when Linux lacks %s', async missing => {
+    vi.mocked(backendInstall.detectPlaybackBackends).mockRestore();
+    const detect = backendInstall.detectPlaybackBackends;
+    vi.spyOn(backendInstall, 'detectPlaybackBackends').mockImplementation(options => detect({...options,
+      hasCommand: command => ['mpv', 'ffmpeg', 'avahi-browse'].includes(command) && command !== missing,
+      hasAirPlaySender: () => missing !== 'sender'
+    }));
+    const {input, lastFrame} = await openApp(false, false, 'linux', {linuxAirPlayEnabled: true});
+    const handle = vi.mocked(session.startRadioSession).mock.calls.at(-1)![0];
+    for (const command of [{type: 'airplay-list'}, {type: 'airplay-select', deviceId: 'saved'}] as session.RadioSessionCommand[]) {
+      let result!: session.RadioSessionResult;
+      await act(async () => { result = await handle(command, 'cli'); });
+      expect(result).toMatchObject({ok: false, message: expect.stringContaining('setup --airplay')});
+      expect(result.message).not.toContain('No AirPlay receivers');
+    }
+    expect(airplayDiscovery.discoverAirPlayDevices).not.toHaveBeenCalled();
+    await input('9'); await input('a');
+    expect(lastFrame()).toContain('Setup required');
+    expect(lastFrame()).toContain('setup --airplay');
+  });
+
+  it('retains Linux Setup required controls when opted in without prerequisites', async () => {
+    const {input, lastFrame} = await openApp(false, false, 'linux', {linuxAirPlayEnabled: true});
+    await input('9');
+    expect(lastFrame()).toContain('a AirPlay');
+    await input('\r');
+    expect(lastFrame()).toContain('AirPlay receiver');
+    expect(lastFrame()).toContain('Setup required');
+    await input('a');
+    expect(lastFrame()).toContain('Setup required');
+    expect(lastFrame()).toContain('setup --airplay');
+    expect(airplayDiscovery.discoverAirPlayDevices).not.toHaveBeenCalled();
+  });
+
+  it.each([{columns: 100, rows: 30}, {columns: 60, rows: 18}, {columns: 26, rows: 10}])('keeps hidden playback rows and keyboard selection aligned at $columns × $rows', async size => {
+    const volume = vi.spyOn(PlayerController.prototype, 'setVolume').mockResolvedValue({ok: true});
+    const {input, lastFrame} = await openApp(false, false, 'linux', {}, size);
+    await input('9'); await input('\r');
+    expect(lastFrame()).not.toContain('AirPlay receiver');
+    await input('\u001B[B'); await input('\r');
+    expect(volume).toHaveBeenCalled();
+    await input(':'); await input('air'); await input('\t');
+    expect(lastFrame()).not.toContain('airplay');
+    await input('\u001B');
+    // Last visible item remains reachable with the filtered row count.
+    for (let index = 0; index < 12; index++) await input('\u001B[B');
+    expect(lastFrame()).not.toContain('AirPlay receiver');
   });
 
   it('keeps AirPlay navigation available on macOS', async () => {
@@ -188,6 +285,46 @@ describe('App terminal integration', () => {
     expect(lastFrame()).toContain('a AirPlay');
     await input('a');
     expect(lastFrame()).toContain('Choose where AirPlay playback should go');
+  });
+
+  it('keeps Linux discovery explicit even with saved AirPlay preferences and supports picker, rescan, and code entry', async () => {
+    vi.mocked(backendInstall.detectPlaybackBackends).mockReturnValue(['mpv', 'airplay']);
+    const receiver = {id: 'ID@Office', name: 'Office', host: '192.168.1.10', port: 5000, txt: ['pw=true'], requiresPassword: true, airplay2: false};
+    vi.mocked(airplayDiscovery.discoverAirPlayDevices).mockResolvedValue([receiver]);
+    const choose = vi.spyOn(PlayerController.prototype, 'selectAirPlayDevice');
+    const code = vi.spyOn(PlayerController.prototype, 'submitAirPlayPasscode').mockReturnValue({ok: true, message: 'AirPlay code sent.'});
+    const {store, input, lastFrame} = await openApp(false, false, 'linux', {linuxAirPlayEnabled: true, preferredBackend: 'airplay', preferredAirPlayDevice: receiver.id});
+    expect(airplayDiscovery.discoverAirPlayDevices).not.toHaveBeenCalled();
+    expect(choose).not.toHaveBeenCalled();
+    await input('9');
+    await input('a');
+    expect(airplayDiscovery.discoverAirPlayDevices).toHaveBeenCalledTimes(1);
+    expect(lastFrame()).toContain('Automatic');
+    await input('r');
+    expect(airplayDiscovery.discoverAirPlayDevices).toHaveBeenCalledTimes(2);
+    await input('\r');
+    expect(choose).toHaveBeenCalledWith(receiver.id);
+    expect(store.snapshot().settings.preferredBackend).toBe('airplay');
+    await input('c');
+    expect(lastFrame()).toContain('AirPlay Code');
+    await input('1234');
+    expect(lastFrame()).toContain('****');
+    await input('\r');
+    expect(code).toHaveBeenCalledWith('1234');
+    expect(JSON.stringify(store.snapshot())).not.toContain('1234');
+  });
+
+  it('shows an Avahi service failure on explicit refresh without breaking local library navigation', async () => {
+    vi.mocked(backendInstall.detectPlaybackBackends).mockReturnValue(['mpv', 'airplay']);
+    vi.mocked(airplayDiscovery.discoverAirPlayDevices).mockRejectedValue(new Error('The Avahi service is not ready.'));
+    const {input, lastFrame} = await openApp(false, false, 'linux', {linuxAirPlayEnabled: true});
+    await input('9');
+    await input('a');
+    expect(lastFrame()).toContain('The Avahi service is not ready.');
+    await input('b');
+    await input('b');
+    await input('2');
+    expect(lastFrame()).toContain('Portable Radio');
   });
 
   it('keeps the TUI usable when its optional alarm presence directory is read-only', async () => {
@@ -264,20 +401,20 @@ function setPlayback(state: 'playing' | 'loading'): void {
   vi.spyOn(PlayerController.prototype, 'onChange').mockImplementation(listener => { listener(playback); return () => undefined; });
 }
 
-async function openApp(screenReader: boolean, redirected = false, platform: NodeJS.Platform = process.platform) {
+async function openApp(screenReader: boolean, redirected = false, platform: NodeJS.Platform = process.platform, initialSettings: Partial<AppSettings> = {}, size = {columns: 100, rows: 30}, playbackSession?: TuiSession) {
   const directory = mkdtempSync(join(tmpdir(), 'radiocli-portable-app-'));
   directories.push(directory);
   vi.stubEnv('RADIOCLI_HOME', directory);
   const store = new JsonLibraryStore(join(directory, 'library.json'));
-  store.updateSettings({resumeOnLaunch: false, automaticUpdateChecks: false, asciiMode: false, reduceMotion: false, transparentBackground: false});
+  store.updateSettings({resumeOnLaunch: false, automaticUpdateChecks: false, asciiMode: false, reduceMotion: false, transparentBackground: false, ...initialSettings});
   store.toggleFavorite({id: 'portable', provider: 'radio-browser', name: 'Portable Radio', tags: [], streamUrl: 'https://example.test/portable'});
   const frames: string[] = [];
-  const stdout = Object.assign(new Writable({write(chunk, _encoding, done) { frames.push(String(chunk)); done(); }}), {columns: 100, rows: 30, ...(!redirected ? {isTTY: true, getColorDepth: () => 24} : {})}) as NodeJS.WriteStream;
+  const stdout = Object.assign(new Writable({write(chunk, _encoding, done) { frames.push(String(chunk)); done(); }}), {...size, ...(!redirected ? {isTTY: true, getColorDepth: () => 24} : {})}) as NodeJS.WriteStream;
   const errors: string[] = [];
   const stderr = new Writable({write(chunk, _encoding, done) { errors.push(String(chunk)); done(); }}) as NodeJS.WriteStream;
   const stdin = Object.assign(new PassThrough(), {isTTY: true, setRawMode: () => undefined, ref: () => undefined, unref: () => undefined}) as unknown as NodeJS.ReadStream;
   await act(async () => {
-    instances.push(render(<App store={store} alarmService={service} platform={platform} />, {stdout, stderr, stdin, debug: true, patchConsole: false, exitOnCtrlC: false, isScreenReaderEnabled: screenReader, kittyKeyboard: {mode: 'disabled'}}));
+    instances.push(render(<App store={store} alarmService={service} platform={platform} playbackSession={playbackSession} />, {stdout, stderr, stdin, debug: true, patchConsole: false, exitOnCtrlC: false, isScreenReaderEnabled: screenReader, kittyKeyboard: {mode: 'disabled'}}));
   });
   expect(errors.join('')).toBe('');
   return {

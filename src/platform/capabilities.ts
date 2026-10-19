@@ -12,6 +12,7 @@ type CapabilityEvidence = {
   unicode?: boolean;
   color?: boolean;
   screenReader?: boolean;
+  airPlay?: {ready: boolean; discoveryService: 'ready' | 'unavailable' | 'unverified'; message: string};
 };
 
 const available = (message: string, adapter?: string): Capability => ({status: 'available', message, ...(adapter ? {adapter} : {})});
@@ -63,6 +64,13 @@ export function platformCapabilities(host: PlatformProfile, evidence: Capability
     unicode: evidence.unicode === false ? unavailable('ASCII decoration mode is selected; international station data is preserved.') : available('Unicode decoration is enabled; terminal font coverage determines glyph appearance.'),
     color: evidence.color === false ? unavailable('Color is disabled for the terminal or by user preference.') : available('Color is enabled at the terminal supported depth.'),
     screenReader: available(evidence.screenReader ? 'Screen-reader mode is enabled; decorative animation is disabled.' : 'Screen-reader mode is available through INK_SCREEN_READER=true.'),
-    airPlay: adapters.airPlay && evidence.backends.includes('airplay') ? available('Experimental macOS output; receiver selection and worker readiness are still required.', 'airplay') : unavailable(adapters.airPlay ? 'Experimental AirPlay requires FFmpeg, Bonjour, and the safe optional sender.' : 'AirPlay output is available only on macOS.')
+    airPlay: !adapters.airPlay ? unavailable('Experimental AirPlay is supported on macOS and native Linux; this environment is not supported.')
+      : evidence.airPlay ? evidence.airPlay.ready
+        ? evidence.airPlay.discoveryService === 'unverified' ? unverified(evidence.airPlay.message, 'airplay') : available(evidence.airPlay.message, 'airplay')
+        : unavailable(evidence.airPlay.message)
+      : evidence.backends.includes('airplay')
+        ? host.id === 'linux' ? unverified('Experimental Linux output requires an explicit discovery-service and native-sender check. Select a receiver each session.', 'airplay')
+          : available('Experimental macOS output; receiver selection and worker readiness are still required.', 'airplay')
+        : unavailable(`Experimental AirPlay requires FFmpeg, ${host.id === 'linux' ? 'Avahi' : 'Bonjour'}, and the safe optional sender.`)
   };
 }

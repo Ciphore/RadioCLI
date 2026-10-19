@@ -98,12 +98,19 @@ export const settingsItems = settingsGroups.flatMap(group => group.items) as rea
 
 export const settingsRootItems = settingsGroups.map(group => group.label);
 
-export function settingsGroup(page: SettingsPage) {
-  return settingsGroups.find(group => group.id === page);
+export function settingsGroupsForAirPlay(visible = true) {
+  return settingsGroups.map(group => ({...group,
+    description: !visible && group.id === 'playback' ? 'Output, volume, and startup behavior' : group.description,
+    items: group.items.filter(item => visible || item !== 'AirPlay receiver')
+  }));
 }
 
-export function settingsItemsForPage(page: SettingsPage): readonly string[] {
-  return page === 'root' ? settingsRootItems : settingsGroup(page)?.items ?? [];
+export function settingsGroup(page: SettingsPage, airPlayVisible = true) {
+  return settingsGroupsForAirPlay(airPlayVisible).find(group => group.id === page);
+}
+
+export function settingsItemsForPage(page: SettingsPage, airPlayVisible = true): readonly string[] {
+  return page === 'root' ? settingsRootItems : settingsGroup(page, airPlayVisible)?.items ?? [];
 }
 
 export function settingsPageForRootItem(item: string | undefined): SettingsPage | undefined {

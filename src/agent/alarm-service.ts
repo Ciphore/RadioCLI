@@ -1,6 +1,8 @@
 import type {Alarm, AlarmCreateInput, AlarmSchedule, IsoWeekday, Station} from '../types.js';
-import {JsonLibraryStore} from '../storage/store.js';
-import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone, nextOccurrenceForAlarm} from '../alarms/schedule.js';
+import type {JsonLibraryStore} from '../storage/store.js';
+import type {LibraryRepository} from '../storage/repository.js';
+import {AlarmOccurrenceCache} from '../alarms/occurrence-cache.js';
+import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
 import {connectActiveAlarms, type ActiveAlarmClient, type ActiveAlarmStatus} from '../alarms/active-session.js';
 import {createSchedulerService, type SchedulerService} from '../alarms/scheduler.js';
 
@@ -28,8 +30,9 @@ export type AgentAlarmUpdate = Partial<Omit<AgentAlarmCreate, 'stationId'>> & {
 };
 
 export class AgentAlarmService {
+  private readonly occurrences = new AlarmOccurrenceCache();
   constructor(
-    private readonly store: JsonLibraryStore,
+    private readonly store: JsonLibraryStore | LibraryRepository,
     private readonly resolveStation: (id: string) => Promise<Station | undefined>,
     private readonly scheduler: SchedulerService = createSchedulerService(),
     private readonly handoffToInteractive?: (status: ActiveAlarmStatus) => Promise<void>
@@ -70,7 +73,7 @@ export class AgentAlarmService {
         keepAwakeUntilAlarm: input.keepAwakeUntilAlarm ?? false
       }
     };
-    const alarm = this.store.addAlarm(alarmInput);
+    const alarm = await this.store.addAlarm(alarmInput);
     await this.syncSaved(alarm);
     return this.describe(alarm);
   }
@@ -81,7 +84,7 @@ export class AgentAlarmService {
     const fallbackStation = input.clearFallback
       ? undefined
       : input.fallbackStationId ? await this.requiredStation(input.fallbackStationId) : alarm.playback.fallbackStation;
-    const updated = this.store.updateAlarm(alarm.id, {
+    const updated = await this.store.updateAlarm(alarm.id, {
       label: input.label === undefined ? alarm.label : cleanLabel(input.label),
       enabled: input.enabled ?? alarm.enabled,
       station,
@@ -103,7 +106,7 @@ export class AgentAlarmService {
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<Record<string, unknown>> {
-    const alarm = this.store.toggleAlarm(this.requiredAlarm(id).id, enabled);
+    const alarm = await this.store.toggleAlarm(this.requiredAlarm(id).id, enabled);
     await this.syncSaved(alarm);
     return this.describe(alarm);
   }
@@ -111,8 +114,9 @@ export class AgentAlarmService {
   async remove(id: string, confirm: boolean): Promise<{ok: true; removed: string}> {
     if (!confirm) throw new Error('Alarm removal requires confirm=true. List alarms first and confirm the exact alarm ID with the user.');
     const alarm = this.requiredAlarm(id);
-    await this.scheduler.remove(alarm.id);
-    if (!this.store.removeAlarm(alarm.id)) throw new Error(`Alarm not found: ${id}`);
+    const disabled = await this.store.toggleAlarm(alarm.id, false);
+    await this.scheduler.remove(disabled.id);
+    if (!await this.store.removeAlarm(alarm.id)) throw new Error(`Alarm not found: ${id}`);
     return {ok: true, removed: alarm.id};
   }
 
@@ -146,7 +150,7 @@ export class AgentAlarmService {
       enabled: alarm.enabled,
       station: {id: `${alarm.station.provider}:${alarm.station.id}`, name: alarm.station.name},
       schedule: alarm.schedule,
-      nextOccurrence: nextOccurrenceForAlarm(alarm, new Date())?.toISOString() ?? null,
+      nextOccurrence: this.occurrences.next(alarm, new Date())?.toISOString() ?? null,
       playback: {
         volume: alarm.playback.volume,
         fadeSeconds: alarm.playback.fadeSeconds,

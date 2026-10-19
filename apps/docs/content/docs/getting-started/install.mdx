@@ -57,7 +57,7 @@ RadioCLI needs:
 - npm, pnpm, or Bun on macOS, Linux, and Windows: Node.js 22 or newer
 - `mpv` for playback, pause, mute, volume, media keys, metadata, and readiness
   checks
-- FFmpeg on macOS for experimental AirPlay and optional `ffplay` fallback
+- FFmpeg for experimental macOS/Linux AirPlay and optional `ffplay` fallback
 - `ffplay` from FFmpeg as an optional playback-only fallback
 - VLC (`cvlc`/`vlc`) as an additional playback-only fallback when `mpv` and
   `ffplay` are unavailable. RadioCLI also probes common install locations
@@ -88,7 +88,9 @@ radiocli
 ```
 
 Run `radiocli doctor` to check executable discovery and launch diagnostics.
-Tuning a station verifies the actual audio path.
+Add `--playback` to rehearse local WAV playback through each installed local
+backend using null or dummy audio. Tuning a station and checking the intended
+speakers, headphones, or receiver verifies the actual output path.
 
 ## npm Install
 
@@ -104,8 +106,15 @@ radiocli
 
 The setup receiver detects tools that are already installed, offers `mpv`,
 FFmpeg/`ffplay`, and VLC, shows every native command before it runs, and finishes
-by checking executable availability. `mpv` is selected by default everywhere. FFmpeg is
+by checking executable availability and awaiting a local WAV decoder rehearsal.
+Each backend reports `passed`, `failed`, or `unverified`; a successful null/dummy
+rehearsal does not verify a physical audio device, an AirPlay receiver, or a live
+network stream. Repeat this check with `radiocli doctor --playback --json`.
+Dry runs do not launch playback. `mpv` is selected by default everywhere. FFmpeg is
 also selected by default on macOS because it enables experimental AirPlay.
+Native Linux additionally offers an optional experimental AirPlay setup choice.
+It is off by default; `--yes` and `--all` alone do not enable it or change an
+existing AirPlay opt-in. macOS keeps its existing FFmpeg default.
 
 ```text
 RADIOCLI  SETUP RECEIVER
@@ -168,8 +177,8 @@ brew install mpv
 brew install ffmpeg
 ```
 
-RadioCLI discovers AirPlay/RAOP receivers with Bonjour and decodes streams with
-FFmpeg. The sender is an optional package dependency and must install and load
+On macOS, RadioCLI discovers AirPlay/RAOP receivers with Bonjour and decodes
+streams with FFmpeg. The sender is an optional package dependency and must install and load
 successfully; `--omit=optional` leaves it out. Sender diagnostics report an absent
 or unusable bridge. Passcode-protected receivers prompt in the TUI;
 enter the code with `:airplay-code 1234` or the AirPlay Code screen. RadioCLI
@@ -207,6 +216,50 @@ npm install -g @ciphore/radiocli
 radiocli setup
 radiocli
 ```
+
+On Omarchy Quattro, setup retains Arch's `pacman -S --needed` package route.
+If repository metadata is stale, use Omarchy's supported update workflow before
+retrying setup; RadioCLI does not run a partial system upgrade or bypass its
+pacman guard. Its native terminal integration follows your selected desktop
+terminal while preserving explicit terminal overrides.
+
+Experimental Linux AirPlay is disabled until you opt in for the current library.
+It needs FFmpeg, `avahi-browse`, a running Avahi daemon, and an installed,
+loadable optional sender:
+
+```bash
+radiocli setup --airplay --dry-run  # inspect packages and service actions
+radiocli setup --airplay            # review and accept experimental setup
+radiocli doctor
+radiocli setup --no-airplay         # disable RadioCLI's Linux AirPlay opt-in
+```
+
+Restart any running RadioCLI session after changing this preference.
+
+Setup has Avahi package recipes for apt and pacman. Arch's
+[`avahi` package](https://archlinux.org/packages/extra/x86_64/avahi/files/)
+provides the browser and daemon; Debian/Ubuntu use `avahi-daemon` and
+[`avahi-utils`](https://packages.debian.org/bookworm/avahi-utils).
+On a systemd host, the reviewed plan can include enabling and starting
+`avahi-daemon.service`, a system service for discovery on the local network.
+Other package or service arrangements receive manual setup guidance. Startup
+and Doctor never install packages or activate the service. Disabling RadioCLI's
+opt-in leaves shared packages and system services installed and running.
+
+An absent optional sender requires repairing the RadioCLI installation with
+optional dependencies included; installing FFmpeg alone does not install the
+sender. A dry run does not change preferences, install packages, or start services.
+
+After opting in, open Settings → AirPlay or `:airplay` to discover receivers,
+then select one explicitly each session. Missing dependencies show **Setup required**;
+a temporary discovery or receiver failure stays visible instead of hiding the feature.
+Unsupported platforms and Linux without the opt-in hide AirPlay controls and
+suggestions. WSL and Termux remain unsupported even if their tools are installed.
+
+Linux startup never scans for receivers. Offline mode blocks discovery;
+low-bandwidth mode permits an explicit refresh. `--omit=optional` retains local
+playback but omits AirPlay. Software RAOP tests do not establish compatibility
+with every physical or AirPlay 2 receiver.
 
 On Alpine use a musl-native Node package; a glibc binary is not interchangeable.
 Alpine and other musl targets remain experimental until the selected CPU and
@@ -287,7 +340,7 @@ through the OS installation tools before installing mpv. See NetBSD's
 the package manager cannot supply missing base-system X11 libraries itself.
 
 The recorded BSD guests installed a local packed tarball into fresh projects,
-omitting the optional native macOS AirPlay sender. After providing the matching
+omitting the optional AirPlay sender. After providing the matching
 Node/npm/player prerequisites, a manual registry installation uses:
 
 ```bash

@@ -5,10 +5,14 @@ import {basename,join,posix} from 'node:path';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {createTerminalLaunch,detectGraphicalTerminal,launchTerminalCommand} from './terminals.js';
 import {waitForLaunch} from './launch-command.js';
+import type {OmarchyProbeOptions} from './omarchy.js';
 
 const roots:string[]=[];
 afterEach(()=>{vi.useRealTimers();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
 const resolve=(command:string)=>command;
+const quattroEnvironment={PATH:'/usr/bin',WAYLAND_DISPLAY:'wayland-1',XDG_SESSION_TYPE:'wayland',DBUS_SESSION_BUS_ADDRESS:'unix:path=/run/user/1000/bus'};
+function quattroProbes(overrides:OmarchyProbeOptions={}):OmarchyProbeOptions{return{isDirectory:path=>path==='/usr/share/omarchy',readFile:()=>null,run:(_command,args)=>args[1]==='omarchy'?'omarchy 4.0.4-1':null,...overrides};}
+const quattroResolve=(command:string)=>command.startsWith('/')?command:`/usr/bin/${command}`;
 function fixture(){const root=mkdtempSync(join(process.cwd(),'.radiocli-terminals-'));roots.push(root);return root;}
 function terminalPath(root:string,name:string){return posix.join(basename(root),name);}
 function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): {command: string; args: string[]} {
@@ -24,6 +28,44 @@ function nodeInvocation(args: readonly string[], environment: NodeJS.ProcessEnv 
 }
 
 describe('shared graphical terminal discovery',()=>{
+  it('prefers the upstream TUI launcher only for an installed local Quattro Wayland session',()=>{
+    expect(detectGraphicalTerminal('linux',quattroEnvironment,quattroResolve,quattroProbes())).toBe('linux:omarchy-launch-tui');
+    expect(detectGraphicalTerminal('linux',{...quattroEnvironment,SSH_CONNECTION:'remote 1 local 2'},quattroResolve,quattroProbes())).toBe('linux:/usr/bin/ghostty');
+    expect(detectGraphicalTerminal('linux',{...quattroEnvironment,WAYLAND_DISPLAY:undefined,DISPLAY:':0'},quattroResolve,quattroProbes())).toBe('linux:/usr/bin/ghostty');
+  });
+  it.each([
+    {RADIOCLI_ALARM_TERMINAL:'linux:/tools/foot'}, {TERMINAL:'/tools/foot'}, {TERM_PROGRAM:'/tools/foot'}
+  ])('preserves explicit supported terminal choice %j on Quattro',preference=>{
+    const run=vi.fn(()=>null);
+    expect(detectGraphicalTerminal('linux',{...quattroEnvironment,...preference},quattroResolve,quattroProbes({run}))).toBe('linux:/tools/foot');
+    expect(run).not.toHaveBeenCalled();
+  });
+  it.each(['omarchy-launch-tui','setsid','uwsm-app','xdg-terminal-exec'])('falls back to unchanged generic ordering when Quattro lacks %s',missing=>{
+    const available=(command:string)=>posix.basename(command)===missing?undefined:quattroResolve(command);
+    expect(detectGraphicalTerminal('linux',quattroEnvironment,available,quattroProbes())).toBe('linux:/usr/bin/ghostty');
+    expect(detectGraphicalTerminal('linux',{...quattroEnvironment,RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui'},available,quattroProbes())).toBe('linux:/usr/bin/ghostty');
+    expect(detectGraphicalTerminal('linux',{...quattroEnvironment,RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui',TERMINAL:'foot'},available,quattroProbes())).toBe('linux:/usr/bin/foot');
+  });
+  it('revalidates a persisted native selector and falls back when the installed release changed',()=>{
+    const env={...quattroEnvironment,RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui'};
+    expect(detectGraphicalTerminal('linux',env,quattroResolve,quattroProbes())).toBe('linux:omarchy-launch-tui');
+    expect(detectGraphicalTerminal('linux',env,quattroResolve,quattroProbes({run:(_command,args)=>args[1]==='omarchy'?'omarchy 3.3.3-1':null}))).toBe('linux:/usr/bin/ghostty');
+    expect(detectGraphicalTerminal('linux',env,()=>undefined,quattroProbes())).toBe('linux:unsupported');
+  });
+  it('uses the direct-terminal fallback when the Quattro helper prerequisites are outside the launch PATH',()=>{
+    const resolve=(command:string)=>command.startsWith('/isolated/bin/')?undefined:quattroResolve(command);
+    const env={...quattroEnvironment,PATH:'/isolated/bin',RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui'};
+    const plan=createTerminalLaunch({platform:'linux',env,nodePath:'/node',args:['/cli.js'],resolve,omarchy:quattroProbes()});
+    expect(plan).toMatchObject({terminal:'linux:/usr/bin/ghostty',command:'/usr/bin/ghostty'});
+    expect(env.PATH).toBe('/isolated/bin');
+  });
+  it('does not select the native launcher from ambiguous numeric helper-only version evidence',()=>{
+    const probes=quattroProbes({run:command=>command.endsWith('/omarchy-version')?'4.0.4-1':null});
+    expect(detectGraphicalTerminal('linux',quattroEnvironment,quattroResolve,probes)).toBe('linux:/usr/bin/ghostty');
+  });
+  it.each(['freebsd','openbsd','netbsd'] as const)('does not apply a saved Quattro selector to %s',platform=>{
+    expect(detectGraphicalTerminal(platform,{...quattroEnvironment,RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui'},quattroResolve,quattroProbes())).toBe(`${platform}:/usr/bin/ghostty`);
+  });
   it('ignores a malformed saved descriptor and continues normal terminal detection',()=>{expect(detectGraphicalTerminal('linux',{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linuxX'},command=>command==='kitty'?'/usr/bin/kitty':undefined)).toBe('linux:/usr/bin/kitty');});
   it.each(['linux','freebsd','openbsd','netbsd'] as const)('requires the central Unix adapter policy and an installed terminal on %s',platform=>{const env={DISPLAY:':0',TERMINAL:'xterm'};expect(detectGraphicalTerminal(platform,env,command=>command==='xterm'?'/usr/local/bin/xterm':undefined)).toBe(`${platform}:/usr/local/bin/xterm`);expect(detectGraphicalTerminal(platform,env,()=>undefined)).toBe(`${platform}:unsupported`);expect(detectGraphicalTerminal(platform,{...env,DISPLAY:''},resolve)).toBe(`${platform}:unsupported`);});
   it.each(['freebsd','openbsd','netbsd'] as const)('accepts a legacy Linux descriptor after revalidating the saved Unix terminal on %s',platform=>{expect(detectGraphicalTerminal(platform,{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/usr/local/bin/xterm'},resolve)).toBe('linux:/usr/local/bin/xterm');expect(detectGraphicalTerminal(platform,{DISPLAY:':0',RADIOCLI_ALARM_TERMINAL:'linux:/usr/local/bin/xterm'},()=>undefined)).toBe(`${platform}:unsupported`);});
@@ -37,6 +79,20 @@ describe('shared graphical terminal discovery',()=>{
 });
 
 describe('graphical terminal invocation plans',()=>{
+  it.skipIf(process.platform==='win32')('preserves literal argv and application identity through the Quattro helper boundary',()=>{
+    const root=fixture();const nodeDirectory=join(root,"Node ' 单播");mkdirSync(nodeDirectory);const nodePath=join(nodeDirectory,'node');symlinkSync(process.execPath,nodePath);
+    const values=['space value',"apostrophe's",'"quoted"','$(false); & | < > %PATH%!','单播',''];
+    const dataHome="/Radio Data ' ; $() 单播";
+    const args=['-e','process.stdout.write(JSON.stringify({args:process.argv.slice(1),home:process.env.RADIOCLI_HOME}))','--',...values];
+    const plan=createTerminalLaunch({platform:'linux',env:{...quattroEnvironment,RADIOCLI_HOME:dataHome},nodePath,args,resolve:quattroResolve,omarchy:quattroProbes()});
+    expect(plan).toMatchObject({terminal:'linux:omarchy-launch-tui',command:'/usr/share/omarchy/bin/omarchy-launch-tui'});
+    expect(plan.args.slice(0,3)).toEqual(['--app-id=org.radiocli.RadioCLI',nodePath,'-e']);
+    expect(plan.args).not.toContain('/bin/sh');
+    expect(JSON.parse(execFileSync(plan.args[1]!,plan.args.slice(2),{env:{RADIOCLI_HOME:'/unrelated/server'},encoding:'utf8'}))).toEqual({args:values,home:dataHome});
+  });
+  it('requires an absolute Node path for the Omarchy helper',()=>{
+    expect(()=>createTerminalLaunch({platform:'linux',env:quattroEnvironment,nodePath:'node',args:['cli.js'],resolve:quattroResolve,omarchy:quattroProbes()})).toThrow(/absolute Node/);
+  });
   it.each([
     ['darwin','apple-terminal'],['darwin','iterm'],['darwin','wezterm'],['darwin','ghostty'],['darwin','kitty'],
     ['linux','/tools/kitty'],['win32','console'],['win32','windows-terminal']
@@ -140,6 +196,7 @@ describe('graphical terminal invocation plans',()=>{
     ].join(';'));
     const home='C:\\Data %PATH%! & "quote" \' 单播';const mpv="C:\\Players %PATH%! & ' 单播\\mpv.exe";const args=['spaces here','%PATH%!','a&b','"quoted"',"'quoted'",'单播',''];
     const diagnostic:{commandCharacters:number;detached:boolean;spawned:boolean;code:number|null;signal:NodeJS.Signals|null;error?:string;stdout:string;stderr:string}={commandCharacters:0,detached:false,spawned:false,code:null,signal:null,stdout:'',stderr:''};
+    const launchStarted=Date.now();
     await launchTerminalCommand({platform:'win32',env:{...process.env,NODE_OPTIONS:nodeOptions,RADIOCLI_ALARM_TERMINAL:'win32:console',RADIOCLI_HOME:home,RADIOCLI_MPV_PATH:mpv},nodePath:process.execPath,args:[cli,output,...args],closeOnExit:true,spawn:(command,args,options)=>{
       diagnostic.detached=Boolean(options?.detached);
       const environment={...options?.env};const handoff=environment.RADIOCLI_WINDOWS_CONSOLE_COMMAND;expect(handoff).toBeDefined();
@@ -165,7 +222,12 @@ describe('graphical terminal invocation plans',()=>{
       child.once('error',error=>diagnostic.error=error.message);
       child.once('close',(code,signal)=>{diagnostic.code=code;diagnostic.signal=signal;});
       return child;
-    }}).catch(error=>{throw new Error(`Windows console launcher failed: ${JSON.stringify(diagnostic)}`,{cause:error});});
+    }}).catch(error=>{
+      const nodeStages=existsSync(stages)?readFileSync(stages,'utf8').slice(-8_000):'';
+      const powershellStage=existsSync(powershellStages)?readFileSync(powershellStages,'utf8').slice(-4_000):'';
+      throw new Error(`Windows console launcher failed: ${JSON.stringify({...diagnostic,elapsedMs:Date.now()-launchStarted,nodeStages,powershellStage})}`,{cause:error});
+    });
+    const bootstrapMs=Date.now()-launchStarted;
     const deadline=Date.now()+10_000;
     // The result precedes Node's exit hooks and the final PowerShell diagnostic.
     // Wait for both writers before removing the fixture on Windows.
@@ -175,7 +237,8 @@ describe('graphical terminal invocation plans',()=>{
     const powershellStage=existsSync(powershellStages)?readFileSync(powershellStages,'utf8').slice(-4_000):'';
     expect(completed(),`Windows console probe did not finish: ${JSON.stringify({...diagnostic,nodeStarted:existsSync(output+'.started'),nodeStages,powershellStage})}`).toBe(true);
     expect(JSON.parse(readFileSync(output,'utf8'))).toEqual({stdin:true,stdout:true,stderr:true,args,home,mpv});
-  },15_000);
+    console.log(`windows_console_smoke=${JSON.stringify({bootstrapMs,totalMs:Date.now()-launchStarted,ttyHandles:'passed',literalArguments:'passed'})}`);
+  },45_000);
   it.each([{platform:'linux' as const,terminal:'linux:/tools/kitty'},{platform:'darwin' as const,terminal:'darwin:wezterm'}])('preserves configured players and network policy through an existing $terminal server',({platform,terminal})=>{
     const configured={RADIOCLI_MPV_PATH:"/Players % ! & ' 单播/mpv",RADIOCLI_FFPLAY_PATH:'/Players A/ffplay',RADIOCLI_VLC_PATH:'/Players A/vlc',RADIOCLI_FFMPEG_PATH:'/Players A/ffmpeg',RADIOCLI_OFFLINE:'0',RADIOCLI_LOW_BANDWIDTH:'true'};
     const script=`process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(Object.keys(configured))}.map(key=>[key,process.env[key]]))))`;
@@ -196,17 +259,32 @@ describe('graphical terminal invocation plans',()=>{
 });
 
 describe('terminal launcher acceptance',()=>{
+  it('keeps Quattro helper acceptance separate from application readiness',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();const launch=vi.fn(()=>child);
+    const result=launchTerminalCommand({platform:'linux',env:quattroEnvironment,nodePath:'/node',args:['/cli.js'],resolve:quattroResolve,omarchy:quattroProbes(),spawn:launch});
+    expect(launch).toHaveBeenCalledWith('/usr/share/omarchy/bin/omarchy-launch-tui',expect.arrayContaining(['--app-id=org.radiocli.RadioCLI','/node']),expect.objectContaining({detached:true,stdio:'ignore',windowsHide:false}));
+    child.emit('spawn');child.emit('close',0);await expect(result).resolves.toBe('linux:omarchy-launch-tui');
+  });
   it('rejects a launcher that exits unsuccessfully immediately after spawn',async()=>{const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();const result=waitForLaunch(child);child.emit('spawn');child.emit('close',1);await expect(result).rejects.toThrow(/launcher.*exit.*1/i);});
   it('accepts a live launcher without claiming application readiness',async()=>{vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();const result=waitForLaunch(child);child.emit('spawn');await vi.advanceTimersByTimeAsync(100);await expect(result).resolves.toBeUndefined();expect(child.unref).toHaveBeenCalledOnce();});
   it('bounds a launcher that never reports process startup',async()=>{vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;const result=expect(waitForLaunch(child)).rejects.toThrow(/did not report process startup/i);await vi.advanceTimersByTimeAsync(3_000);await result;});
   it('keeps a transient console bootstrap referenced until it exits',async()=>{
     vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
     const launch=vi.fn(()=>child);
-    const result=launchTerminalCommand({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,spawn:launch});let settled=false;void result.then(()=>settled=true);
+    const result=launchTerminalCommand({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,spawn:launch});let settled=false;void result.then(()=>settled=true,()=>settled=true);
     expect(launch).toHaveBeenCalledWith('powershell.exe',expect.any(Array),expect.objectContaining({detached:false,stdio:'ignore',windowsHide:true}));
-    child.emit('spawn');await vi.advanceTimersByTimeAsync(100);
+    // Cold PowerShell/.NET startup on ARM64 can exceed the old ten-second limit.
+    child.emit('spawn');await vi.advanceTimersByTimeAsync(11_000);
     expect(settled).toBe(false);expect(child.unref).not.toHaveBeenCalled();
     child.emit('close',0);await expect(result).resolves.toBe('win32:console');expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('still terminates a Windows console bootstrap that stalls beyond thirty seconds',async()=>{
+    vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();
+    const result=launchTerminalCommand({platform:'win32',env:{RADIOCLI_ALARM_TERMINAL:'win32:console'},nodePath:'/node',args:['/cli.js'],resolve,spawn:()=>child}).catch(error=>error as Error);
+    child.emit('spawn');await vi.advanceTimersByTimeAsync(29_999);expect(child.kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    await vi.advanceTimersByTimeAsync(1_000);expect(await result).toMatchObject({message:'Launch bootstrap did not complete.'});
+    expect(child.kill).toHaveBeenLastCalledWith('SIGKILL');expect(child.unref).toHaveBeenCalledOnce();
   });
   it('rejects a transient bootstrap failure after the ordinary launcher grace period',async()=>{
     vi.useFakeTimers();const child=new EventEmitter() as ChildProcess;child.unref=vi.fn();child.kill=vi.fn();

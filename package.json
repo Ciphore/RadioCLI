@@ -1,6 +1,6 @@
 {
   "name": "@ciphore/radiocli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "A terminal-first world radio receiver built with Ink, mpv, and resilient public-radio providers.",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,16 @@
     "SECURITY.md",
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
-    "docs"
+    "docs",
+    "scripts/build-airplay-native.mjs",
+    "vendor/node-airtunes2/lib",
+    "vendor/node-airtunes2/src",
+    "vendor/node-airtunes2/package.json",
+    "vendor/node-airtunes2/binding.gyp",
+    "vendor/node-airtunes2/LICENSE",
+    "vendor/node-airtunes2/README.md",
+    "vendor/node-airtunes2/RADIOCLI_PATCH.md",
+    "vendor/node-airtunes2/UPSTREAM.json"
   ],
   "bin": {
     "radiocli": "dist/cli.js"
@@ -47,7 +56,7 @@
     "check:whitespace": "node scripts/whitespace-check.mjs",
     "check:exports": "knip",
     "check:package": "publint",
-    "audit:runtime": "node scripts/audit-ci.mjs --omit=dev --omit=optional --audit-level=high",
+    "audit:runtime": "node scripts/audit-ci.mjs --omit=dev --include=optional --audit-level=low",
     "audit:docs": "node scripts/audit-ci.mjs --prefix=apps/docs --omit=dev --audit-level=high",
     "lint": "npm run check:unused && npm run check:whitespace && npm run check:exports",
     "docs:dev": "npm --prefix apps/docs run dev",
@@ -56,26 +65,28 @@
     "start": "node dist/cli.js",
     "test": "vitest run",
     "verify": "npm run check && npm run lint && npm run test && npm run build && npm run smoke:data",
-    "verify:release": "npm run verify && npm run smoke:playback && npm run pack:check && npm run fresh:check && npm run check:package",
+    "verify:release": "node scripts/verify-release.mjs",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run check && npm run lint && npm run test && npm run smoke:data && npm run fresh:check && npm run check:package",
+    "prepublishOnly": "npm run verify:release",
     "pack:check": "npm pack --dry-run",
     "smoke:data": "tsx src/smoke/data-smoke.ts",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "smoke:playback": "tsx src/smoke/playback-smoke.ts",
+    "smoke:network": "tsx src/smoke/network-playback-smoke.ts",
+    "smoke:cli": "tsx src/smoke/cli-smoke.ts",
     "demo:script": "node scripts/demo-script.mjs",
     "demo:assets": "node scripts/capture-demo-assets.mjs",
-    "fresh:check": "node scripts/fresh-check.mjs"
+    "fresh:check": "node scripts/fresh-check.mjs",
+    "postinstall": "node scripts/build-airplay-native.mjs"
   },
   "dependencies": {
+    "@homebridge/dbus-native": "^0.7.9",
     "@modelcontextprotocol/server": "^2.0.0",
     "ink": "^7.0.5",
     "jsonc-parser": "^3.3.1",
     "react": "^19.2.6",
+    "string-width": "8.2.1",
     "zod": "^4.4.3"
-  },
-  "overrides": {
-    "protobufjs": "^7.5.8"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
@@ -85,12 +96,24 @@
     "publint": "^0.3.21",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=22"
   },
   "optionalDependencies": {
-    "node-airtunes2": "2.5.0"
+    "@noble/ed25519": "1.7.5",
+    "async": "3.2.6",
+    "axlsign": "git+https://github.com/ciderapp/curve25519-js.git#cae68782564b83ffa1c7c757e40a3944cb140290",
+    "big-integer": "1.6.52",
+    "bplist-creator": "0.1.1",
+    "bplist-parser": "0.3.2",
+    "chacha-js": "git+https://github.com/ciderapp/chacha20poly1305.git#f85941b8f5c62843a1459758cc3dbabad9f849cb",
+    "curve25519-js": "0.0.4",
+    "fast-srp-hap": "2.0.4",
+    "js-sha1": "0.7.0",
+    "lodash": "4.18.1",
+    "python-struct": "1.1.3",
+    "node-gyp": "12.3.0"
   }
 }

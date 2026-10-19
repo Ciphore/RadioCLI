@@ -11,3 +11,8 @@ coverage/
 *.log
 *.tsbuildinfo
 .radiocli-test/
+.tmp/
+README.proposed.md
+README.preview.html
+README*.preview.jpg
+vendor/node-airtunes2/build/

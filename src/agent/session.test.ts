@@ -3,8 +3,8 @@ import {createServer} from 'node:http';
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, describe, expect, it} from 'vitest';
-import {connectRadioSession, startRadioSession, type RadioSessionCommand, type RadioSessionStatus} from './session.js';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {connectRadioSession, resolveDesktopTransport, serializeRadioCommands, startRadioSession, type RadioSessionCommand, type RadioSessionStatus} from './session.js';
 
 const roots: string[] = [];
 const idle: RadioSessionStatus = {
@@ -19,6 +19,39 @@ afterEach(() => {
 });
 
 describe('agent radio session', () => {
+  it('resolves capability no-ops and pause/stop preservation only from the state at execution', () => {
+    const station = {provider: 'playlist' as const, id: 'first', name: 'First', tags: []};
+    const selected = {...idle, station, queue: [station, {...station, id: 'second'}], playback: {...idle.playback, backend: 'mpv', state: 'stopped' as const}};
+    expect(resolveDesktopTransport('play', idle)).toBeNull();
+    expect(resolveDesktopTransport('next', idle)).toBeNull();
+    expect(resolveDesktopTransport('stop', idle)).toEqual({type: 'stop', retainSelection: true});
+    expect(resolveDesktopTransport('stop', selected)).toEqual({type: 'stop', retainSelection: true});
+    expect(resolveDesktopTransport('pause', selected)).toBeNull();
+    expect(resolveDesktopTransport('play', selected)).toEqual({type: 'resume', restartStopped: true});
+    expect(resolveDesktopTransport('next', selected)).toEqual({type: 'next', preservePause: true, preserveStop: true});
+    expect(resolveDesktopTransport('play', {...selected, playback: {...selected.playback, state: 'playing', ready: true}})).toBeNull();
+    expect(resolveDesktopTransport('toggle', {...selected, playback: {...selected.playback, state: 'paused', ready: true}})).toEqual({type: 'resume'});
+    expect(resolveDesktopTransport('pause', {...selected, playback: {...selected.playback, backend: 'ffplay', state: 'playing', ready: true}})).toBeNull();
+    expect(() => resolveDesktopTransport('toggle', {...selected, playback: {...selected.playback, backend: 'ffplay', state: 'playing', ready: true}})).toThrow('cannot toggle');
+  });
+  it('shares one command queue across agent and desktop controls and checks alarm ownership when work starts', async () => {
+    let suspended = false;
+    const order: string[] = [];
+    const dispatch = serializeRadioCommands(async command => {
+      order.push(command.type);
+      if (command.type === 'alarm-preempt') suspended = true;
+      if (command.type === 'pause') throw new Error('Output unavailable');
+      return {ok: true, message: 'ok', status: idle};
+    });
+    const failed = dispatch({type: 'pause'});
+    const alarm = dispatch({type: 'alarm-preempt'});
+    const desktop = dispatch({type: 'next', preservePause: true}, () => !suspended);
+    await expect(failed).rejects.toThrow('Output unavailable');
+    await expect(alarm).resolves.toMatchObject({ok: true});
+    await expect(desktop).rejects.toThrow('suspended');
+    expect(order).toEqual(['pause', 'alarm-preempt']);
+    await expect(dispatch({type: 'status'})).resolves.toMatchObject({ok: true});
+  });
   it('authenticates requests and serializes simultaneous agent commands', async () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-agent-session-'));
     roots.push(root);
@@ -43,6 +76,45 @@ describe('agent radio session', () => {
       await server.close();
     }
     expect(await connectRadioSession(path)).toBeNull();
+  });
+
+  it('submits accepted HTTP commands to the shared owner queue before later desktop actions', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-shared-session-'));
+    roots.push(root);
+    const path = join(root, 'session.json');
+    const accepted: string[] = [];
+    const executed: string[] = [];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const dispatch = serializeRadioCommands(async command => {
+      executed.push(command.type);
+      if (command.type === 'pause') await held;
+      return {ok: true, message: command.type, status: idle};
+    });
+    const server = await startRadioSession(command => {
+      accepted.push(command.type);
+      return dispatch(command);
+    }, path, {queue: 'owner'});
+    const requests: Promise<unknown>[] = [];
+    try {
+      const client = await connectRadioSession(path);
+      expect(client).not.toBeNull();
+      accepted.length = 0;
+      executed.length = 0;
+      requests.push(client!.call({type: 'pause'}));
+      await vi.waitFor(() => expect(executed).toEqual(['pause']));
+      requests.push(client!.call({type: 'resume'}));
+      await vi.waitFor(() => expect(accepted).toEqual(['pause', 'resume']));
+      requests.push(dispatch({type: 'desktop-transport', action: 'stop'}));
+      expect(executed).toEqual(['pause']);
+      release();
+      await Promise.all(requests);
+      expect(executed).toEqual(['pause', 'resume', 'desktop-transport']);
+    } finally {
+      release();
+      await Promise.allSettled(requests);
+      await server.close();
+    }
   });
 
   it('allows only one playback owner for a discovery path', async () => {

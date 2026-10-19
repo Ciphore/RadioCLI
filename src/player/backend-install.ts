@@ -1,20 +1,24 @@
 import {ffplayInstallCommand, mpvInstallCommand, type PackageHintOptions} from '../platform/packages.js';
-import {identifyPlatform, nativeAdapters, readLinuxOsRelease} from '../platform/runtime.js';
+import {readLinuxOsRelease} from '../platform/runtime.js';
 import {commandExists} from '../platform/executables.js';
+import type {AppSettings} from '../types.js';
+import {airPlayPolicy} from './airplay-policy.js';
+export {isAirPlayPlatformSupported} from './airplay-policy.js';
 import {airPlaySenderHealth} from './airplay-sender-health.js';
 
 type PlaybackBackendDetectionOptions = {
+  settings?: Pick<AppSettings, 'linuxAirPlayEnabled'>;
   platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  release?: string;
   hasCommand?: (command: string) => boolean;
   hasAirPlaySender?: () => boolean;
 };
 
 export const ffplayLimitedControlsMessage = 'ffplay fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
 export const vlcLimitedControlsMessage = 'VLC fallback has limited controls. Install mpv for pause, mute, volume, and media keys.';
-export const airPlayMacOSOnlyMessage = 'AirPlay output is available only on macOS and is not supported on this operating system.';
-
-export function isAirPlayPlatformSupported(platform: NodeJS.Platform = process.platform): boolean {
-  return nativeAdapters(identifyPlatform({platform})).airPlay;
+export function airPlayLocalDeviceLabel(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'darwin' ? 'this Mac' : 'this device';
 }
 
 export type PlaybackBackendCapabilities = {
@@ -28,6 +32,9 @@ export type PlaybackBackendCapabilities = {
 
 export function detectPlaybackBackends({
   platform = process.platform,
+  settings,
+  env,
+  release,
   hasCommand = commandExists,
   hasAirPlaySender = hasAirPlaySenderPackage
 }: PlaybackBackendDetectionOptions = {}): string[] {
@@ -36,7 +43,9 @@ export function detectPlaybackBackends({
     backends.push('vlc');
   }
 
-  if (isAirPlayPlatformSupported(platform) && hasCommand('ffmpeg') && hasCommand('dns-sd') && hasAirPlaySender()) {
+  // This is only a cheap candidate check. Discovery and explicit diagnostics
+  // separately verify the daemon and isolated native sender loadability.
+  if (airPlayPolicy(settings, {platform, env, release}).enabled && hasCommand('ffmpeg') && hasCommand(platform === 'linux' ? 'avahi-browse' : 'dns-sd') && hasAirPlaySender()) {
     backends.push('airplay');
   }
 

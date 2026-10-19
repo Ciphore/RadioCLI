@@ -4,6 +4,8 @@ export type ScheduledOccurrenceAssessment = 'pending' | 'due' | 'missed';
 export const NATIVE_DISPATCH_TOLERANCE_MS = 30_000;
 
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
+const timezoneCache = new Map<string, string>();
+const civilOccurrenceCache = new Map<string, number | null>();
 
 export function isValidTimeZone(timezone: string): boolean {
   try {
@@ -16,12 +18,17 @@ export function isValidTimeZone(timezone: string): boolean {
 
 export function canonicalizeTimeZone(timezone: string): string {
   const value = timezone.trim();
+  const cached = timezoneCache.get(value);
+  if (cached) { timezoneCache.delete(value); timezoneCache.set(value, cached); return cached; }
   try {
     if (!value) throw new Error('Empty timezone.');
     // The constructor validates the zone and resolves its canonical name.
     // Constructing twice made large-library validation expensive on Node 22
     // Intel hosts; keep one native validation for every supplied value.
-    return new Intl.DateTimeFormat('en-US', {timeZone: value}).resolvedOptions().timeZone;
+    const canonical = new Intl.DateTimeFormat('en-US', {timeZone: value}).resolvedOptions().timeZone;
+    timezoneCache.set(value, canonical);
+    while (timezoneCache.size > 256) timezoneCache.delete(timezoneCache.keys().next().value!);
+    return canonical;
   } catch {
     throw new Error(`Invalid IANA timezone: ${timezone}`);
   }
@@ -118,6 +125,7 @@ function zonedParts(instant: Date, timezone: string): CivilParts {
       hourCycle: 'h23'
     });
     formatterCache.set(timezone, formatter);
+    while (formatterCache.size > 128) formatterCache.delete(formatterCache.keys().next().value!);
   }
   const values = Object.fromEntries(
     formatter.formatToParts(instant)
@@ -134,6 +142,19 @@ function zonedParts(instant: Date, timezone: string): CivilParts {
 }
 
 function resolveCivilOccurrence(target: CivilParts, timezone: string): Date | null {
+  const key = `${timezone}:${target.year}:${target.month}:${target.day}:${target.hour}:${target.minute}`;
+  if (civilOccurrenceCache.has(key)) {
+    const cached = civilOccurrenceCache.get(key)!;
+    civilOccurrenceCache.delete(key); civilOccurrenceCache.set(key, cached);
+    return cached === null ? null : new Date(cached);
+  }
+  const result = scanCivilOccurrence(target, timezone);
+  civilOccurrenceCache.set(key, result?.getTime() ?? null);
+  while (civilOccurrenceCache.size > 2048) civilOccurrenceCache.delete(civilOccurrenceCache.keys().next().value!);
+  return result;
+}
+
+function scanCivilOccurrence(target: CivilParts, timezone: string): Date | null {
   const estimate = Date.UTC(target.year, target.month - 1, target.day, target.hour, target.minute);
   const start = estimate - 18 * 60 * 60_000;
   const end = estimate + 18 * 60 * 60_000;

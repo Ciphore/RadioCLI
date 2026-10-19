@@ -14,7 +14,7 @@ export function buildGallop(pulse: number, width: number, height: number, theme:
   const frame = frames[frameIndex]!;
   const usableW = w > 8 ? w - 4 : w;
   const usableH = h > 4 ? h - 2 : h;
-  const scale = Math.min(usableW * 2 / horseStrideWidth, usableH * 4 / horseStrideHeight);
+  const scale = Math.min(usableW * 2 / horseStrideWidth, usableH * 4 / horseStrideHeight) * 0.9;
   const dotsW = Math.max(1, Math.floor(horseStrideWidth * scale));
   const dotsH = Math.max(1, Math.floor(horseStrideHeight * scale));
   const left = Math.floor((w - Math.ceil(dotsW / 2)) / 2) * 2;

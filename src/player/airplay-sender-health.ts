@@ -1,6 +1,8 @@
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {dirname} from 'node:path';
+import {runAirPlayCommand, type AirPlayCommandRunner} from './airplay-process.js';
+import {airPlaySenderPackageJson} from './airplay-sender-package.js';
 
 const require = createRequire(import.meta.url);
 
@@ -10,6 +12,8 @@ type PackageVersion = {
   name: string;
   version: string;
   root: string;
+  nativeEd25519?: boolean;
+  dependencies?: string[];
 };
 
 type PackageLookup = (packageName: string, paths?: string[]) => PackageVersion | null;
@@ -24,6 +28,34 @@ export type AirPlaySenderHealth = {
   warningPackages: string[];
 };
 
+export type AirPlaySenderLoadability = {loaded: boolean; message: string};
+let senderProbe: {key: string; until: number; result: Promise<AirPlaySenderLoadability>} | undefined;
+
+/** Explicit diagnostics/discovery only: loading native code stays outside the TUI. */
+export async function probeAirPlaySender(options: {health?: AirPlaySenderHealth; run?: AirPlayCommandRunner; timeoutMs?: number} = {}): Promise<AirPlaySenderLoadability> {
+  const health = options.health ?? airPlaySenderHealth();
+  if (!health.safe) return {loaded: false, message: health.message};
+  const key = `${process.execPath}:${health.packageName}:${health.version}`;
+  if (!options.run && senderProbe?.key === key && senderProbe.until > Date.now()) return senderProbe.result;
+  const result = (async () => {
+    const code = [
+      "const r = require('node:module').createRequire(process.argv[1]);",
+      "try { const s = r('./');",
+      "if (typeof s !== 'function' || typeof s.prototype.add !== 'function' || typeof s.prototype.stopAll !== 'function') process.exit(1);",
+      // The Linux binding is otherwise loaded only when constructing a receiver.
+      // Match the sender's JS fallback on a normal require failure, but contain
+      // native crashes here before advertising a loadable sender. No sockets.
+      "if (process.platform === 'linux') { try { r('./build/Release/airtunes'); } catch {} }",
+      'process.exit(0); } catch { process.exit(1); }'
+    ].join('\n');
+    const probe = await (options.run ?? runAirPlayCommand)(process.execPath, ['-e', code, airPlaySenderPackageJson], Math.min(1500, Math.max(1, options.timeoutMs ?? 1500)), 4096);
+    const loaded = probe.code === 0 && !probe.timedOut && !probe.truncated;
+    return {loaded, message: loaded ? 'The optional AirPlay sender loaded in an isolated process.' : 'The optional AirPlay sender could not load. Local playback remains available; run radiocli doctor.'};
+  })();
+  if (!options.run) senderProbe = {key, until: Date.now() + 30_000, result};
+  return result;
+}
+
 export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstalledPackage): AirPlaySenderHealth {
   const sender = lookupPackage(airPlaySenderPackageName);
   if (!sender) {
@@ -37,17 +69,21 @@ export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstall
     };
   }
 
-  const vulnerablePackages = blockingAirPlaySenderPackages(sender, lookupPackage);
-  const warningPackages = warningAirPlaySenderPackages(sender, lookupPackage);
-  if (vulnerablePackages.length > 0) {
+  const missingPackages = (sender.dependencies ?? []).filter(name => !lookupPackage(name, [sender.root]));
+  if (missingPackages.length > 0) {
+    return {available: false, safe: false, packageName: sender.name, version: sender.version,
+      message: `Optional AirPlay sender dependencies are not installed: ${missingPackages.join(', ')}. Local playback remains available.`,
+      vulnerablePackages: [], warningPackages: []};
+  }
+  if (!sender.nativeEd25519) {
     return {
       available: true,
       safe: false,
       packageName: sender.name,
       version: sender.version,
-      message: `Installed AirPlay sender ${sender.name}@${sender.version} is blocked because vulnerable transitive dependencies were found: ${vulnerablePackages.join(', ')}.`,
-      vulnerablePackages,
-      warningPackages
+      message: `AirPlay sender ${sender.name}@${sender.version} is missing the native Ed25519 security fix.`,
+      vulnerablePackages: [`${sender.name}@${sender.version}`],
+      warningPackages: []
     };
   }
 
@@ -56,44 +92,22 @@ export function airPlaySenderHealth(lookupPackage: PackageLookup = lookupInstall
     safe: true,
     packageName: sender.name,
     version: sender.version,
-    message: warningPackages.length > 0
-      ? `Bundled AirPlay sender ${sender.name}@${sender.version} is available with warnings: ${warningPackages.join(', ')}.`
-      : `AirPlay sender ${sender.name}@${sender.version} passed the dependency safety gate.`,
+    message: `AirPlay sender ${sender.name}@${sender.version} uses native Ed25519 with its optional runtime dependencies installed.`,
     vulnerablePackages: [],
-    warningPackages
+    warningPackages: []
   };
-}
-
-function blockingAirPlaySenderPackages(sender: PackageVersion, lookupPackage: PackageLookup): string[] {
-  const packagePaths = [sender.root];
-  const vulnerable: string[] = [];
-  const protobuf = lookupPackage('protobufjs', packagePaths);
-
-  if (protobuf && compareSemver(protobuf.version, '7.5.8') < 0) {
-    vulnerable.push(`protobufjs@${protobuf.version}`);
-  }
-
-  return vulnerable;
-}
-
-function warningAirPlaySenderPackages(sender: PackageVersion, lookupPackage: PackageLookup): string[] {
-  const packagePaths = [sender.root];
-  const vulnerable: string[] = [];
-  const elliptic = lookupPackage('elliptic', packagePaths);
-
-  if (elliptic && compareSemver(elliptic.version, '6.6.2') < 0) {
-    vulnerable.push(`elliptic@${elliptic.version}`);
-  }
-
-  return vulnerable;
 }
 
 function lookupInstalledPackage(packageName: string, paths?: string[]): PackageVersion | null {
   try {
-    const packageJsonPath = paths
+    // Package exports can hide package.json while exposing the runtime entry.
+    if (paths && packageName !== airPlaySenderPackageName) {
+      return {name: packageName, version: 'installed', root: dirname(require.resolve(packageName, {paths}))};
+    }
+    const packageJsonPath = packageName === airPlaySenderPackageName ? airPlaySenderPackageJson : paths
       ? require.resolve(`${packageName}/package.json`, {paths})
       : require.resolve(`${packageName}/package.json`);
-    const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {name?: string; version?: string};
+    const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {name?: string; version?: string; radiocliLegacyPairing?: string; dependencies?: Record<string, string>};
     if (!parsed.version) {
       return null;
     }
@@ -101,31 +115,10 @@ function lookupInstalledPackage(packageName: string, paths?: string[]): PackageV
     return {
       name: parsed.name ?? packageName,
       version: parsed.version,
-      root: dirname(packageJsonPath)
+      root: dirname(packageJsonPath),
+      ...(packageName === airPlaySenderPackageName ? {nativeEd25519: parsed.radiocliLegacyPairing === 'node:crypto', dependencies: Object.keys(parsed.dependencies ?? {})} : {})
     };
   } catch {
     return null;
   }
-}
-
-function compareSemver(left: string, right: string): number {
-  const leftParts = semverParts(left);
-  const rightParts = semverParts(right);
-  for (let index = 0; index < 3; index += 1) {
-    const delta = leftParts[index]! - rightParts[index]!;
-    if (delta !== 0) {
-      return delta;
-    }
-  }
-
-  return 0;
-}
-
-function semverParts(version: string): [number, number, number] {
-  const [major = '0', minor = '0', patch = '0'] = version.split(/[.-]/);
-  return [
-    Number.parseInt(major, 10) || 0,
-    Number.parseInt(minor, 10) || 0,
-    Number.parseInt(patch, 10) || 0
-  ];
 }

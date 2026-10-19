@@ -1,9 +1,9 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {Box, Text} from 'ink';
 import type {Alarm, ThemeName} from '../../types.js';
 import {draftNextOccurrence, type AlarmDraft, type AlarmEditorControl, type AlarmEditorField, type TimeSegment} from '../alarm-editor.js';
 import type {AlarmRuntimeSummary, AlarmVerificationReport, TuiActiveAlarm} from '../alarm-tui-service.js';
-import {nextOccurrenceForAlarm} from '../../alarms/schedule.js';
+import {AlarmOccurrenceCache} from '../../alarms/occurrence-cache.js';
 import {stationKey} from '../../storage/store.js';
 import {visibleWindow} from '../list-window.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
@@ -22,9 +22,11 @@ export function AlarmsScreen({alarms, selected, runtime, verification, deletingI
   const accent = themeAccent(theme);
   const {ascii, reduceMotion} = useDisplay(); const a = (value:string) => ascii ? toAsciiSafe(value) : value;
   const mode = requestedMode ?? (width < 34 ? 'micro' : width < 68 ? 'compact' : 'full');
+  const occurrenceCache = useMemo(() => new AlarmOccurrenceCache(), []);
   if(verification)return <AlarmVerificationScreen report={verification} theme={theme} width={width} height={height}/>;
   const status = schedulerStatus(runtime, mode);
-  const next = alarms.map(alarm => ({alarm, occurrence: nextOccurrenceForAlarm(alarm, new Date())})).filter(item => item.occurrence).sort((a, b) => a.occurrence!.getTime() - b.occurrence!.getTime())[0];
+  const now = new Date();
+  const next = alarms.map(alarm => ({alarm, occurrence: occurrenceCache.next(alarm, now)})).filter(item => item.occurrence).sort((a, b) => a.occurrence!.getTime() - b.occurrence!.getTime())[0];
   const noticeRows=height>=11?2:1;
   const rows = Math.max(1, height - 5 - noticeRows);
   const items: Array<{kind: 'create'}|{kind:'verify'}|{kind: 'alarm'; alarm: Alarm}> = [{kind: 'create'}, ...alarms.map(alarm => ({kind: 'alarm' as const, alarm})), {kind:'verify'}];

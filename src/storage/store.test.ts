@@ -420,6 +420,31 @@ describe('JsonLibraryStore', () => {
     expect(new JsonLibraryStore(file).snapshot().favorites.map(item => item.id)).toContain('favorite');
   });
 
+  it('backs up the latest concurrent library before replacing it on restore', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli restore café '));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const backupFile = join(root, 'portable backup.json');
+    const restoring = new JsonLibraryStore(file);
+    restoring.updateSettings({theme: 'ruby'});
+    restoring.exportBackup(backupFile);
+
+    const writer = new JsonLibraryStore(file);
+    const station: Station = {id: 'new-favorite', provider: 'radio-browser', name: 'New Favorite', tags: []};
+    writer.toggleFavorite(station);
+    writer.savePreset('new', station);
+    writer.updateSettings({theme: 'amber', receiverStyle: 'mesh'});
+
+    const result = restoring.importBackup(backupFile);
+    const safety = new JsonLibraryStore(result.safetyBackupPath!).snapshot();
+    expect(safety.favorites.map(item => item.id)).toEqual(['new-favorite']);
+    expect(safety.presets?.[0]?.station.id).toBe('new-favorite');
+    expect(safety.settings).toMatchObject({theme: 'amber', receiverStyle: 'mesh'});
+    expect(result.state.favorites).toEqual([]);
+    expect(result.state.settings.theme).toBe('ruby');
+    expect(new JsonLibraryStore(file).snapshot().settings.theme).toBe('ruby');
+  });
+
   it('rejects invalid imports without replacing the current library', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
@@ -553,6 +578,23 @@ describe('JsonLibraryStore', () => {
     const backup = readdirSync(root).find(name => name.startsWith('library.json.bad-'));
     expect(backup).toBeDefined();
     expect(readFileSync(join(root, backup!), 'utf8')).toBe('{not json');
+  });
+
+  it('preserves an intact library with a receiver style from a newer build', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-newer-style-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    const station: Station = {id: 'retained', provider: 'playlist', name: 'Retained station', tags: []};
+    store.toggleFavorite(station);
+    const saved = store.snapshot();
+    const contents = JSON.stringify({...saved, settings: {...saved.settings, receiverStyle: 'future-scene'}});
+    writeFileSync(file, contents);
+
+    expect(() => store.snapshot()).toThrow(/Restart RadioCLI and its MCP clients/);
+    expect(() => new JsonLibraryStore(file)).toThrow(/receiver style this process does not support/);
+    expect(readFileSync(file, 'utf8')).toBe(contents);
+    expect(readdirSync(root).filter(name => name.startsWith('library.json.bad-'))).toEqual([]);
   });
 
   it.skipIf(!nativePermissions)('keeps a readable library usable in a read-only directory and preserves it after a failed commit', () => {
@@ -767,19 +809,39 @@ describe('JsonLibraryStore', () => {
     const lockPath = `${file}.lock`;
     mkdirSync(lockPath);
     const failure = Object.assign(new Error(`lock inspection failed at ${lockPath}`), {code: 'EIO'});
-    const stat = fs.statSync;
+    const readDirectory = fs.readdirSync;
     let inspected = false;
-    vi.spyOn(fs, 'statSync').mockImplementation(((...args: Parameters<typeof fs.statSync>) => {
+    vi.spyOn(fs, 'readdirSync').mockImplementation(((...args: Parameters<typeof fs.readdirSync>) => {
       if (args[0] === lockPath && !inspected) {
         inspected = true;
         throw failure;
       }
-      return stat(...args);
-    }) as typeof fs.statSync);
+      return readDirectory(...args);
+    }) as typeof fs.readdirSync);
 
     expect(() => store.updateSettings({theme: 'ruby'})).toThrow(expect.objectContaining({code: 'EIO', cause: failure}));
     expect(store.snapshot()).toEqual(before);
     expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('preserves both disk and memory when flushing the temporary data fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-')); roots.push(root);
+    const file = join(root, 'library.json'); const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'amber'}); const before = readFileSync(file, 'utf8');
+    vi.spyOn(fs, 'fsyncSync').mockImplementationOnce(() => { throw Object.assign(new Error('flush failed'), {code: 'EIO'}); });
+    expect(() => store.updateSettings({theme: 'ruby'})).toThrow(expect.objectContaining({code: 'EIO'}));
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(store.cachedSnapshot().settings.theme).toBe('amber');
+    expect(readdirSync(root)).toEqual(['library.json']);
+  });
+
+  it('keeps a committed replacement in memory when the filesystem cannot sync directories', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-')); roots.push(root);
+    const file = join(root, 'library.json'); const store = new JsonLibraryStore(file);
+    const original = fs.fsyncSync; let syncs = 0;
+    vi.spyOn(fs, 'fsyncSync').mockImplementation(fd => { if (++syncs === 2) throw Object.assign(new Error('directory sync unsupported'), {code: 'EINVAL'}); original(fd); });
+    expect(store.updateSettings({theme: 'ruby'}).settings.theme).toBe('ruby');
+    expect(new JsonLibraryStore(file).settings().theme).toBe('ruby');
   });
 
   it.each(['scope', 'spectrum', 'oscilloscope', 'motion-bars', 'radar', 'dual-ripple', 'perspective-floor', 'bloom-bars', 'running-horse', 'starlink', 'tuning-dial', 'cassette', `${'term'}${'flix'}-plasma`, 'sierpinksi', 'voronoi', 'orbits', 'chromatic', 'ferro-crown', 'origami-tide', 'tv-static', 'sunspot', 'plasma', 'metaballs', 'motion-blob', 'clifford', 'mirror', 'paris', 'kyoto', 'sahara'])(
@@ -950,6 +1012,109 @@ describe('JsonLibraryStore', () => {
       store.updateSettings({receiverStyle});
       expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
     }
+  });
+
+  // This matrix performs durable filesystem commits for every receiver.
+  it('preserves every supported receiver and favorites through background writes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.toggleFavorite(exampleAlarm().station);
+    const observer = new JsonLibraryStore(file);
+    for (const receiverStyle of receiverStyleNames) {
+      store.updateSettings({receiverStyle});
+      const legacy = JSON.parse(readFileSync(file, 'utf8'));
+      expect(legacy.settings.receiverStyle).toBe(receiverStyle);
+      // Old stores rewrite only the fields they know, leaving the sidecar alone.
+      legacy.settings.volume = 39;
+      writeFileSync(file, JSON.stringify(legacy));
+      expect(observer.snapshot().settings).toMatchObject({receiverStyle, volume: 39});
+      expect(observer.snapshot().favorites).toHaveLength(1);
+    }
+    store.updateSettings({receiverStyle: 'ultracode'});
+    expect(existsSync(`${file}.receiver.json`)).toBe(false);
+    expect(observer.snapshot().settings.receiverStyle).toBe('ultracode');
+    expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
+  }, 20_000);
+
+  it('refreshes receiver-only changes and exports and restores the actual selection', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const writer = new JsonLibraryStore(file);
+    writer.updateSettings({receiverStyle: 'ultracode'});
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
+    const observer = new JsonLibraryStore(file);
+    const backup = writer.exportBackup(join(root, 'backup.json'));
+    expect(JSON.parse(readFileSync(backup, 'utf8')).library.settings.receiverStyle).toBe('mesh');
+    // Simulate another owner atomically replacing only the preference file.
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'galaxy', libraryReceiverStyle: 'ultracode'}));
+    expect(observer.snapshot().settings.receiverStyle).toBe('galaxy');
+    writer.importBackup(backup);
+    expect(observer.snapshot().settings.receiverStyle).toBe('mesh');
+  });
+
+  it.each(['synthwave-sun', 'neon-alley', 'safari-dusk', 'hot-air-balloons', 'deep-sea-whale', 'meteor-shower', 'volcano', 'desert-highway', 'firefly-grove', 'cherry-blossom', 'event-horizon', 'lighthouse'])('migrates retired %s selections without resetting library data', receiverStyle => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const writer = new JsonLibraryStore(file);
+    writer.toggleFavorite(exampleAlarm().station);
+    writer.addRecent(exampleAlarm().station);
+    const saved = writer.snapshot();
+    const previous = {...saved, settings: {...saved.settings, receiverStyle}};
+    writeFileSync(file, JSON.stringify(previous));
+    const store = new JsonLibraryStore(file);
+    expect(store.settings().receiverStyle).toBe('ultracode');
+    expect(store.snapshot().favorites).toEqual(saved.favorites);
+    expect(store.snapshot().recent).toEqual(saved.recent);
+    store.updateSettings({volume: 38});
+    expect(JSON.parse(readFileSync(file, 'utf8')).settings.receiverStyle).toBe('ultracode');
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle, libraryReceiverStyle: 'ultracode'}));
+    expect(new JsonLibraryStore(file).settings().receiverStyle).toBe('ultracode');
+    const backup = join(root, 'preview-backup.json');
+    writeFileSync(backup, JSON.stringify(previous));
+    store.importBackup(backup);
+    expect(store.settings().receiverStyle).toBe('ultracode');
+    expect(store.snapshot().favorites).toEqual(saved.favorites);
+    expect(store.snapshot().recent).toEqual(saved.recent);
+    expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
+  });
+
+  it.each(['mesh', 'galaxy', 'ultracode'] as const)('rolls back a legacy receiver preference if the library replacement fails (%s)', receiverStyle => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    new JsonLibraryStore(file).updateSettings({receiverStyle: 'ultracode'});
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
+    const store = new JsonLibraryStore(file);
+    const library = readFileSync(file, 'utf8');
+    const preference = readFileSync(`${file}.receiver.json`, 'utf8');
+    const rename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (to === file) throw Object.assign(new Error('replacement failed'), {code: 'EIO'});
+      return rename(from, to);
+    });
+    expect(() => store.updateSettings({receiverStyle, volume: 40})).toThrow(/write/);
+    expect(readFileSync(file, 'utf8')).toBe(library);
+    expect(readFileSync(`${file}.receiver.json`, 'utf8')).toBe(preference);
+    expect(store.settings().receiverStyle).toBe('mesh');
+  });
+
+  it('preserves the library when a newer receiver preference is unsupported', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({receiverStyle: 'ultracode'});
+    const library = readFileSync(file, 'utf8');
+    const preference = JSON.stringify({version: 1, receiverStyle: 'future-scene', libraryReceiverStyle: 'ultracode'});
+    writeFileSync(`${file}.receiver.json`, preference);
+    expect(() => store.updateSettings({volume: 25})).toThrow(/library has been preserved/);
+    expect(readFileSync(file, 'utf8')).toBe(library);
+    expect(readFileSync(`${file}.receiver.json`, 'utf8')).toBe(preference);
+    expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
   });
 
   it('persists every display color exposed by the UI cycle', () => {

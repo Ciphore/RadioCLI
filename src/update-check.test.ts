@@ -1,8 +1,12 @@
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {delimiter, join} from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
   automaticUpdateChecksAllowed,
   checkForUpdate,
   compareSemver,
+  installUpdate,
   shouldCheckForUpdate,
   updateAvailableForVersion,
   updateCommandForInstall,
@@ -10,10 +14,22 @@ import {
   updateStatusText
 } from './update-check.js';
 
+const directories: string[] = [];
+
+function managerFixture(name: string, body: string): string {
+  const directory = mkdtempSync(join(tmpdir(), 'radiocli-update-'));
+  directories.push(directory);
+  const bin = join(directory, 'user bin 单播');
+  mkdirSync(bin);
+  writeFileSync(join(bin, `${name}${process.platform === 'win32' ? '.cmd' : ''}`), body, {mode: 0o755});
+  return bin;
+}
+
 describe('update checks', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.useRealTimers();
+    for (const directory of directories.splice(0)) rmSync(directory, {recursive: true, force: true});
   });
 
   it('compares semantic versions', () => {
@@ -166,11 +182,34 @@ describe('update checks', () => {
     });
     expect(updateShellForPlatform('darwin', 'brew upgrade pkg')).toEqual({
       command: 'sh',
-      args: ['-lc', 'brew upgrade pkg']
+      args: ['-c', 'brew upgrade pkg']
     });
     expect(updateShellForPlatform('linux', 'npm install -g pkg')).toEqual({
       command: 'sh',
-      args: ['-lc', 'npm install -g pkg']
+      args: ['-c', 'npm install -g pkg']
     });
+  });
+
+  it.each(['npm', 'pnpm', 'bun'])('updates with the launching PATH\'s %s instead of another installation', async manager => {
+    const script = (marker: string) => process.platform === 'win32'
+      ? `@echo off\r\necho ${marker}\r\n`
+      : `#!/bin/sh\nprintf '%s\\n' '${marker}'\n`;
+    const userBin = managerFixture(manager, script(`user-${manager}`));
+    const systemBin = managerFixture(manager, script(`other-${manager}`));
+    vi.stubEnv('PATH', [userBin, systemBin, process.env.PATH ?? ''].join(delimiter));
+
+    // --version is harmless even if a regression selects a real installed manager.
+    expect(await installUpdate(`${manager} --version`)).toEqual({
+      ok: true, command: `${manager} --version`, output: `user-${manager}`
+    });
+  });
+
+  it.skipIf(process.platform === 'win32').each([0, 7])('preserves ordered update chains and first-step failure (exit %i)', async code => {
+    const bin = managerFixture('radiocli-update-step', '#!/bin/sh\nprintf \'%s\\n\' "$1"\nexit "$RADIOCLI_UPDATE_PROBE_EXIT"\n');
+    vi.stubEnv('PATH', [bin, process.env.PATH ?? ''].join(delimiter));
+    vi.stubEnv('RADIOCLI_UPDATE_PROBE_EXIT', String(code));
+    const command = 'radiocli-update-step first && radiocli-update-step second';
+
+    expect(await installUpdate(command)).toEqual({ok: code === 0, command, output: code === 0 ? 'first\nsecond' : 'first'});
   });
 });

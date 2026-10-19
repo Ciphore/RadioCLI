@@ -7,16 +7,100 @@ import {defaultAgentControlSettings} from '../types.js';
 import type {Station} from '../types.js';
 import {startActiveAlarmSession} from '../alarms/active-session.js';
 import {startRadioSession, type RadioSessionStatus} from './session.js';
+import * as airPlayPolicyModule from '../player/airplay-policy.js';
+import * as backendInstall from '../player/backend-install.js';
+import {PlayerController} from '../player/player-controller.js';
 import {AgentRadioService} from './service.js';
+import {ProviderManager} from '../providers/provider-manager.js';
 
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true});
 });
 
 describe('agent radio service policy', () => {
+  it('honors Nearby privacy before geolocation and returns useful failures and bounded results', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-nearby-'));
+    roots.push(root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    store.updateSettings({enableNearbyLocation: false, agentControl: {...defaultAgentControlSettings, enabled: true}});
+    const providers = new ProviderManager();
+    const detect = vi.spyOn(providers, 'detectLocation').mockResolvedValue(null);
+    const nearby = vi.spyOn(providers, 'nearby').mockResolvedValue([]);
+    const service = new AgentRadioService({nodePath: '/node', cliPath: '/radiocli.js'}, store, providers);
+    await expect(service.browse('nearby')).rejects.toThrow('disabled');
+    expect(detect).not.toHaveBeenCalled();
+    expect(nearby).not.toHaveBeenCalled();
+    store.updateSettings({enableNearbyLocation: true});
+    await expect(service.browse('nearby')).rejects.toThrow('approximate location');
+    expect(nearby).not.toHaveBeenCalled();
+    const location = {latitude: 35.6762, longitude: 139.6503, source: 'fixture'};
+    const station: Station = {id: 'tokyo', provider: 'radio-browser', name: 'Tokyo', tags: []};
+    detect.mockResolvedValue(location);
+    nearby.mockResolvedValue([station]);
+    await expect(service.browse('nearby', 500)).resolves.toEqual([station]);
+    expect(nearby).toHaveBeenCalledWith(location, 50);
+    nearby.mockRejectedValue(new Error('Directory unavailable'));
+    await expect(service.browse('nearby')).rejects.toThrow('Directory unavailable');
+  });
+
+  it.each(['agent', 'cli'] as const)('requires Linux opt-in even when %s control is authorized', async source => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-agent-airplay-'));
+    roots.push(root); vi.stubEnv('RADIOCLI_HOME', root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    store.updateSettings({agentControl: {...defaultAgentControlSettings, enabled: true}, preferredAirPlayDevice: 'saved'});
+    const policy = airPlayPolicyModule.airPlayPolicy;
+    vi.spyOn(airPlayPolicyModule, 'airPlayPolicy').mockImplementation(settings => policy(settings, {platform: 'linux', env: {}, release: ''}));
+    const discovery = vi.spyOn(PlayerController.prototype, 'refreshAirPlayDevices');
+    const service = new AgentRadioService({nodePath: '/node', cliPath: '/radiocli.js'}, store, undefined, source);
+    await expect(service.listAirPlayDevices()).rejects.toThrow('setup --airplay');
+    await expect(service.selectAirPlayDevice('saved')).rejects.toThrow('setup --airplay');
+    await expect(service.submitAirPlayPasscode('1234')).rejects.toThrow('setup --airplay');
+    expect(discovery).not.toHaveBeenCalled();
+    expect(store.snapshot().settings.linuxAirPlayEnabled).not.toBe(true);
+  });
+
+  it.each(['agent', 'cli'] as const)('propagates an active TUI prerequisite failure to %s callers', async source => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-agent-airplay-error-'));
+    roots.push(root); vi.stubEnv('RADIOCLI_HOME', root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    store.updateSettings({linuxAirPlayEnabled: true, agentControl: {...defaultAgentControlSettings, enabled: true}});
+    vi.spyOn(airPlayPolicyModule, 'airPlayPolicy').mockReturnValue({eligible: true, enabled: true, state: 'enabled', message: 'Enabled.'});
+    const status: RadioSessionStatus = {owner: 'tui', playback: {backend: 'mpv', state: 'idle', volume: 70, muted: false, ready: false}, station: null, queue: []};
+    const radio = await startRadioSession(async command => command.type === 'airplay-list'
+      ? {ok: false, message: 'AirPlay setup required. Run radiocli setup --airplay, then radiocli doctor.', status, data: []}
+      : {ok: true, message: 'Ready.', status});
+    try {
+      const service = new AgentRadioService({nodePath: '/node', cliPath: '/radiocli.js'}, store, undefined, source);
+      await expect(service.listAirPlayDevices()).rejects.toThrow('setup --airplay');
+      await expect(service.selectAirPlayDevice('saved')).rejects.toThrow('setup --airplay');
+    } finally { await radio.close(); }
+  });
+
+  it.each(['ffmpeg', 'avahi-browse', 'sender'])('explains missing %s to standalone callers before discovery', async missing => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-agent-airplay-missing-'));
+    roots.push(root); vi.stubEnv('RADIOCLI_HOME', root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    store.updateSettings({linuxAirPlayEnabled: true, agentControl: {...defaultAgentControlSettings, enabled: true}});
+    const detect = backendInstall.detectPlaybackBackends;
+    vi.spyOn(backendInstall, 'detectPlaybackBackends').mockImplementation(options => detect({...options,
+      platform: 'linux', env: {}, release: '6.6',
+      hasCommand: command => ['mpv', 'ffmpeg', 'avahi-browse'].includes(command) && command !== missing,
+      hasAirPlaySender: () => missing !== 'sender'
+    }));
+    vi.spyOn(airPlayPolicyModule, 'airPlayPolicy').mockReturnValue({eligible: true, enabled: true, state: 'enabled', message: 'Enabled.'});
+    const discovery = vi.spyOn(PlayerController.prototype, 'refreshAirPlayDevices').mockRejectedValue(new Error('Unexpected discovery.'));
+    for (const source of ['agent', 'cli'] as const) {
+      const service = new AgentRadioService({nodePath: '/node', cliPath: '/radiocli.js'}, store, undefined, source);
+      await expect(service.listAirPlayDevices()).rejects.toThrow('radiocli doctor');
+      await expect(service.selectAirPlayDevice('saved')).rejects.toThrow('radiocli doctor');
+    }
+    expect(discovery).not.toHaveBeenCalled();
+  });
+
   it('blocks mutations while disabled and keeps repeated stop idempotent when enabled', async () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-agent-service-'));
     roots.push(root);

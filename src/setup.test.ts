@@ -1,11 +1,32 @@
 import {PassThrough} from 'node:stream';
 import {describe, expect, it, vi} from 'vitest';
 import {createSetupPlan, parseSetupArgs, runSetup, type SetupComponent} from './setup.js';
+import {verifyLocalPlayback} from './setup-playback.js';
+
 import {detectPackageManager, ffplayInstallCommand, mpvInstallCommand, type SetupPackageManager} from './platform/packages.js';
+
+vi.mock('./setup-playback.js', () => ({verifyLocalPlayback: vi.fn(async () => [])}));
+vi.mock('./agent/mcp-install.js', () => ({configureMcpIntegrations: vi.fn(async () => [])}));
 
 const nothingInstalled: Record<SetupComponent, boolean> = {mpv: false, ffmpeg: false, vlc: false};
 
 describe('RadioCLI setup', () => {
+  it('awaits decoder verification on existing installations while preserving dry-run behavior', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => { text += String(chunk); });
+    const rehearsal = vi.mocked(verifyLocalPlayback);
+    rehearsal.mockClear();
+    const options = {platform: process.platform, args: ['--yes', '--only=mpv'], hasCommand: (command: string) => command === 'mpv', output, input: new PassThrough()};
+    await runSetup({...options, args: ['--dry-run', '--only=mpv']});
+    expect(rehearsal).not.toHaveBeenCalled();
+    rehearsal.mockResolvedValueOnce([{backend: 'mpv', status: 'failed', source: 'local-wav', output: 'null', physicalOutput: 'unverified', message: 'Native decoder failed.'}]);
+    await runSetup(options);
+    expect(rehearsal).toHaveBeenCalledWith(['mpv'], expect.objectContaining({platform: process.platform}));
+    expect(text).toContain('decoder_mpv=failed Native decoder failed.');
+    expect(text).toContain('physical_output=unverified');
+    expect(text).toContain('Playback needs attention.');
+  });
   it.each([
     ['darwin', '', 'brew', 'brew', {}],
     ['win32', '', 'winget', 'winget', {}],

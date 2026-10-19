@@ -1,3 +1,4 @@
+import {airPlayLocalDeviceLabel} from '../player/backend-install.js';
 import type {AirPlayDevice, AppSettings} from '../types.js';
 
 export type AirPlayAvailability = {
@@ -17,13 +18,15 @@ export function selectedAirPlayDevice(settings: AppSettings, devices: readonly A
 export function airPlayReceiverSettingValue(
   settings: AppSettings,
   devices: readonly AirPlayDevice[],
-  backends: readonly string[]
+  backends: readonly string[],
+  platform: NodeJS.Platform = process.platform
 ): string {
+  if (platform === 'linux' && !isAirPlayBackendAvailable(backends)) return 'Setup required';
   const device = selectedAirPlayDevice(settings, devices);
   const count = airPlayDeviceCountLabel(devices.length);
   const playbackStatus = isAirPlayBackendAvailable(backends) ? undefined : 'playback unavailable';
   if (device) {
-    return [device.name, device.local ? 'this Mac' : playbackStatus ?? count].join(' · ');
+    return [device.name, device.local ? airPlayLocalDeviceLabel(platform) : playbackStatus ?? count].join(' · ');
   }
 
   if (settings.preferredAirPlayDevice) {
@@ -37,8 +40,9 @@ export function airPlayReceiverSettingValue(
   return playbackStatus ? `No receivers found · ${playbackStatus}` : 'No receivers found';
 }
 
-export function airPlayAvailability(backends: readonly string[], devices: readonly AirPlayDevice[]): AirPlayAvailability {
+export function airPlayAvailability(backends: readonly string[], devices: readonly AirPlayDevice[], platform: NodeJS.Platform = process.platform): AirPlayAvailability {
   if (!isAirPlayBackendAvailable(backends)) {
+    if (platform === 'linux') return {ready: false, label: 'Setup required', detail: 'Run radiocli setup --airplay, then radiocli doctor to check FFmpeg, Avahi, and the optional sender.'};
     const detail = devices.length > 0
       ? 'RadioCLI can see receivers, but this install cannot start AirPlay yet. Run radiocli doctor.'
       : 'AirPlay is not ready on this install. Run radiocli doctor.';
@@ -51,6 +55,7 @@ export function airPlayAvailability(backends: readonly string[], devices: readon
   }
 
   if (devices.length === 0) {
+    if (platform === 'linux') return {ready: false, label: 'Unverified', detail: 'Refresh to find IPv4 receivers and verify experimental AirPlay. Select a receiver each session.'};
     return {
       ready: true,
       label: 'Ready',
@@ -65,9 +70,9 @@ export function airPlayAvailability(backends: readonly string[], devices: readon
   };
 }
 
-export function airPlayDeviceDetail(device: AirPlayDevice): string {
+export function airPlayDeviceDetail(device: AirPlayDevice, platform: NodeJS.Platform = process.platform): string {
   if (device.local) {
-    return `${device.host}:${device.port} · this Mac · use local output`;
+    return `${device.host}:${device.port} · ${airPlayLocalDeviceLabel(platform)} · use local output`;
   }
 
   const security = device.requiresPassword ? 'code shown on receiver' : 'no code';

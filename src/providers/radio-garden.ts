@@ -48,12 +48,13 @@ export class RadioGardenProvider {
   }
 
   async search(query: string, options: SearchOptions = {}): Promise<Station[]> {
+    options.signal?.throwIfAborted();
     const url = new URL(`${this.baseUrl}/search`);
     url.searchParams.set('q', query);
 
     const parsed = await withExternalResponse(url, {
       timeoutMs: 9000,
-      init: {headers: {'User-Agent': 'radiocli/0.1', Accept: 'application/json'}}
+      init: {headers: {'User-Agent': 'radiocli/0.1', Accept: 'application/json'}, signal: options.signal}
     }, async response => {
       if (!response.ok) throw new Error(`${this.label} search failed: ${response.status} ${response.statusText}`);
       return searchSchema.parse(await response.json());
@@ -75,7 +76,8 @@ export class RadioGardenProvider {
       .slice(0, options.limit ?? 30);
   }
 
-  async resolve(station: Station): Promise<ResolvedStream> {
+  async resolve(station: Station, options: {signal?: AbortSignal} = {}): Promise<ResolvedStream> {
+    options.signal?.throwIfAborted();
     if (station.streamUrl) {
       return {url: station.streamUrl, name: station.name};
     }

@@ -22,6 +22,7 @@ describe('platform identity and adapter policy', () => {
     const host = identifyPlatform({platform: 'linux', release: '6.6.87.2-microsoft-standard-WSL2', libc: 'glibc', env: {}});
     expect(host).toMatchObject({id: 'linux', isWsl: true, libc: 'glibc'});
     expect(nativeAdapters(host).scheduler).toBe('systemd');
+    expect(nativeAdapters(host).airPlay).toBe(false);
     expect(identifyPlatform({platform: 'linux', release: '6.6', libc: 'musl', env: {}})).toMatchObject({isWsl: false, libc: 'musl'});
   });
 
@@ -45,7 +46,7 @@ describe('platform identity and adapter policy', () => {
   it('preserves the existing macOS, Linux, and Windows adapter selections', () => {
     const host = (platform: NodeJS.Platform) => identifyPlatform({platform, env: {}});
     expect(nativeAdapters(host('darwin'))).toMatchObject({scheduler: 'launchd', inhibitor: 'caffeinate', volume: 'macos', terminal: 'macos', airPlay: true, ipc: 'unix-socket'});
-    expect(nativeAdapters(host('linux'))).toMatchObject({scheduler: 'systemd', inhibitor: 'logind', volume: 'unix-audio', terminal: 'unix', airPlay: false, ipc: 'unix-socket'});
+    expect(nativeAdapters(host('linux'))).toMatchObject({scheduler: 'systemd', inhibitor: 'logind', volume: 'unix-audio', terminal: 'unix', airPlay: true, ipc: 'unix-socket'});
     expect(nativeAdapters(host('win32'))).toMatchObject({scheduler: 'task-scheduler', inhibitor: 'windows', volume: 'windows', terminal: 'windows', airPlay: false, ipc: 'named-pipe', posixPermissions: false});
   });
 

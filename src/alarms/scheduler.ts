@@ -14,6 +14,7 @@ import {identifyPlatform, nativeAdapters} from '../platform/runtime.js';
 import {resolveCommandDetails} from '../platform/executables.js';
 import {launchEnvironment, nodeLaunchCommand} from '../platform/launch-command.js';
 import {powershellCommand} from '../platform/shell.js';
+import {identifyOmarchy,type OmarchyProbeOptions} from '../platform/omarchy.js';
 
 export type SchedulerCapabilities = {
   name?: string;
@@ -44,6 +45,7 @@ export type SchedulerDeps = {
   removeFile?: (path: string) => void;
   run?: (command: string, args: string[]) => Promise<CommandResult>;
   commandExists?: (command: string) => boolean;
+  omarchy?: OmarchyProbeOptions;
 };
 
 export class SchedulerService {
@@ -107,7 +109,14 @@ export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapt
   const resolve = (command:string) => resolveCommandDetails(command,{platform,env,home}).path;
   const run = deps.run ?? ((command,args) => runCommand(resolve(command)??command,args));
   const commandExists = deps.commandExists ?? (command => resolve(command)!==null);
-  const common = {platform, home, nodePath, cliPath, env, terminal: detectGraphicalTerminal(platform, env), write, removeFile, run};
+  const profile=policy.scheduler==='systemd'?identifyOmarchy({...deps.omarchy,platform,env,home}):undefined;
+  const inheritDesktop=profile?.kind==='quattro'&&profile.source==='package'&&profile.packageName==='omarchy';
+  const detectedTerminal=detectGraphicalTerminal(platform, env,undefined,deps.omarchy);
+  // A job registered over SSH may next run inside UWSM's live desktop. Do not
+  // turn the registration-time absence of a display into a permanent selector.
+  const configuredTerminal=env.RADIOCLI_ALARM_TERMINAL?.trim();
+  const terminal=inheritDesktop&&detectedTerminal.endsWith(':unsupported')?configuredTerminal||undefined:detectedTerminal;
+  const common = {platform, home, nodePath, cliPath, env, inheritDesktop, terminal, write, removeFile, run};
   if (policy.scheduler === 'launchd') return launchdAdapter(common);
   if (policy.scheduler === 'task-scheduler') return windowsAdapter(common);
   if (policy.scheduler === 'systemd') {
@@ -117,9 +126,9 @@ export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapt
   return unsupportedAdapter(`Alarm scheduling is not supported on ${host.id==='unknown'?host.platform:host.id}.`);
 }
 
-type Common = {platform: NodeJS.Platform; home: string; nodePath: string; cliPath: string; env: NodeJS.ProcessEnv; terminal:string; write: (p:string,c:string)=>void; removeFile:(p:string)=>void; run:(c:string,a:string[])=>Promise<CommandResult>};
+type Common = {platform: NodeJS.Platform; home: string; nodePath: string; cliPath: string; env: NodeJS.ProcessEnv; inheritDesktop:boolean; terminal:string|undefined; write: (p:string,c:string)=>void; removeFile:(p:string)=>void; run:(c:string,a:string[])=>Promise<CommandResult>};
 function runtimeEnvironment(common:Common):Record<string,string>{
-  return launchEnvironment(common.env, {platform: common.platform, includeDesktop: true, terminal: common.terminal});
+  return launchEnvironment(common.env, {platform: common.platform, includeDesktop: true, inheritDesktop: common.inheritDesktop, terminal: common.terminal});
 }
 const jobName = (id: string) => `io.radiocli.alarm.${createHash('sha256').update(id).digest('hex').slice(0, 20)}`;
 const invocationArgs = (common: Common, id: string, occurrence: Date,internalCommand='internal-run') => [common.cliPath, 'alarm', internalCommand, id, occurrence.toISOString()];
@@ -168,7 +177,7 @@ function systemdAdapter(common: Common): SchedulerAdapter {
   return {
     capabilities,
     probeCapabilities,
-    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand(nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence),runtimeEnvironment(common))); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
+    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand(nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence),runtimeEnvironment(common),{inheritDesktop:common.inheritDesktop})); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
     async remove(id){
       const n=names(id);
       await removeWithVerification(()=>common.run('systemctl',['--user','disable','--now',n.timer]),()=>common.run('systemctl',['--user','show',n.timer,'--property=LoadState','--property=ActiveState']),result=>/^LoadState=not-found\r?$/m.test(result.stdout)&&/^ActiveState=inactive\r?$/m.test(result.stdout),'systemd timer');

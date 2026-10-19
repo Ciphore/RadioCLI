@@ -1,47 +1,61 @@
 # RadioCLI
 
-Discover and stream stations from around the world without leaving your
-terminal. No account. No cloud library.
+RadioCLI is an open-source internet radio player with a full-screen terminal
+interface and a scriptable CLI. Discover and stream stations from around the
+world without leaving your terminal. No account. No cloud library.
 
-[![CI](https://github.com/Ciphore/RadioCLI/actions/workflows/ci.yml/badge.svg)](https://github.com/Ciphore/RadioCLI/actions/workflows/ci.yml)
+[![CI](https://github.com/Ciphore/RadioCLI/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/Ciphore/RadioCLI/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](package.json)
 
-![RadioCLI Now Playing visualizer demo](apps/docs/public/demo/radiocli-now-playing.gif)
+![RadioCLI playing SomaFM while cycling through terminal receiver styles](apps/docs/public/demo/radiocli-now-playing.gif)
 
 ## Features
 
-RadioCLI pairs a keyboard-first interface with the open
-[Radio Browser](https://api.radio-browser.info/) directory and dependable
-playback through `mpv`.
+- **Station discovery:** Search by name or genre, filter by country, language,
+  codec, and bitrate, or browse country lists. The interactive world map uses a
+  cached station atlas to find broadcasts around the map cursor and sort them by
+  distance. Cached directory results remain available during provider outages.
+- **63 receiver styles:** Switch between braille animation, ASCII geometry,
+  waves, fire, cityscapes, and the Gallop display without interrupting
+  playback. Color themes are selected independently. Receivers animate during
+  active playback and return to a zero-signal display when audio is inactive.
+- **Listening stats:** A 52-week activity graph, listening time, session counts,
+  active days, streaks, and your most-listened station. Stats are recorded locally
+  across TUI and CLI listening sessions.
+- **Alarms (beta):** One-time and recurring schedules with timezones, independent
+  volume, fade-in, fallback stations, snooze, and auto-stop. Native OS scheduling
+  allows alarms to run after the terminal closes. See the
+  [alarm guide](apps/docs/content/docs/alarms.mdx) for setup and power requirements.
+- **Agent control:** An optional Model Context Protocol (MCP) server exposes
+  typed tools for discovery, playback, favorites, stats, alarms, AirPlay, and
+  appearance. Coding assistants can operate RadioCLI directly; `radiocli agent`
+  provides the same controls for other local tools.
+- **Terminal support:** Full, compact, and micro layouts adapt to window resizing.
+  Keyboard, mouse, and trackpad controls work alongside Unicode and ASCII
+  rendering, reduced motion, screen-reader output, transparent backgrounds, and
+  limited-color or `NO_COLOR` environments. Offline browsing and low-bandwidth
+  modes are also supported.
+- **Playback:** Pause, volume, mute, and live track metadata through `mpv`, with
+  configurable media keys and a sleep timer. Previous and next follow the station
+  list you tuned from. Track history and stream diagnostics are available in
+  the TUI.
+- **Nearby stations:** Discover stations around an approximate location and
+  browse them by distance. Location lookup runs when you open Nearby and can be
+  disabled in Settings.
+- **Local library:** Save favorites, revisit recent stations, and manage imports
+  in one place. Settings, track history, and listening data stay on your machine,
+  with JSON backup and restore. No account is required.
+- **AirPlay (experimental):** Discover network receivers and switch audio output
+  from the TUI, including passcode entry when required. Availability depends on
+  the platform and receiver; see [supported setups](apps/docs/content/docs/platforms.mdx).
+- **Custom stations:** Add direct HTTP(S) stream URLs with automatic ICY metadata
+  lookup. Import M3U, PLS, or XSPF playlists and export an M3U library.
+- **Shell commands:** Start background playback by station name, save named
+  presets, and watch the current track from your prompt. Shell completion and
+  JSON or plain output support interactive use and scripting.
 
-- **Discovery:** Global search and filters, country browsing, a station-density
-  map, an interactive world map, nearby stations, and an optional experimental
-  Radio Garden provider.
-- **Playback:** Live metadata, track history, 60+ terminal visualizers, receiver
-  styles, color themes, sleep timers, diagnostics, learned media keys, and
-  previous/next queues based on the station list you opened.
-- **AirPlay:** Select and switch to discovered receivers through the experimental
-  macOS output, including passcode entry when a receiver requires it.
-- **Custom stations:** Add direct HTTP(S) streams with automatic ICY metadata,
-  import `.m3u`, `.pls`, and `.xspf` playlists, and export an `.m3u` library.
-- **Local library:** Favorites, recents, imports, track history, settings, and
-  JSON backup and restore stay on your machine.
-- **Listening stats:** Sessions, streaks, active days, total listening time, and
-  a 52-week activity graph.
-- **Alarms:** One-time and recurring schedules with station fallback, independent
-  volume, fade-in, auto-stop, snooze, missed-run grace, native OS scheduling,
-  and optional Alarm Guard.
-- **Agent control:** An optional local Model Context Protocol (MCP) server gives
-  supported coding tools typed access to discovery, playback, favorites, stats,
-  alarms, AirPlay, and appearance. `radiocli agent` exposes the same controls to
-  other local tools.
-- **Terminal support:** Full, compact, and micro layouts; keyboard, mouse, and
-  trackpad input; Unicode and ASCII rendering; reduced motion; screen-reader,
-  limited-color, no-color, transparent-background, offline, and low-bandwidth
-  modes.
-
-## Install
+## Quick start
 
 **Homebrew**
 
@@ -50,7 +64,7 @@ brew install ciphore/tap/radiocli
 radiocli
 ```
 
-**npm**
+**npm · Node.js 22 or newer**
 
 ```bash
 npm install -g @ciphore/radiocli
@@ -58,120 +72,84 @@ radiocli setup
 radiocli
 ```
 
-RadioCLI requires Node.js 22 or newer. `radiocli setup` can install and verify
-the native playback tools available on macOS, Linux, and Windows.
+Setup helps install the playback tools for your system. See
+[installation](apps/docs/content/docs/getting-started/install.mdx) for other
+routes and [platform support](apps/docs/content/docs/platforms.mdx) for
+macOS, Linux, Windows, and BSD details.
 
-Need a different package route, AirPlay setup, or a fallback player? See the
-[installation guide](apps/docs/content/docs/getting-started/install.mdx) and
-[platform matrix](apps/docs/content/docs/platforms.mdx).
-
-## Screenshots
-
-**Explore**
-
-![World map discovery in RadioCLI Explore](apps/docs/public/demo/radiocli-explore-map.gif)
-
-**Search**
-
-![Station search results in RadioCLI](apps/docs/public/demo/radiocli-search.gif)
-
-**Library**
-
-![Favorites and recent stations in the RadioCLI Library](apps/docs/public/demo/radiocli-library.gif)
-
-**Nearby**
-
-![Nearby stations in RadioCLI](apps/docs/public/demo/radiocli-nearby.gif)
-
-**Stats**
-
-![Local listening stats with selectable display colors](apps/docs/public/demo/radiocli-stats-colors.gif)
-
-## Controls
+Launch `radiocli`, open Search or Explore, select a station, and press `Enter`
+to start playback.
 
 | Key | Action |
 | --- | --- |
-| `←` / `→` or `Tab` / `Shift+Tab` | Switch screens |
-| `↑` / `↓` or `n` / `p` | Move the selection |
-| `Enter` | Open or tune the selection |
-| `space` or `F8` | Pause or resume |
-| `,` / `.` or `F7` / `F9` | Previous or next station |
-| `+` / `-` | Change volume |
-| `f` | Save or remove a favorite |
-| `:` | Open the command palette |
-| `?` | Show every shortcut |
-| `q` | Quit |
+| `←` / `→` | Switch screens |
+| `↑` / `↓`, then `Enter` | Select and tune a station |
+| `space` | Pause or resume |
+| `f` | Toggle a favorite |
+| `v` / `t` | Change receiver style / color theme on Playing |
+| `?` / `q` | Show shortcuts / quit |
 
-The footer always shows the controls that matter on the current screen. The
-[controls guide](apps/docs/content/docs/getting-started/tui-controls.mdx) covers
-playback, filters, media keys, AirPlay, and commands.
+The footer shows controls for the current screen. See the
+[controls guide](apps/docs/content/docs/getting-started/tui-controls.mdx) for
+filters, station skipping, media keys, and the command palette.
+
+## Screenshots
+
+**Explore:** Move the map cursor with WASD or click a location to list stations
+by distance.
+
+![Interactive world map and station discovery in RadioCLI](apps/docs/public/demo/radiocli-explore-map.gif)
+
+**Search:** Browse results with station names, countries, codecs, and bitrates.
+
+![Searching internet radio stations in the terminal](apps/docs/public/demo/radiocli-search.gif)
+
+**Library:** Switch between favorites, recent stations, and imported streams.
+
+![Favorites and recent stations in the RadioCLI library](apps/docs/public/demo/radiocli-library.gif)
+
+**Nearby:** Browse stations around your approximate location.
+
+![Nearby radio stations in RadioCLI](apps/docs/public/demo/radiocli-nearby.gif)
+
+**Stats:** Review listening activity and totals, with selectable display colors.
+
+![Listening stats and the 52-week activity graph with selectable colors](apps/docs/public/demo/radiocli-stats-colors.gif)
 
 ## CLI and agent control
 
-RadioCLI also works as a scriptable CLI, so the same library is available to
-shell scripts and local development tools.
-
 ```bash
-radiocli search "japan hits"
-radiocli countries
-radiocli import https://example.com/live.mp3
-radiocli export favorites.m3u
-radiocli alarm list
-radiocli check
-radiocli doctor --json
+radiocli play jazz
+radiocli now
+radiocli favorite
+radiocli stop
 ```
 
-Run `radiocli setup --mcp` or enable **Agent control & MCP** in Settings to expose
-typed local tools for discovery, playback, favorites, stats, alarms, AirPlay,
-and receiver customization. See the
-[CLI guide](apps/docs/content/docs/getting-started/cli.mdx) for the complete
-command and agent-control reference.
+`play` starts background playback and returns to your prompt. If the TUI is
+already open, commands control its player instead. Both interfaces use the same
+library, metadata, and listening history. Use `radiocli help` for common commands
+or `radiocli help --all` for the full reference.
 
-## Alarms
-
-Set one-time or recurring alarms that reopen RadioCLI through launchd on macOS,
-systemd on Linux, or Task Scheduler on Windows. Station fallback, snooze,
-missed-run grace, and Alarm Guard help make scheduled playback more resilient.
-
-Alarms are experimental. A computer must be powered on with an active audio
-session, and wake behavior depends on the operating system and hardware. Use a
-separate primary alarm for anything safety-critical. Read the
-[alarm guide](apps/docs/content/docs/alarms.mdx) before relying on one.
-
-## Privacy
-
-RadioCLI does not require an account, proxy your audio, or upload your listening
-history. Favorites, recents, imports, settings, alarms, track history, and stats
-stay in a local JSON library.
-
-Nearby discovery requests an approximate location only when you open that
-screen. Radio Browser favorite votes can be disabled in Settings. The full data
-flow is documented in [Privacy and security](apps/docs/content/docs/privacy-security.mdx).
-
-## Development
-
-```bash
-git clone https://github.com/Ciphore/RadioCLI.git
-cd RadioCLI
-npm ci
-npm run verify
-npm run dev
-```
-
-`npm run verify` runs the type checks, lint, tests, production build, and live
-provider validation. Contributions are welcome—start with
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Run `radiocli setup --mcp` to configure the optional local MCP integration for
+coding assistants. Ordinary CLI playback does not require MCP setup. The
+[CLI and agent guide](apps/docs/content/docs/getting-started/cli.mdx) covers
+commands, presets, shell completion, and integration details.
 
 ## Documentation
 
-- [Getting started](apps/docs/content/docs/index.mdx)
-- [Installation](apps/docs/content/docs/getting-started/install.mdx)
-- [Controls](apps/docs/content/docs/getting-started/tui-controls.mdx)
-- [CLI and agent control](apps/docs/content/docs/getting-started/cli.mdx)
-- [Platforms](apps/docs/content/docs/platforms.mdx)
-- [Troubleshooting](apps/docs/content/docs/troubleshooting.mdx)
-- [Architecture](apps/docs/content/docs/architecture.mdx)
+[Getting started](apps/docs/content/docs/index.mdx) ·
+[Controls](apps/docs/content/docs/getting-started/tui-controls.mdx) ·
+[Alarms](apps/docs/content/docs/alarms.mdx) ·
+[Troubleshooting](apps/docs/content/docs/troubleshooting.mdx) ·
+[Architecture](apps/docs/content/docs/architecture.mdx)
 
-## License
+Your library and listening history stay on your machine. Read
+[Privacy and security](apps/docs/content/docs/privacy-security.mdx) for the
+network requests and data flow.
 
-[MIT](LICENSE)
+Want to contribute? [CONTRIBUTING.md](CONTRIBUTING.md) covers development and
+checks. RadioCLI is [MIT licensed](LICENSE).
+
+---
+
+![Radio on internet, from Silicon Valley](apps/docs/public/demo/silicon-valley-radio-on-internet.gif)

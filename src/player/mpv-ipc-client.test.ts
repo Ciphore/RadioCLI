@@ -12,6 +12,55 @@ afterEach(async () => {
 });
 
 describe('MpvIpcClient', () => {
+  it('delivers observed events without consuming replies and restores subscriptions on reconnect', async () => {
+    const path = testIpcPath(); const sockets = new Set<Socket>(); const observations: unknown[][] = [];
+    const server = createServer(socket => {
+      sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.on('error', () => undefined);
+      let buffer = '';
+      socket.on('data', chunk => {
+        buffer += String(chunk);
+        while (buffer.includes('\n')) {
+          const newline = buffer.indexOf('\n'); const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+          const request = JSON.parse(line) as {request_id: number; command: unknown[]};
+          if (request.command[0] === 'disconnect') { socket.destroy(); return; }
+          if (request.command[0] === 'observe_property') {
+            observations.push(request.command);
+            socket.write(`null\n[]\n${JSON.stringify({event: 'property-change', id: 1, name: 'pause', data: true})}\n`);
+          }
+          socket.write(`${JSON.stringify({request_id: request.request_id, error: 'success', data: 'ack'})}\n`);
+        }
+      });
+    });
+    await listen(server, path); const client = new MpvIpcClient(path, 500);
+    cleanupTasks.push(() => closeTestIpc(client, server, sockets, path));
+    const events: unknown[] = []; client.onEvent(() => { throw new Error('consumer failed'); }); client.onEvent(event => events.push(event));
+    await client.observe(1, 'pause');
+    expect(events).toEqual([{event: 'property-change', id: 1, name: 'pause', data: true}]);
+    // A server-side close does not establish that the client has received EOF.
+    await expect(client.query({command: ['disconnect']})).rejects.toThrow('mpv IPC connection closed.');
+    await waitUntil(() => sockets.size === 0);
+    await expect(client.query({command: ['get_property', 'path']})).resolves.toBe('ack');
+    await waitUntil(() => observations.length === 2 && events.length === 2);
+    expect(observations).toEqual([['observe_property', 1, 'pause'], ['observe_property', 1, 'pause']]);
+  });
+
+  it('bounds an unterminated IPC message and rejects pending work before reconnecting', async () => {
+    const path = testIpcPath(); const sockets = new Set<Socket>(); let connections = 0;
+    const server = createServer(socket => {
+      const first = ++connections === 1;
+      sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.on('error', () => undefined);
+      socket.once('data', request => {
+        if (first) { socket.write('x'.repeat(4 * 1024 * 1024 + 1)); return; }
+        const {request_id} = JSON.parse(String(request)) as {request_id: number};
+        socket.write(`${JSON.stringify({request_id, error: 'success', data: 'reconnected'})}\n`);
+      });
+    });
+    await listen(server, path); const client = new MpvIpcClient(path, 5000);
+    cleanupTasks.push(() => closeTestIpc(client, server, sockets, path));
+    await expect(client.query({command: ['get_property', 'path']})).rejects.toThrow('4 MiB');
+    await expect(client.query({command: ['get_property', 'path']})).resolves.toBe('reconnected');
+  }, 10_000);
+
   it('preserves UTF-8 metadata across native socket packets', async () => {
     const path = testIpcPath();
     const sockets = new Set<Socket>();
@@ -50,6 +99,7 @@ describe('MpvIpcClient', () => {
           buffer = buffer.slice(newlineIndex + 1);
           newlineIndex = buffer.indexOf('\n');
           const request = JSON.parse(line) as {request_id: number; command: [string, string, number?]};
+          if (request.command[0] === 'disconnect') { socket.destroy(); return; }
           const delayMs = request.command[2] ?? 0;
           setTimeout(() => {
             if (!socket.destroyed) {
@@ -69,9 +119,7 @@ describe('MpvIpcClient', () => {
     await expect(Promise.all([slow, fast])).resolves.toEqual(['slow', 'fast']);
     expect(connectionCount).toBe(1);
 
-    for (const socket of sockets) {
-      socket.destroy();
-    }
+    await expect(client.query({command: ['disconnect']})).rejects.toThrow('mpv IPC connection closed.');
     await waitUntil(() => sockets.size === 0);
 
     await expect(client.query<string>({command: ['echo', 'reconnected']})).resolves.toBe('reconnected');

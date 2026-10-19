@@ -1,5 +1,5 @@
 import {useCallback, useEffect} from 'react';
-import {useInput, type Key} from 'ink';
+import {useInput, usePaste, type Key} from 'ink';
 import type {Dispatch, SetStateAction} from 'react';
 import type {Country, Screen, Station, AppSettings} from '../types.js';
 import type {PlayerController} from '../player/player-controller.js';
@@ -19,7 +19,7 @@ import {
   type MediaTransportAction
 } from './app-state.js';
 import {parseTerminalMouseEvents, primaryMousePress, wheelScrollDelta} from './terminal-mouse.js';
-import {completeCommand} from './help-content.js';
+import {completeCommand, commandNamesForAirPlay} from './help-content.js';
 import {commitImmediateSelection} from './selection-state.js';
 import {sanitizeTerminalText} from '../safety.js';
 
@@ -36,6 +36,7 @@ type AppInputOptions = {
   adjustVolume: (delta: number) => void;
   airPlayCode: string;
   canEnterAirPlayCode: boolean;
+  airPlaySupported: boolean;
   cancelPendingAutoSkip: () => void;
   beginLearningTransportKey: (action: MediaTransportAction) => void;
   capturingTransportAction: MediaTransportAction | null;
@@ -67,7 +68,7 @@ type AppInputOptions = {
   openAlarmForStation: (station?: Station | null) => void;
   openActiveAlarms: () => void;
   playAdjacent: (direction: 1 | -1) => void;
-  playStation: (station: Station) => Promise<void>;
+  playStation: (station: Station) => Promise<unknown>;
   player: PlayerController;
   recallSearchHistory: (direction: 'older' | 'newer') => void;
   playingStation: Station | null;
@@ -81,7 +82,8 @@ type AppInputOptions = {
   runSearch: () => Promise<void>;
   saveLearnedTransportKey: (action: MediaTransportAction, input: string) => void;
   screen: Screen;
-  settingsPage: SettingsPage;
+  screenRef: CurrentRef<Screen>;
+  settingsPageRef: CurrentRef<SettingsPage>;
   searchQuery: string;
   selectedRef: CurrentRef<number>;
   selectedStationForInput: () => Station | null;
@@ -117,6 +119,7 @@ export function useAppInput({
   adjustVolume,
   airPlayCode,
   canEnterAirPlayCode,
+  airPlaySupported,
   cancelPendingAutoSkip,
   beginLearningTransportKey,
   capturingTransportAction,
@@ -162,7 +165,8 @@ export function useAppInput({
   runSearch,
   saveLearnedTransportKey,
   screen,
-  settingsPage,
+  screenRef,
+  settingsPageRef,
   searchQuery,
   selectedRef,
   selectedStationForInput,
@@ -197,15 +201,16 @@ export function useAppInput({
     setMessage(sanitizeTerminalText(error instanceof Error ? error.message : String(error)) ?? 'Could not complete this action.');
   }, [setMessage]);
   const commitSelection = (next: number): void => {
-    commitImmediateSelection(selectedRef, setSelected, next, currentItemCount(screen));
+    commitImmediateSelection(selectedRef, setSelected, next, currentItemCount(screenRef.current));
   };
   const moveSelection = (delta: number): void => {
-    if (hasStationSelection(screen)) cancelPendingAutoSkip();
+    if (hasStationSelection(screenRef.current)) cancelPendingAutoSkip();
     commitSelection(selectedRef.current + delta);
   };
 
   useEffect(() => {
     const handleData = (data: Buffer | string) => {
+      const screen = screenRef.current;
       const rawInput = String(data);
       if (capturingTransportAction) {
         if (rawInput === '\u001B') {
@@ -282,6 +287,7 @@ export function useAppInput({
     moveExploreCursorToCell,
     saveLearnedTransportKey,
     screen,
+    screenRef,
     selectedRef,
     setCapturingTransportAction,
     setMessage,
@@ -292,6 +298,8 @@ export function useAppInput({
   ]);
 
   const handleInput = async (input: string, key: Key): Promise<void> => {
+    const screen = screenRef.current;
+    const settingsPage = settingsPageRef.current;
     if (key.ctrl && input === 'c') {
       confirmCtrlCExit();
       return;
@@ -305,7 +313,12 @@ export function useAppInput({
       return;
     }
 
-    if (Date.now() - lastRawTransportAtRef.current < 50) {
+    // Suppress only the mouse/media event already handled by the raw listener.
+    // Other keys in the same chunk (or immediately afterward) must still work.
+    const editingPlainText = isPlainPrintableInput(input) && (
+      commandMode || (screen === 'search' && editingSearch) || ((screen === 'countries' || screen === 'map') && editingCountryFilter)
+    );
+    if (!editingPlainText && Date.now() - lastRawTransportAtRef.current < 50 && isRawInputEcho(input, key, settingsRef.current)) {
       return;
     }
 
@@ -325,7 +338,7 @@ export function useAppInput({
 
       if (key.tab) {
         // Complete the command name only while still typing it (no args yet).
-        setCommandText(value => (/\s/.test(value) ? value : completeCommand(value)));
+        setCommandText(value => (/\s/.test(value) ? value : completeCommand(value, commandNamesForAirPlay(airPlaySupported))));
         return;
       }
 
@@ -696,7 +709,7 @@ export function useAppInput({
       }
 
       if (screen === 'settings') {
-        const item = settingsItemsForPage(settingsPage)[selectedRef.current];
+        const item = settingsItemsForPage(settingsPage, airPlaySupported)[selectedRef.current];
         if (settingsPage === 'root') {
           const targetPage = settingsPageForRootItem(item);
           if (targetPage) {
@@ -790,8 +803,39 @@ export function useAppInput({
   };
 
   useInput((input, key) => {
+    // Ink preserves non-escape text chunks for paste, including repeated Tab
+    // bytes. Only a chunk consisting entirely of Tabs represents navigation.
+    if (/^\t{2,}$/.test(input)) {
+      for (let index = 0; index < input.length; index += 1) {
+        void handleInput('', {...key, tab: true}).catch(reportInputError);
+      }
+      return;
+    }
     void handleInput(input, key).catch(reportInputError);
   });
+  // Keep bracketed paste on its own channel so pasted Tabs stay text. The
+  // existing text/command handling still receives each complete pasted string.
+  usePaste(input => {
+    void handleInput(input, pasteInputKey).catch(reportInputError);
+  });
+}
+
+const pasteInputKey: Key = {
+  upArrow: false, downArrow: false, leftArrow: false, rightArrow: false,
+  pageDown: false, pageUp: false, home: false, end: false,
+  return: false, escape: false, ctrl: false, shift: false, tab: false,
+  backspace: false, delete: false, meta: false,
+  super: false, hyper: false, capsLock: false, numLock: false
+};
+
+function isRawInputEcho(input: string, key: Key, settings: AppSettings): boolean {
+  return Boolean(
+    mediaTransportActionForInput(input, settings.mediaKeys) ||
+    mediaTransportActionForInput(`\u001B${input}`, settings.mediaKeys) ||
+    ((key.shift || key.ctrl || key.meta) && (key.leftArrow || key.rightArrow)) ||
+    /^\[<\d+;\d+;\d+[Mm]$/.test(input) ||
+    input.startsWith('[M')
+  );
 }
 
 function shouldScrollSelectionWithWheel(screen: Screen, commandMode: boolean, editingCountryFilter: boolean): boolean {

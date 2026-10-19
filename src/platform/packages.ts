@@ -1,6 +1,7 @@
 import {commandExists} from './executables.js';
 import {powershellCommand} from './shell.js';
 import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './runtime.js';
+import {identifyOmarchy, type OmarchyProfile} from './omarchy.js';
 
 export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
 export const packageManagers = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'] as const;
@@ -109,7 +110,11 @@ export function packageManagerNeedsRoot(manager: SetupPackageManager): boolean {
   return !['brew', 'winget', 'scoop', 'choco', 'termux-pkg', 'pkgman'].includes(manager);
 }
 
-export function packageManagerNotes(manager: SetupPackageManager | null, host: PlatformProfile = identifyPlatform()): string[] {
+export function packageManagerNotes(manager: SetupPackageManager | null, host: PlatformProfile = identifyPlatform(), omarchy?: OmarchyProfile): string[] {
+  if (manager === 'pacman' && host.id === 'linux' && (omarchy ?? identifyOmarchy({platform: 'linux'})).kind === 'quattro') return [
+    'Omarchy Quattro uses the existing Arch mpv and ffmpeg packages. Native terminal launching requires a local Wayland session, a user session bus, and the Omarchy TUI launcher with setsid, uwsm-app, and xdg-terminal-exec.',
+    'If pacman reports stale databases or package conflicts, complete the supported Omarchy update workflow and rerun setup. RadioCLI setup does not upgrade the distribution or bypass package checks.'
+  ];
   if (manager === 'termux-pkg' || (!manager && host.id === 'termux')) return [
     'Termux pkg runs as the normal app user, without sudo or root. Use --package-manager=termux-pkg to select this recipe explicitly.',
     'The Termux ffmpeg package does not include ffplay. The separate ffplay package needs x11-repo and a configured display/audio environment; mpv is the recommended audio player.',

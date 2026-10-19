@@ -28,9 +28,15 @@ requirement.
 - tune timeout
 - skip-to-next on failed tune when enabled
 - `mpv` IPC readiness check
+- TUI reattachment to a surviving playback owner, retaining controls, queue,
+  listening history, and sleep timer without restarting the stream
+- decoded-audio readiness for `ffplay`, and audio-output plus decoder-buffer
+  readiness for VLC; a surviving process or HTTP headers alone are insufficient
+- bounded reconnection after live `mpv` EOF or missing audio-clock progress,
+  canceled by Stop or a replacement tune
 - explicit limited-control state when only `ffplay` fallback playback is
   available
-- AirPlay sender high-risk dependency gate, bounded Bonjour discovery, bounded
+- AirPlay sender high-risk dependency gate, bounded Bonjour/Avahi discovery, bounded
   worker messages, passcode validation, and worker shutdown on startup timeout
 - playback-gated receiver animation and zero-signal visualizer frames for inactive
   playback states
@@ -100,9 +106,22 @@ JSON cannot be backed up, RadioCLI leaves it intact and reports the backup
 failure.
 
 Atomic replacement requires a writable library file and destination directory.
-A failed lock, write, permission change, or rename leaves the previous committed
+A failed lock, write, permission change, file sync, or rename leaves the previous committed
 state intact. Cleanup errors cannot replace the original failure or make a
 completed replacement appear to have failed.
+
+Each lock records a unique owner generation. A slow or suspended live writer
+does not lose ownership because of elapsed time. Only a positively dead owner
+or an explicitly released generation is reclaimed automatically. Unknown and
+legacy empty locks remain busy: close all RadioCLI processes before removing
+such a lock, and close older versions before upgrading. Keep the library on a
+local filesystem; shared filesystems and different hosts do not share PID
+ownership semantics.
+
+The replacement file is synced before rename. RadioCLI also attempts to sync
+the parent directory after the commit; some operating systems and filesystems
+do not support directory sync. Atomic replacement and best-effort directory
+sync do not guarantee survival of every hardware or power failure.
 
 When the library can be read but cannot be written, the TUI can still tune,
 navigate, stop, and quit. Optional history failures produce a library warning;
@@ -111,6 +130,40 @@ timer or alarm takeover from stopping it. Settings and favorite edits remain
 explicit saves and report failure without changing the saved state. Check the
 directory's permissions or choose a private writable location with
 `RADIOCLI_HOME`.
+
+## Playback Recovery And Secure Streams
+
+Live directory stations reconnect after unexpected EOF or a stopped audio
+clock. Imported HTTP inputs qualify when they are nonseekable and have no known
+finite duration. Local files and known finite imported recordings stop at EOF.
+The stall deadline is at least 15 seconds and never shorter than the tune
+timeout. Paused playback does not trigger the watchdog.
+
+Recovery uses at most three attempts with delays of 1, 2, and 4 seconds. Stop,
+station replacement, and alarm takeover cancel pending recovery. The retry
+budget resets after 60 seconds of uninterrupted, ready, unbuffered playback;
+brief reconnects cannot create an endless retry loop. Certificate, authentication,
+decoder, and output-device failures are not treated as transient transport errors.
+
+RadioCLI passes `--tls-verify=yes` to mpv, including for redirected and nested
+streams. Native certificate stores and supported player CA configuration still
+apply. FFmpeg/ffplay receive `-tls_verify 1` for network inputs. Plain HTTP media
+can need one compatibility restart because FFmpeg rejects an unused TLS option;
+that restart blocks both HTTPS and TLS protocols, including changed redirects.
+
+Affected FFmpeg versions do not propagate certificate policy into HLS/DASH/IMF
+child requests. FFmpeg fallbacks therefore accept a restricted set of direct
+network media formats such as MP3, AAC, Ogg, FLAC and WAV. Use mpv for network
+playlists; for AirPlay, choose a direct audio stream or return to **This device**
+with mpv. Local ffplay inputs retain format support but cannot open network
+resources. This is an intentional security restriction on previously accepted
+inputs, not a claim of unchanged fallback format coverage.
+
+There is also a known native TLS limitation: tested FFmpeg/OpenSSL builds,
+including mpv built against them, accept a trusted certificate with a mismatched
+numeric IP address. DNS hostname mismatch checks pass our fixtures. Prefer DNS
+station URLs; neither a separate preflight request nor these flags repair the
+native IP identity check. The release smoke reports this outcome explicitly.
 
 ## Scheduled Radio Delivery
 
@@ -256,8 +309,10 @@ the launchd label alone does not change executable identity.
 
 - Some stations play silence while still looking technically connected.
 - Radio Garden can be blocked by edge protection.
-- AirPlay support is experimental and macOS-only; it depends on the local
-  network, Bonjour discovery, and FFmpeg. Missing AirPlay receivers are output
+- AirPlay support is experimental on macOS and explicitly opted-in native Linux; it depends on the
+  local network, Bonjour/Avahi discovery, FFmpeg, and a loadable optional sender.
+  Software RAOP checks do not establish every physical or AirPlay 2 receiver.
+  Missing AirPlay receivers are output
   failures, not broken station streams.
 - Station health is local and opportunistic; there is not yet a long-term health
   score per station.

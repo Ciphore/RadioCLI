@@ -155,9 +155,10 @@ export function installUpdate(command = updateCommandForInstall().command): Prom
 }
 
 export function updateShellForPlatform(platform: NodeJS.Platform, command: string): UpdateShell {
+  // Login profiles can replace PATH and select a different package-manager installation.
   return platform === 'win32'
     ? {command: 'cmd.exe', args: ['/d', '/s', '/c', command]}
-    : {command: 'sh', args: ['-lc', command]};
+    : {command: 'sh', args: ['-c', command]};
 }
 
 export function compareSemver(left: string, right: string): number {

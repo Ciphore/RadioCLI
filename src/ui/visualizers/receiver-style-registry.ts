@@ -68,12 +68,13 @@ export const receiverStyleRegistry = [
 export type ReceiverStyleId = (typeof receiverStyleRegistry)[number]['id'];
 
 export const receiverStyleNames = receiverStyleRegistry.map(style => style.id) as readonly ReceiverStyleId[];
-export const defaultReceiverStyle = 'gallop-fine' as const satisfies ReceiverStyleId;
+export const defaultReceiverStyle = 'ultracode' as const satisfies ReceiverStyleId;
 export const receiverStyleMetadata = Object.fromEntries(
   receiverStyleRegistry.map(style => [style.id, style])
 ) as Readonly<Record<ReceiverStyleId, (typeof receiverStyleRegistry)[number]>>;
 
 const retiredReceiverStyleNames = [
+  'synthwave-sun', 'neon-alley', 'safari-dusk', 'hot-air-balloons', 'deep-sea-whale', 'meteor-shower', 'volcano', 'desert-highway', 'firefly-grove', 'cherry-blossom', 'event-horizon', 'lighthouse',
   'duplex-wave', 'color-drift', 'undertow', 'cube-tide', 'parallax-slabs', 'voxel-swell',
   'dot-current', 'flip-matrix', 'raster-harp',
   'spin-lattice', 'packet-storm', 'spark-chamber',

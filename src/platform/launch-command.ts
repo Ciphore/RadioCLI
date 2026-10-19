@@ -8,16 +8,17 @@ const applicationEnvironmentKeys = [
   'RADIOCLI_FFPLAY_PATH',
   'RADIOCLI_VLC_PATH',
   'RADIOCLI_FFMPEG_PATH',
+  'RADIOCLI_DESKTOP_MEDIA',
   'RADIOCLI_OFFLINE',
   'RADIOCLI_LOW_BANDWIDTH'
 ] as const;
 
 const desktopEnvironmentKeys = ['DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS'] as const;
 
-/** Persist only application settings and the desktop connection a job needs. */
+/** Persist application identity; UWSM jobs can inherit the manager's live desktop. */
 export function launchEnvironment(
   env: NodeJS.ProcessEnv,
-  options: {includeDesktop?: boolean; terminal?: string; platform?: string; cwd?: string} = {}
+  options: {includeDesktop?: boolean; inheritDesktop?: boolean; terminal?: string; platform?: string; cwd?: string} = {}
 ): Record<string, string> {
   const result: Record<string, string> = {};
   const platform = options.platform ?? process.platform;
@@ -38,7 +39,7 @@ export function launchEnvironment(
     const absolute = path.isAbsolute(value) && (platform !== 'win32' || /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(value));
     if (!absolute) add(key, path.resolve(options.cwd ?? process.cwd(), value));
   };
-  for (const key of pathEnvironmentKeys) capturePath(key, env[key]);
+  for (const key of pathEnvironmentKeys) if(!options.inheritDesktop||key!=='XDG_RUNTIME_DIR')capturePath(key, env[key]);
   // On Windows, removing USERPROFILE from a child environment does not
   // reliably erase a differently-cased inherited value. Persist the effective
   // account home so an absent selector cannot be replaced by the launcher.
@@ -46,13 +47,13 @@ export function launchEnvironment(
     capturePath('USERPROFILE', homedir());
   }
   for (const key of applicationEnvironmentKeys) add(key, env[key]);
-  if (options.includeDesktop) for (const key of desktopEnvironmentKeys) add(key, env[key]);
+  if (options.includeDesktop&&!options.inheritDesktop) for (const key of desktopEnvironmentKeys) add(key, env[key]);
   add('RADIOCLI_ALARM_TERMINAL', options.terminal);
   return result;
 }
 
 /** Keep application argv and approved environment out of native shell syntax. */
-export function nodeLaunchCommand(nodePath: string, args: readonly string[], environment: Record<string, string>): string[] {
+export function nodeLaunchCommand(nodePath: string, args: readonly string[], environment: Record<string, string>,options:{inheritDesktop?:boolean}={}): string[] {
   if ([nodePath, ...args, ...Object.keys(environment), ...Object.values(environment)].some(value => value.includes('\0'))) {
     throw new Error('Launch command values cannot contain NUL bytes.');
   }
@@ -61,13 +62,14 @@ export function nodeLaunchCommand(nodePath: string, args: readonly string[], env
   // A terminal server or scheduler may have unrelated path overrides. Clear the
   // complete identity before restoring this launch's snapshot, preserving absent
   // selectors and the path layer's existing empty-value/default semantics.
-  const keys = [...pathEnvironmentKeys, ...applicationEnvironmentKeys, 'RADIOCLI_ALARM_TERMINAL'].map(key => `'${key}'`).join(',');
+  // Only explicitly opted-in jobs inherit the current manager's runtime root.
+  const keys = [...pathEnvironmentKeys, ...applicationEnvironmentKeys, 'RADIOCLI_ALARM_TERMINAL'].filter(key=>!options.inheritDesktop||key!=='XDG_RUNTIME_DIR').map(key => `'${key}'`).join(',');
   const program = `const p=JSON.parse(Buffer.from(process.argv[1],'base64url').toString('utf8'));const s=new Set([${keys}]);const e=Object.fromEntries(Object.entries(process.env).filter(([k])=>!s.has(process.platform==='win32'?k.toUpperCase():k)));const r=require('node:child_process').spawnSync(process.execPath,p.args,{stdio:'inherit',env:{...e,...p.environment}});if(r.error)console.error(r.error.message);process.exit(r.status??1);`;
   return [nodePath, '-e', program, Buffer.from(JSON.stringify({args, environment}), 'utf8').toString('base64url')];
 }
 
 /** Process acceptance is separate from application/session readiness. */
-export function waitForLaunch(child: ChildProcess, options: {waitForExit?: boolean} = {}): Promise<void> {
+export function waitForLaunch(child: ChildProcess, options: {waitForExit?: boolean; exitTimeoutMs?: number} = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let acceptedTimer: NodeJS.Timeout | undefined;
@@ -108,7 +110,7 @@ export function waitForLaunch(child: ChildProcess, options: {waitForExit?: boole
     child.once('spawn', () => {
       if (options.waitForExit) {
         clearTimeout(startupTimer);
-        acceptedTimer = setTimeout(() => stop(new Error('Launch bootstrap did not complete.')), 10_000);
+        acceptedTimer = setTimeout(() => stop(new Error('Launch bootstrap did not complete.')), options.exitTimeoutMs ?? 10_000);
       } else {
         child.unref();
         acceptedTimer = setTimeout(() => finish(), 100);

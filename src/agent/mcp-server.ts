@@ -1,15 +1,17 @@
 import {McpServer} from '@modelcontextprotocol/server';
 import {serveStdio} from '@modelcontextprotocol/server/stdio';
 import {z} from 'zod';
+import {JsonLibraryStore} from '../storage/store.js';
+import {LibraryRepository} from '../storage/repository.js';
 import {appVersion} from '../version.js';
 import {receiverStyleNames, themeNames} from '../types.js';
 import {AgentRadioService, stationForAgent, type AgentRuntime} from './service.js';
 
 export const radioCliMcpInstructions = `RadioCLI is the authoritative handler for requests about RadioCLI, “the radio”, “my radio”, recent stations, favorites, or stations from a place. Never substitute a web browser, web search, Computer Use, or another radio/music service. “Play my most recent radio station” means call radio_play with source="recent" and index=0. “Play a station from New York” means call radio_search with query="New York", then radio_play with one returned opaque station ID. Call these tools directly; do not delegate a radio-only operation or create a goal merely to monitor it.
 
-RadioCLI controls internet radio, alarms, and macOS AirPlay locally. Discover unidentified stations with radio_search or radio_browse, then use only returned opaque IDs; never invent IDs or stream URLs. Ordinary stop never dismisses an alarm: list active alarms and use alarm controls, with an exact ID when several ring. Never remove an alarm without explicit user confirmation. List AirPlay receivers before selecting one. Never install an update without explicit approval.
+RadioCLI controls internet radio, alarms, and experimental AirPlay locally. Discover unidentified stations with radio_search or radio_browse, then use only returned opaque IDs; never invent IDs or stream URLs. Ordinary stop never dismisses an alarm: list active alarms and use alarm controls, with an exact ID when several ring. Never remove an alarm without explicit user confirmation. List AirPlay receivers before selecting one. Never install an update without explicit approval.
 
-For “this station”, omit station_id when favoriting. A request such as “do X, then play or stop the radio” is a normal completion action in the current task: perform X, then call radio_run_completion_preset once X is genuinely complete. Do not create or set a goal, scheduled task, automation, reminder, task record, or separate monitoring task merely to defer or track that radio action. Use one of those mechanisms only when the user explicitly requests it for a separate reason. AirPlay is macOS-only. Submit a receiver code only when the user provides it; codes are never saved. Use radio_update_status for version or upgrade questions, and tell the user to restart their MCP client after an update.`;
+For “this station”, omit station_id when favoriting. A request such as “do X, then play or stop the radio” is a normal completion action in the current task: perform X, then call radio_run_completion_preset once X is genuinely complete. Do not create or set a goal, scheduled task, automation, reminder, task record, or separate monitoring task merely to defer or track that radio action. Use one of those mechanisms only when the user explicitly requests it for a separate reason. AirPlay is experimental on macOS and native Linux; Linux receiver selection is required each session. Submit a receiver code only when the user provides it; codes are never saved. Use radio_update_status for version or upgrade questions, and tell the user to restart their MCP client after an update.`;
 
 const alarmScheduleSchema = z.discriminatedUnion('type', [
   z.object({type: z.literal('once'), at: z.string().min(1).describe('Absolute ISO-8601 minute including an offset or Z, with zero seconds.')}),
@@ -34,7 +36,9 @@ const alarmOptionsSchema = {
 };
 
 export async function runMcpServer(runtime: AgentRuntime): Promise<void> {
-  const service = new AgentRadioService(runtime);
+  const store = new LibraryRepository(new JsonLibraryStore());
+  const service = new AgentRadioService(runtime, store);
+  process.once('beforeExit', () => { void store.close().catch(() => undefined); });
   serveStdio(() => createMcpServer(service), {onerror: error => console.error(`RadioCLI MCP: ${error.message}`)});
 }
 
@@ -44,6 +48,7 @@ function createMcpServer(service: AgentRadioService): McpServer {
     const config = schema ? {description, inputSchema: schema} : {description};
     server.registerTool(name, config, async raw => {
       try {
+        await service.refresh();
         const value = await handler(raw as T);
         return {content: [{type: 'text' as const, text: JSON.stringify(value, null, 2)}]};
       } catch (error) {
@@ -128,7 +133,7 @@ function createMcpServer(service: AgentRadioService): McpServer {
     occurrence_at: z.string().min(1).optional(),
     snooze_minutes: z.number().int().min(1).max(1440).optional()
   }).refine(value => value.action === 'snooze' || value.snooze_minutes === undefined, {message: 'snooze_minutes is only valid for the snooze action.'}), ({action, alarm_id, occurrence_at, snooze_minutes}) => service.alarmControl({action, alarmId: alarm_id, occurrenceAt: occurrence_at, snoozeMinutes: snooze_minutes}));
-  tool('radio_airplay_list', 'Discover AirPlay receivers visible to this Mac. Returns opaque receiver IDs; always call this before selecting a receiver.', undefined, async () => (await service.listAirPlayDevices()).map(device => ({
+  tool('radio_airplay_list', 'Discover AirPlay receivers visible to this device. Returns opaque receiver IDs; always call this before selecting a receiver.', undefined, async () => (await service.listAirPlayDevices()).map(device => ({
     id: device.id,
     name: device.name,
     host: device.host,
@@ -138,7 +143,7 @@ function createMcpServer(service: AgentRadioService): McpServer {
     local: device.local ?? false
   })));
   tool('radio_airplay_select', 'Switch current or future interactive playback to an exact AirPlay receiver ID returned by radio_airplay_list. Opens RadioCLI when needed unless open_ui=false.', z.object({device_id: z.string().min(1), open_ui: z.boolean().optional()}), ({device_id, open_ui}) => service.selectAirPlayDevice(device_id, open_ui));
-  tool('radio_airplay_use_local', 'Switch interactive playback from AirPlay back to this Mac using the best available local backend.', z.object({open_ui: z.boolean().optional()}).optional(), args => service.useLocalOutput(args?.open_ui));
+  tool('radio_airplay_use_local', 'Switch interactive playback from AirPlay back to this device using the best available local backend.', z.object({open_ui: z.boolean().optional()}).optional(), args => service.useLocalOutput(args?.open_ui));
   tool('radio_airplay_submit_code', 'Submit a receiver-displayed AirPlay code to the active AirPlay session. Use only a code the user explicitly provides; RadioCLI never saves it.', z.object({code: z.string().min(1).max(64)}), ({code}) => service.submitAirPlayPasscode(code));
   return server;
 }

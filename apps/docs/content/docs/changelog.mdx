@@ -3,6 +3,76 @@ title: Changelog
 description: Release history for RadioCLI.
 ---
 
+## 0.2.5 - 2026-10-18
+
+### Added
+
+- Added direct shell playback, volume controls, station-name lookup, filtered
+  search, favorites, recents, named presets, and listening stats.
+- Added a compact now-playing view with live track metadata and `--watch`,
+  readable terminal tables, JSON/plain output, and shell completion for Bash,
+  Zsh, Fish, and PowerShell.
+- Added Linux desktop media controls for RadioCLI's station queue, metadata,
+  playback, and volume, with `radiocli media-controls auto|on|off` overrides.
+- Added experimental Omarchy Quattro integration with preferred-terminal
+  launching and desktop/session diagnostics.
+- Added experimental, opt-in Linux AirPlay with Avahi discovery, receiver
+  selection, passcode handling, and guided dependency setup.
+
+### Changed
+
+- Simplified shell help around eight everyday commands, with `help --all` for
+  the full reference, `play` to resume, and favorites, recent, and popular queues.
+- Expanded Doctor with separate terminal, desktop media, audio, Omarchy, and
+  AirPlay readiness checks.
+- Included station presets in library backup, restore, and concurrent saves.
+- Reduced Gallop's drawing scale by 10% while preserving its proportions,
+  centering, and animation timing.
+- Removed the twelve preview receiver scenes, retaining the original 63 styles
+  and Ultracode default. Retired selections migrate without resetting saved data.
+
+### Fixed
+
+- Kept TUI playback running after a terminal crash, recovering the active
+  station, queue, controls, and sleep timer when the terminal reopens.
+- Recovered interrupted or stalled live mpv streams without restarting paused
+  sessions, finite recordings, or playback canceled by Stop.
+- Prevented duplicate mpv desktop media players and kept desktop controls in
+  sync with the shared player, including live-edge resume and alarm transitions.
+- Restored alarm volume to the original Linux output after default-device
+  changes and overlapping alarms, and kept imported alarm IDs distinct across
+  case-insensitive and Unicode-normalizing filesystems.
+- Preserved AirPlay mute, volume, and station metadata during connection setup,
+  added legacy RAOP password authentication, and improved connection errors.
+- Protected concurrent library saves and preserved the latest data in the safety
+  backup before a restore. Retried temporary Windows file-replacement conflicts.
+- Preserved migrated custom-station IDs, corrected XSPF CDATA and Unicode URL
+  imports, and restored Windows drive-path playlist imports.
+- Corrected mixed Arabic/Latin terminal layout and emoji clipping, padding, and
+  scrolling without changing plain output or screen-reader behavior.
+- Expired future-dated provider cache entries after clock corrections and
+  preserved valid data when migrating older caches.
+- Preserved package-manager paths during Unix updates and allowed slower
+  PowerShell startup when opening native Windows terminals.
+- Fixed a documentation typecheck race and added a single required CI gate for
+  platform, playback, and documentation checks. Release checks now include
+  packed upgrades from 0.2.3 and 0.2.4 and native TUI crash recovery.
+
+### Security
+
+- Removed the optional AirPlay sender's vulnerable elliptic dependency, using
+  Node's native Ed25519 while preserving pairing formats and optional installs.
+- Enabled native stream certificate verification and restricted FFmpeg network
+  playlists that cannot safely carry TLS policy. Documented the remaining
+  native OpenSSL numeric-IP certificate identity limitation.
+- Kept Doctor's probes read-only, bounded local service checks, and excluded
+  receiver codes and stream credentials from AirPlay diagnostics.
+- Updated documentation and development dependencies to patched releases.
+
+Quattro integration and Linux AirPlay remain experimental. Software playback
+checks do not establish physical receiver, speaker, hardware-key, or suspend/wake
+support; existing platform support tiers are unchanged.
+
 ## 0.2.4 - 2026-09-17
 
 ### Added

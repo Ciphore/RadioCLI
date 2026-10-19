@@ -18,6 +18,54 @@ scheduling and recorded delivery health. An available player does not establish 
 desktop session, system mixer, or scheduler is usable. See
 [Platforms](/docs/platforms) for runtime requirements and verified coverage.
 
+## Audio Continues After A TUI Crash
+
+Run `radiocli` again. The terminal reconnects to the existing playback owner and
+opens Now Playing with its station, queue, metadata, volume, mute, pause state,
+and sleep timer. Reconnecting does not restart the stream. You can also use
+`radiocli now`, `radiocli pause`, `radiocli volume 40`, or `radiocli stop` while
+the TUI is closed. Agent/MCP setup is not required. A normal TUI quit still
+stops playback.
+
+Recovery uses the same private runtime directory and authenticated IPv4/IPv6
+loopback transport as the ordinary CLI. It adds no system service, native
+dependency, or Unix-only process lookup. Existing backend limitations still
+apply: ffplay/VLC do not gain mpv's interactive controls, and AirPlay remains
+limited to its supported platforms. Live radio continues at its current
+broadcast rather than replaying missed audio.
+
+The playback owner must still be running, and both launches must use the same
+user and data/runtime environment, including `RADIOCLI_HOME` and
+`XDG_RUNTIME_DIR` where set. Rebooting or killing the playback owner ends the
+session. A second live TUI is refused so it cannot take control away from the
+first terminal.
+
+After upgrading from a version without recovery, stop its existing player once
+with `radiocli stop`, then reopen `radiocli` to start the updated playback owner.
+
+Settings updates keep the current station controllable during installation.
+After a successful update, quit the TUI with `q` and reopen `radiocli` to start
+the updated playback owner. Normal quit closes its player and private control
+session on every supported OS; manually killing RadioCLI processes is not part
+of the update flow. A failed update leaves the current session available.
+
+Restart or reconnect your MCP client after upgrading so it starts
+`radiocli mcp serve` with the updated tool code. Reopening the TUI does not reload
+an already running MCP server. Restarting MCP leaves ordinary playback and
+ringing alarms running. TUI quit closes ordinary playback only; alarm runners,
+their ringing controls, and saved native schedules remain separate.
+
+The twelve preview receiver scenes have been removed. Previously saved selections
+fall back to Ultracode without resetting your library. The original 63 receivers
+remain in their established order, with Gallop near the beginning and Crossfade
+at the end.
+
+When runtime storage is unwritable or loopback is blocked, the TUI retains
+in-process playback and reports that recovery is unavailable. Set
+`RADIOCLI_HOME` to a private writable directory to fix runtime storage. Set
+`RADIOCLI_TUI_PLAYBACK=inline` to explicitly use in-process playback when no
+other playback owner is active; this mode cannot recover after a crash.
+
 ## Playback Tool Installed But Not Found
 
 `radiocli doctor` prints the resolved `mpv` path, discovery method, version, and
@@ -32,7 +80,7 @@ For a custom installation, set an absolute path to the native executable:
 | `RADIOCLI_MPV_PATH` | `mpv` |
 | `RADIOCLI_FFPLAY_PATH` | `ffplay` |
 | `RADIOCLI_VLC_PATH` | `vlc` or `cvlc` |
-| `RADIOCLI_FFMPEG_PATH` | FFmpeg, including the decoder used for macOS AirPlay |
+| `RADIOCLI_FFMPEG_PATH` | FFmpeg, including the decoder used for experimental macOS/Linux AirPlay |
 
 The value is a file path, with no command arguments. Windows overrides must
 point to a native `.exe` or `.com` file; `.cmd` and `.bat` wrappers are not player
@@ -187,6 +235,22 @@ after correcting the path or permissions.
   A machine without that session can still use normal playback when its player
   and audio device are available. A found `systemctl` executable alone does not
   establish working user scheduling.
+  Experimental AirPlay is hidden until you opt in with `radiocli setup --airplay`.
+  It separately needs `avahi-browse`, a running Avahi daemon,
+  FFmpeg, and the usable optional sender. An opted-in installation with missing
+  dependencies shows **Setup required**; repeat setup for installation guidance.
+  Doctor probes readiness without
+  searching the LAN; open the AirPlay picker to search explicitly. Selecting
+  local output remains available when a receiver or service fails.
+
+On Omarchy Quattro, use `radiocli doctor --json` to distinguish packaged-release
+detection, terminal prerequisites, the user bus, audio service, scheduling, and
+AirPlay readiness. Missing services do not disable unrelated local features.
+If desktop controls are unavailable, check the reported media policy and mpv
+configuration compatibility. `RADIOCLI_DESKTOP_MEDIA=off` disables the new
+bridge for diagnosis; restart the active RadioCLI session after changing it.
+Keep custom mpv scripts and desktop configuration intact. For stale Arch package
+repositories, use Omarchy's supported update workflow before retrying setup.
 
 Use **Verify alarm setup** in the Alarms screen to check registration, terminal
 delivery, sleep protection, system volume, and bounded sample playback on the

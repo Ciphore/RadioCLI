@@ -1,8 +1,19 @@
 import {describe, expect, it} from 'vitest';
 import {detectPackageManager, ffplayInstallCommand, mpvInstallCommand, packageCommandInvocation, packageInstallCommand, packageManagerNeedsRoot, packageManagerNotes, platformLabel} from './packages.js';
 import {identifyPlatform} from './runtime.js';
+import {identifyOmarchy} from './omarchy.js';
 
 describe('native package plans', () => {
+  it('adds Quattro pacman recovery guidance without changing installation commands', () => {
+    const host = identifyPlatform({platform: 'linux', osRelease: 'ID=arch', env: {}});
+    const profile = identifyOmarchy({platform: 'linux', env: {}, isDirectory: path => path === '/usr/share/omarchy', readFile: () => null, resolve: command => `/usr/bin/${command}`, run: (_command, args) => args[1] === 'omarchy' ? 'omarchy 4.0.4-1' : null});
+    expect(packageManagerNotes('pacman', host, profile).join(' ')).toMatch(/Omarchy Quattro.*uwsm-app.*supported Omarchy update workflow.*does not upgrade/s);
+    expect(packageInstallCommand('pacman', 'mpv')).toMatchObject({program: 'sudo', args: ['pacman', '-S', '--needed', '--noconfirm', 'mpv']});
+    expect(packageInstallCommand('pacman', 'ffmpeg')).toMatchObject({program: 'sudo', args: ['pacman', '-S', '--needed', '--noconfirm', 'ffmpeg']});
+    expect(packageManagerNotes('pacman', host, {...profile, kind: 'legacy'})).toEqual([]);
+    expect(packageManagerNotes('pacman', host, {...profile, kind: 'none'})).toEqual([]);
+    expect(packageManagerNotes('apt', host, profile)).toEqual([]);
+  });
   it.each(['darwin', 'win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'sunos', 'haiku', 'android'] as const)(
     'gives manual guidance instead of an unavailable installer on %s', platform => {
       const options = {hasCommand: () => false, getUid: () => 1000};

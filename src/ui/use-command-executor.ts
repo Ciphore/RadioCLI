@@ -2,7 +2,7 @@ import {useCallback, type Dispatch, type SetStateAction} from 'react';
 import type {AppSettings, Country, LibraryState, Screen, Station} from '../types.js';
 import type {ProviderManager} from '../providers/provider-manager.js';
 import type {PlayerController} from '../player/player-controller.js';
-import type {JsonLibraryStore} from '../storage/store.js';
+import type {LibraryRepository} from '../storage/repository.js';
 import type {MediaTransportAction, SearchFilters, NavigationOptions} from './app-state.js';
 import {favoriteTarget, normalizeMediaKeyBindings, parseMediaActionName} from './app-state.js';
 import {importStreamUrl} from '../streams/import-stream.js';
@@ -11,42 +11,49 @@ type SettingsRef = {
   current: AppSettings;
 };
 
+export type SettingsUpdate = Partial<AppSettings> | ((settings: Readonly<AppSettings>) => Partial<AppSettings>);
+
 type UseCommandExecutorOptions = {
   beginLearningTransportKey: (action: MediaTransportAction) => void;
+  cancelPendingTune: () => void;
   countries: Country[];
   go: (next: Screen, options?: NavigationOptions) => void;
-  loadCountry: (country: Country) => Promise<void>;
+  loadCountry: (country: Country, navigate?: boolean) => Promise<void>;
   openAirPlaySettings: () => void;
+  openAirPlayCode: () => void;
   openLibrary: () => void;
-  persistLibrary: (write: () => LibraryState) => LibraryState | undefined;
+  persistLibrary: (write: () => LibraryState | Promise<LibraryState>) => Promise<LibraryState | undefined>;
   player: PlayerController;
   playingStation: Station | null;
   providers: ProviderManager;
   resetLearnedTransportKeys: () => void;
   runSearch: (query?: string) => Promise<void>;
   screen: Screen;
+  screenRef: {current: Screen};
   selectedStation: Station | null;
   setCountries: Dispatch<SetStateAction<Country[]>>;
   setFilters: Dispatch<SetStateAction<SearchFilters>>;
   setLibrary: Dispatch<SetStateAction<LibraryState>>;
   setMessage: Dispatch<SetStateAction<string | null>>;
   setSearchQuery: Dispatch<SetStateAction<string>>;
-  setSleepUntil: Dispatch<SetStateAction<number | null>>;
+  setSleepUntil(until: number | null): void;
   setVolume: (volume: number) => void;
   settingsRef: SettingsRef;
-  store: JsonLibraryStore;
+  store: LibraryRepository;
   toggleFavorite: (station: Station | null) => void;
   toggleMute: () => void;
   updateCommand: () => Promise<void>;
-  updateSettings: (settings: Partial<AppSettings>) => LibraryState;
+  updateSettings: (settings: SettingsUpdate) => Promise<LibraryState>;
 };
 
 export function useCommandExecutor({
   beginLearningTransportKey,
+  cancelPendingTune,
   countries,
   go,
   loadCountry,
   openAirPlaySettings,
+  openAirPlayCode,
   openLibrary,
   persistLibrary,
   player,
@@ -55,6 +62,7 @@ export function useCommandExecutor({
   resetLearnedTransportKeys,
   runSearch,
   screen,
+  screenRef,
   selectedStation,
   setCountries,
   setFilters,
@@ -93,6 +101,7 @@ export function useCommandExecutor({
           return;
         }
 
+        const origin = screenRef.current;
         const availableCountries = countries.length > 0 ? countries : await providers.countries();
         if (countries.length === 0) {
           setCountries(availableCountries);
@@ -102,11 +111,11 @@ export function useCommandExecutor({
           `${country.code} ${country.name}`.toLowerCase().includes(value.toLowerCase())
         );
         if (!match) {
-          setMessage(`Country not found: ${value}`);
+          if (screenRef.current === origin) setMessage(`Country not found: ${value}`);
           return;
         }
 
-        await loadCountry(match);
+        await loadCountry(match, screenRef.current === origin);
         return;
       }
 
@@ -147,7 +156,7 @@ export function useCommandExecutor({
 
       if (name === 'location') {
         const enabled = value === 'on' || value === 'true' || value === '1';
-        updateSettings({enableNearbyLocation: enabled});
+        await updateSettings({enableNearbyLocation: enabled});
         setMessage(`Nearby location lookup ${enabled ? 'enabled' : 'disabled'}.`);
         return;
       }
@@ -155,14 +164,14 @@ export function useCommandExecutor({
       if (name === 'timeout') {
         const seconds = Number(value);
         if (Number.isFinite(seconds)) {
-          updateSettings({tuneTimeoutSeconds: Math.min(45, Math.max(3, seconds))});
+          await updateSettings({tuneTimeoutSeconds: Math.min(45, Math.max(3, seconds))});
         }
         return;
       }
 
       if (name === 'skip') {
         const enabled = value !== 'off' && value !== 'false' && value !== '0';
-        updateSettings({skipBrokenStreams: enabled});
+        await updateSettings({skipBrokenStreams: enabled});
         return;
       }
 
@@ -190,11 +199,11 @@ export function useCommandExecutor({
 
       if (name === 'airplay-code' || name === 'airplay-passcode') {
         if (!value.trim()) {
-          go('airplay-code');
+          openAirPlayCode();
           return;
         }
 
-        const result = player.submitAirPlayPasscode(value.trim());
+        const result = await player.submitAirPlayPasscode(value.trim());
         if (result.message) {
           setMessage(result.message);
         }
@@ -239,7 +248,7 @@ export function useCommandExecutor({
 
       if (name === 'export' || name === 'backup') {
         try {
-          const backupPath = store.exportBackup(value || undefined);
+          const backupPath = await store.exportBackup(value || undefined);
           setMessage(`Backup exported: ${backupPath}`);
         } catch (error) {
           setMessage(error instanceof Error ? error.message : 'Could not export the RadioCLI backup.');
@@ -257,7 +266,7 @@ export function useCommandExecutor({
           const [url = '', ...nameParts] = rest;
           setMessage('Reading stream metadata...');
           const result = await importStreamUrl(url, nameParts.join(' ') || undefined);
-          const nextLibrary = persistLibrary(() => store.addImported([result.station]));
+          const nextLibrary = await persistLibrary(() => store.addImported([result.station]));
           if (!nextLibrary) return;
           openLibrary();
           setMessage(result.warning
@@ -276,7 +285,7 @@ export function useCommandExecutor({
         }
 
         try {
-          const result = store.importBackup(value);
+          const result = await store.importBackup(value);
           settingsRef.current = result.state.settings;
           setLibrary(result.state);
           setMessage(
@@ -296,6 +305,7 @@ export function useCommandExecutor({
       }
 
       if (name === 'stop') {
+        cancelPendingTune();
         persistLibrary(() => store.finishActiveListeningSession());
         await player.stop();
         return;
@@ -321,9 +331,10 @@ export function useCommandExecutor({
               : name === 'motion'
                 ? 'reduceMotion'
                 : 'transparentBackground';
-        const enabled = value === '' ? !settingsRef.current[key] : value === 'on' || value === 'true' || value === '1';
-        updateSettings({[key]: enabled});
-        setMessage(`${name} ${enabled ? 'on' : 'off'}.`);
+        const saved = await updateSettings(value === ''
+          ? current => ({[key]: !current[key]})
+          : {[key]: value === 'on' || value === 'true' || value === '1'});
+        setMessage(`${name} ${saved.settings[key] ? 'on' : 'off'}.`);
         return;
       }
 
@@ -331,10 +342,12 @@ export function useCommandExecutor({
     },
     [
       beginLearningTransportKey,
+      cancelPendingTune,
       countries,
       go,
       loadCountry,
       openAirPlaySettings,
+  openAirPlayCode,
       openLibrary,
       persistLibrary,
       player,
@@ -343,6 +356,7 @@ export function useCommandExecutor({
       resetLearnedTransportKeys,
       runSearch,
       screen,
+      screenRef,
       selectedStation,
       setCountries,
       setFilters,

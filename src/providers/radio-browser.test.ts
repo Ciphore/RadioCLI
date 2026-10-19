@@ -2,6 +2,7 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer} from 'node:http';
+import {setImmediate as nextEventLoopTurn} from 'node:timers/promises';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {ProviderCache} from './cache.js';
 import {RadioBrowserProvider} from './radio-browser.js';
@@ -10,6 +11,7 @@ const roots: string[] = [];
 
 describe('RadioBrowserProvider', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.useRealTimers();
@@ -461,8 +463,11 @@ describe('RadioBrowserProvider', () => {
 
   it('gives large atlas downloads a size-aware timeout before trying another mirror', async () => {
     vi.useFakeTimers();
+    let started!: () => void;
+    const requestStarted = new Promise<void>(resolve => {started = resolve;});
     const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
+        started();
         init?.signal?.addEventListener('abort', () => reject(new Error('atlas attempt aborted')), {once: true});
       })
     );
@@ -475,6 +480,8 @@ describe('RadioBrowserProvider', () => {
     const request = provider
       .nearby({latitude: 48.8566, longitude: 2.3522, source: 'test'}, 2)
       .then(() => null, error => error as Error);
+    // Cache I/O is asynchronous; measure the network deadline from its start.
+    await requestStarted;
     await vi.advanceTimersByTimeAsync(5_001);
     expect(fetch).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(25_000);
@@ -482,6 +489,39 @@ describe('RadioBrowserProvider', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(request).resolves.toMatchObject({message: expect.stringMatching(/Radio Browser unavailable/)});
     vi.useRealTimers();
+  });
+
+  it('keeps atlas normalization, deduplication, and ranking stable across input-friendly batches', async () => {
+    const rows: unknown[] = Array.from({length: 1100}, (_, index) => ({stationuuid: `far-${index}`, name: `Far ${index}`, geo_lat: 55, geo_long: -80}));
+    rows[0] = {stationuuid: 'missing-first', name: 'Invalid coordinates', geo_lat: 100, geo_long: 2.3522};
+    rows[1] = {stationuuid: 'recovered', name: 7};
+    rows[249] = {stationuuid: 'boundary', name: '  東京 · Rádio  ', tags: 'jazz,world', countrycode: 'fr', url_resolved: 'https://example.test/live', geo_lat: 48.8566, geo_long: 2.3522, lastcheckok: 1};
+    rows[251] = {stationuuid: 'quality', name: 'Quality Radio', geo_lat: 48.8566, geo_long: 2.3522, lastcheckok: 1, clickcount: 1000};
+    rows[500] = {stationuuid: 'boundary', name: 'Later duplicate', geo_lat: 48.8566, geo_long: 2.3522};
+    rows[700] = {stationuuid: 'missing-first', name: 'Later valid coordinates', geo_lat: 48.8566, geo_long: 2.3522};
+    rows[750] = {stationuuid: 'recovered', name: 'Recovered', geo_lat: 48.8566, geo_long: 2.3522};
+    const cache = cacheForTest();
+    vi.spyOn(cache, 'getAsync').mockResolvedValue(rows);
+    const fetch = mockFetch(() => {throw new Error('Cached atlas must not fetch.');});
+    const provider = new RadioBrowserProvider(['https://primary.example'], cache);
+    const location = {latitude: 48.8566, longitude: 2.3522, source: 'test'};
+    const events: string[] = [];
+    const loading = provider.nearby(location, 2000).then(stations => {events.push('loaded'); return stations;});
+    await nextEventLoopTurn();
+    events.push('input');
+    const stations = await loading;
+    expect(events).toEqual(['input', 'loaded']);
+    expect(stations.slice(0, 3).map(station => station.id)).toEqual(['quality', 'boundary', 'recovered']);
+    expect(stations[1]).toMatchObject({name: '東京 · Rádio', tags: ['jazz', 'world'], countryCode: 'FR', streamUrl: 'https://example.test/live', distanceKm: 0});
+    expect(stations.filter(station => station.id === 'boundary')).toHaveLength(1);
+    expect(stations.some(station => station.id === 'missing-first')).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+    events.length = 0;
+    const ranking = provider.nearby(location, 3).then(stations => {events.push('ranked'); return stations;});
+    await nextEventLoopTurn();
+    events.push('input');
+    expect((await ranking).map(station => station.id)).toEqual(['quality', 'boundary', 'recovered']);
+    expect(events).toEqual(['input', 'ranked']);
   });
 
   it('upvotes Radio Browser stations and ignores non-Radio-Browser stations', async () => {

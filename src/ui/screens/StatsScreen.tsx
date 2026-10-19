@@ -106,7 +106,10 @@ export function StatsScreen({library, theme, width, height}: StatsScreenProps): 
           {metricPair('Favorite station', a(truncate(favorite, favoriteWidth)), 'Total hours listened', formatHours(totalHours), metricWidth, theme)}
           {metricPair('Sessions', stats.sessions.toLocaleString(), 'Longest streak', formatDays(stats.longestStreak), metricWidth, theme)}
           {metricPair('Current streak', formatDays(stats.currentStreak), 'Stations listened', stats.listenedStationCount.toLocaleString(), metricWidth, theme)}
-          {metricPair('Active days', `${stats.activeDays}/${stats.totalTrackedDays}`, 'Stations counted after', '2 min', metricWidth, theme)}
+          <Text>
+            <Text color={textMuted}>Active days: </Text>
+            <Text color={themeAccent(theme)}>{stats.activeDays}/{stats.totalTrackedDays}</Text>
+          </Text>
         </Box>
         <Box marginTop={1} aria-hidden>
           <Text color={textMuted}>{a('Less · ')}</Text>

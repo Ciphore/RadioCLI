@@ -1,6 +1,6 @@
 ---
 title: CLI Usage
-description: Command-mode entry points for searching, checking, data transfer, and scheduled radio.
+description: Play, discover, save, and control radio from your shell, with readable output and scriptable commands.
 ---
 
 RadioCLI opens the full TUI by default:
@@ -9,11 +9,203 @@ RadioCLI opens the full TUI by default:
 radiocli
 ```
 
-It also supports command mode for scriptable tasks:
+## Everyday Listening
+
+Start listening from your shell without opening a full-screen interface or
+enabling MCP. The same `play` command starts and continues listening:
+
+```bash
+radiocli play jazz
+radiocli pause
+radiocli play
+radiocli stop
+```
+
+These eight commands cover everyday listening:
+
+| Command | What it does |
+| --- | --- |
+| `play [station]` | Find and play a station, or continue listening. |
+| `pause` | Pause the current station. |
+| `next` | Tune the next station in the current queue. |
+| `now` | Show the station, track, and volume. |
+| `volume 40` | Set volume from 0 to 100. |
+| `favorite` | Save the current station. |
+| `favorites` | List saved stations; add `--pick` to choose one. |
+| `stop` | Stop listening and close the background player. |
+
+`radiocli help` shows this short guide. `radiocli help --all` groups the full
+command list by purpose, and `radiocli help play` explains one command.
+`previous`, `mute`, `unmute`, and `resume` remain available when you need them.
+
+`play` starts a background player and returns to your prompt. If the TUI is
+already open, commands control that player instead. The CLI uses the same
+library, playback backends, metadata, and listening history as the TUI.
+`stop` closes background playback; use `play` to start again. Pause, volume,
+and mute depend on backend capabilities; `mpv` provides full controls.
+
+Station selection accepts a saved preset, a station name, or an exact
+`provider:id`. Saved presets and names are checked before the public directory.
+A unique match plays immediately; multiple matches offer a numbered chooser in
+an interactive terminal. In scripts, ambiguous names fail with matching IDs so
+you can select the exact station. `play` with no argument resumes a paused
+station, leaves playing audio uninterrupted, or restarts the selected station
+after stopping. It preserves that station's queue. When no station is selected,
+it starts your most recent station.
+
+```bash
+radiocli play --favorites
+radiocli play --favorites --random
+radiocli play --recent --pick
+radiocli play --popular
+radiocli play --country JP
+radiocli play "Groove Salad" --keep-playing
+```
+
+Choose one queue flag: `--favorites`, `--recent`, or `--popular`. The longer
+`--source` form still accepts `recent`, `favorites` (also `favorite`), `popular`,
+or `country`. Country queues require `--country` with a two-letter code.
+Explicit queue or filter options select a station anew; they do not resume the
+current selection. `--random` selects from the chosen
+queue; `--keep-playing` preserves an already playing or paused station. Next
+and previous follow the selected search or library queue, wrapping at its ends.
+Ordinary playback commands do not dismiss or modify alarms, and `play` is
+refused while an alarm occurrence is active.
+
+## Search And Choose
+
+```bash
+radiocli search jazz --pick
+radiocli search jazz --country US --language english --limit 10
+radiocli search ambient --codec MP3 --min-bitrate 128
+radiocli countries --limit 20
+```
+
+Search shows a table with station name, country, audio quality, and a `*` for
+favorites. `--pick` lets you enter a result number to start playback. Enter `q`,
+press Enter on an empty selection, or press Ctrl+C to cancel. The chooser
+preserves terminal scrollback and retries invalid numbers.
+
+Search and station-name playback accept `--country`, `--language`, `--codec`,
+`--min-bitrate`, and `--limit`. Limits range from 1 through 100; search defaults
+to 20. An empty result includes a suggestion to broaden the query. Station
+names beginning with a dash can follow `--`, for example
+`radiocli search -- "-station name"`.
+
+## Now Playing
+
+```bash
+radiocli now
+radiocli now --watch
+radiocli status --json
+```
+
+The compact view includes station, current track when supplied by the stream,
+playback state, audio output, volume, and mute status. `status` is an alias for
+`now`. `--watch` refreshes one terminal line when the displayed information
+changes. Ctrl+C exits the view while playback continues. Screen-reader mode
+prints changed states on separate lines instead of rewriting a line.
+
+## Favorites, History, And Presets
+
+```bash
+radiocli favorite                        # save the active station
+radiocli favorite "Groove Salad"
+radiocli favorites --pick
+radiocli recent --pick
+radiocli unfavorite "Groove Salad"
+radiocli stats
+```
+
+Favorites and recents accept `--limit` and `--pick`. Stats shows listening time,
+sessions, station count, streaks, and your most-listened station.
+
+Presets give stations short names that are easy to remember and complete:
+
+```bash
+radiocli preset save work                # use the active station
+radiocli preset save evening "Groove Salad"
+radiocli play work
+radiocli presets                         # also: radiocli preset list
+radiocli preset remove evening
+```
+
+Preset names are case-insensitive and contain 1–40 letters, numbers, hyphens,
+or underscores, starting with a letter or number. Saving an existing name
+replaces its station. Removing a preset removes only the shortcut. Up to 200
+presets are stored in the local library and included in JSON backup/restore.
+M3U export continues to contain favorites and imported stations.
+
+## Output And Scripts
+
+Listener commands support consistent output options:
+
+| Option | Behavior |
+| --- | --- |
+| `--json` | One structured JSON result, with no terminal decoration. |
+| `--plain` | Tab-separated output, even in an interactive terminal. |
+| `--quiet`, `-q` | Suppress successful output; errors still fail. |
+| `--no-input` | Never prompt; ambiguous matches require an exact ID. |
+| `--no-color` | Disable terminal colors. `NO_COLOR` is also respected. |
+| `--help`, `-h` | Command-specific usage and examples without playback or network access. |
+
+These options apply to playback, search, countries, library, preset, stats,
+and now-playing commands. Existing setup, alarm, update, and agent commands
+retain their own documented options.
+
+```bash
+radiocli search jazz --json
+radiocli favorites --plain
+radiocli play radio-browser:STATION_ID --no-input --quiet
+radiocli now --json
+radiocli help play
+radiocli help --all
+```
+
+Output automatically becomes plain when piped. Search, favorites, and recents
+use five TSV columns: `provider:id`, name, country, codec, and bitrate. Country
+rows retain code, station count, and name. Preset rows use name, station ID,
+and station name. Now-playing and stats use key/value TSV rows. Control results
+use `ok` or `error` followed by the message. Empty lists have no TSV rows.
+
+JSON search/library results are arrays with `id`, `name`, `country`,
+`countryCode`, `codec`, `bitrate`, `language`, `tags`, and `favorite`. Now-playing
+JSON is the session snapshot, or `null` when no player is active. Control
+results include `ok`, `message`, and the session status when available.
+`--pick` and `--watch` require an interactive terminal and cannot be combined
+with JSON, plain, quiet, or no-input mode. Successful commands exit with 0;
+errors exit with 1; cancelling a picker or watch with Ctrl+C exits with 130.
+
+## Shell Completion
+
+Load completion for your shell, then add the same line to its profile if you
+want it available in new sessions:
+
+```bash
+# Bash
+source <(radiocli completion bash)
+
+# Zsh, after compinit
+source <(radiocli completion zsh)
+
+# Fish
+radiocli completion fish | source
+```
+
+```powershell
+# PowerShell
+radiocli completion powershell | Out-String | Invoke-Expression
+```
+
+Completion suggests commands, command-specific flags, common filter values,
+and saved preset names. It does not query public station directories or change
+your shell configuration. Misspelled commands suggest a likely correction
+without executing it.
+
+## Other Commands
 
 ```bash
 radiocli doctor
-radiocli doctor --json
 radiocli setup
 radiocli setup --dry-run
 radiocli setup --mcp
@@ -22,8 +214,6 @@ radiocli mcp repair
 radiocli update --install
 radiocli agent status
 radiocli check
-radiocli countries
-radiocli search "japan hits"
 radiocli import https://example.com/live.mp3
 radiocli import stations.m3u
 radiocli export favorites.m3u
@@ -43,6 +233,24 @@ actually launch. `mpv` is the full-control backend; `ffplay` is reported as
 fallback playback with limited controls.
 Use `radiocli doctor --json` for a machine-readable support report; paths under
 your home directory are redacted to `~`.
+
+Doctor also separates Omarchy release evidence, terminal prerequisites, desktop
+media policy, user-bus and audio readiness, scheduling, and AirPlay prerequisites.
+It does not browse receivers, open a terminal, or register an MPRIS player.
+An available tool is not proof of audible output or a working receiver.
+
+Configure Linux desktop media controls with:
+
+```bash
+radiocli media-controls            # show saved and effective policy
+radiocli media-controls auto       # packaged Quattro local desktop
+radiocli media-controls on         # opt in on another Linux desktop
+radiocli media-controls off
+RADIOCLI_DESKTOP_MEDIA=off radiocli # override for this process
+```
+
+Restart active sessions after changing the saved setting. Other platforms retain
+their existing media-key behavior; this setting selects the Linux MPRIS bridge.
 
 Use `radiocli check` when debugging playback or provider issues. It reports local
 store paths, playback backends, and provider health. Include that output when filing
@@ -90,8 +298,8 @@ update through MCP without the user running or approving an update path.
 ## Local Agent And MCP Control
 
 The MCP server exposes typed tools for status, discovery, playback, favorites,
-listening stats, appearance, alarms, macOS AirPlay, and configurable completion
-actions. This includes creating, editing, enabling, disabling, listing,
+listening stats, appearance, alarms, experimental macOS/Linux AirPlay, and
+configurable completion actions. This includes creating, editing, enabling, disabling, listing,
 synchronizing, and explicitly confirmed alarm removal, plus dismiss, snooze,
 keep-playing, and interactive handoff for a ringing occurrence. It accepts only
 saved stations or opaque station IDs returned by RadioCLI discovery tools;
@@ -119,9 +327,11 @@ radiocli agent done                     # runs the completion preset
 ```
 
 Harnesses without MCP can use the existing complete `radiocli alarm` command
-set for alarm creation and control. AirPlay commands are available only on
-macOS, select receivers by opaque IDs returned from discovery, and never save a
-receiver passcode. Scheduled alarms continue to use local speakers; selecting
+set for alarm creation and control. AirPlay commands are available on macOS and
+native Linux after `radiocli setup --airplay`, select receivers by opaque IDs
+returned from discovery, and never save a receiver passcode. Agent and headless
+controls respect the same Linux opt-in as the TUI; a saved receiver or installed
+dependency does not enable it. Scheduled alarms continue to use local speakers; selecting
 AirPlay affects only interactive playback and cannot silently reroute an
 unattended alarm.
 

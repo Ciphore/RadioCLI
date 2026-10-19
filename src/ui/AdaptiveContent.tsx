@@ -16,9 +16,9 @@ import {computeListeningStats} from '../activity/stats.js';
 import {playbackBackendLabel} from '../player/backend-install.js';
 import {visibleWindow} from './list-window.js';
 import {displayWidth, padDisplayEnd, stationLocation, stationTags, stationTech, truncate} from './format.js';
-import {homeItems, settingsGroup, settingsGroups, settingsItemsForPage, type SettingsPage} from './screen-items.js';
+import {homeItems, settingsGroup, settingsGroupsForAirPlay, settingsItemsForPage, type SettingsPage} from './screen-items.js';
 import {screenTitle} from './screen-meta.js';
-import {keyHelpSections, commandHelp} from './help-content.js';
+import {keyHelpSections, commandHelpForAirPlay} from './help-content.js';
 import {settingLabel, settingValue} from './screens/SettingsScreen.js';
 import {exploreMapLand, mapMarker, panelBorder, textDim, textMuted, themeAccent} from './theme.js';
 import {panelBorderStyle, useDisplay} from './display-context.js';
@@ -33,6 +33,7 @@ import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adapt
 import {AdaptiveMarquee} from './components/AdaptiveMarquee.js';
 
 type AdaptiveContentProps = {
+  platform?: NodeJS.Platform;
   mode: 'compact' | 'micro';
   screen: Screen;
   settingsPage?: SettingsPage;
@@ -185,9 +186,11 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
       width,
       mode,
       ascii,
-      airPlaySupported
+      airPlaySupported,
+      platform: props.platform
     });
     const empty = adaptiveEmptyState({
+      airPlaySetupRequired: props.platform === 'linux' && !backends.includes('airplay'),
       screen,
       searchQuery,
       editingSearch,
@@ -261,9 +264,11 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
     width,
     mode,
     ascii,
-    airPlaySupported
+    airPlaySupported,
+    platform: props.platform
   });
   const empty = adaptiveEmptyState({
+    airPlaySetupRequired: props.platform === 'linux' && !backends.includes('airplay'),
     screen,
     searchQuery,
     editingSearch,
@@ -784,6 +789,7 @@ function adaptiveRows(input: {
   mode: 'compact' | 'micro';
   ascii: boolean;
   airPlaySupported: boolean;
+  platform?: NodeJS.Platform;
 }): AdaptiveRow[] {
   const {screen, stations, countries, airPlayDevices, library, diagnostics, backends, updateCheck, favoriteKeys, selected, width, mode, ascii} = input;
   if (screen === 'home') {
@@ -795,15 +801,15 @@ function adaptiveRows(input: {
     }));
   }
   if (screen === 'settings') {
-    const pageItems = settingsItemsForPage(input.settingsPage);
+    const pageItems = settingsItemsForPage(input.settingsPage, input.airPlaySupported);
     const labels = pageItems.map(item => settingLabel(item, updateCheck, input.appVersion, input.airPlaySupported));
     const labelWidth = pairedColumnWidth(labels, width, mode);
     return pageItems.map((item, index) => ({
       key: item,
       label: padDisplayEnd(truncate(settingLabel(item, updateCheck, input.appVersion, input.airPlaySupported), labelWidth), labelWidth),
       detail: input.settingsPage === 'root'
-        ? adaptiveSettingsRootValue(item)
-        : settingValue(item, library.settings, diagnostics, backends, airPlayDevices, updateCheck, input.appVersion),
+        ? adaptiveSettingsRootValue(item, input.airPlaySupported)
+        : settingValue(item, library.settings, diagnostics, backends, airPlayDevices, updateCheck, input.appVersion, input.platform),
       separator: '   ',
       index
     }));
@@ -834,7 +840,7 @@ function adaptiveRows(input: {
       }
     }
     rows.push({key: 'section-commands', label: 'Commands', heading: true});
-    for (const command of commandHelp) {
+    for (const command of commandHelpForAirPlay(input.airPlaySupported)) {
       rows.push({key: `command-${command.name}`, label: `:${command.name}${command.args ? ` ${command.args}` : ''}`, detail: command.description, index});
       index += 1;
     }
@@ -843,8 +849,8 @@ function adaptiveRows(input: {
   return stationAdaptiveRows(stations, favoriteKeys, selected, width, ascii);
 }
 
-function adaptiveSettingsRootValue(item: string): string | undefined {
-  const group = settingsGroups.find(candidate => candidate.label === item);
+function adaptiveSettingsRootValue(item: string, airPlayVisible: boolean): string | undefined {
+  const group = settingsGroupsForAirPlay(airPlayVisible).find(candidate => candidate.label === item);
   return group ? `${group.items.length} settings ›` : undefined;
 }
 
@@ -878,6 +884,7 @@ function pairedColumnWidth(labels: string[], width: number, mode: 'compact' | 'm
 }
 
 function adaptiveEmptyState(input: {
+  airPlaySetupRequired?: boolean;
   screen: Screen;
   searchQuery: string;
   editingSearch: boolean;
@@ -920,6 +927,7 @@ function adaptiveEmptyState(input: {
     return [{key: 'error', label: stationError}, {key: 'hint', label: 'Try again later or reopen this view.'}];
   }
   if (screen === 'airplay-settings') {
+    if (input.airPlaySetupRequired) return [{key: 'empty', label: 'Setup required'}, {key: 'hint', label: 'radiocli setup'}, {key: 'option', label: '--airplay'}];
     return [{key: 'empty', label: 'No AirPlay receivers found.'}, {key: 'hint', label: 'Press r to scan again.'}];
   }
   return [{key: 'empty', label: `No stations in ${stationTitle.toLowerCase()}.`}, {key: 'hint', label: 'Try another view or clear filters.'}];
@@ -969,6 +977,7 @@ function adaptiveStatus(props: AdaptiveContentProps): string {
     return playingStation ? playingStation.name : 'Receiver authentication';
   }
   if (screen === 'airplay-settings') {
+    if (props.platform === 'linux' && !props.backends.includes('airplay')) return 'Setup required';
     return `${props.airPlayDevices.length} receivers · ${playbackBackendLabel(playback.backend)}`;
   }
   return `${stations.length.toLocaleString()} stations${playingStation ? ` · playing ${playingStation.name}` : ''}`;
