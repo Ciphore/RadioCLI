@@ -3,7 +3,7 @@ import {Box, Text} from 'ink';
 import type {ThemeName} from '../../types.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
-import {commandHelp, keyHelpSections} from '../help-content.js';
+import {commandHelpForAirPlay, keyHelpSections} from '../help-content.js';
 import {padDisplayEnd, truncate} from '../format.js';
 import {visibleWindow} from '../list-window.js';
 import {useDisplay} from '../display-context.js';
@@ -14,11 +14,12 @@ type HelpScreenProps = {
   width: number;
   height: number;
   selected: number;
+  airPlaySupported?: boolean;
 };
 
 type HelpRow = {key: string; heading?: string; keys?: string; description?: string};
 
-export function HelpScreen({theme, width, height, selected}: HelpScreenProps): React.ReactElement {
+export function HelpScreen({theme, width, height, selected, airPlaySupported = true}: HelpScreenProps): React.ReactElement {
   const {ascii} = useDisplay();
   const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
@@ -30,7 +31,7 @@ export function HelpScreen({theme, width, height, selected}: HelpScreenProps): R
       ...section.entries.map(entry => ({key: `${section.title}-${entry.keys}`, ...entry}))
     ]),
     {key: 'commands', heading: 'Commands (press : then type)'},
-    ...commandHelp.map(command => ({
+    ...commandHelpForAirPlay(airPlaySupported).map(command => ({
       key: `command-${command.name}`,
       keys: `:${command.name}${command.args ? ` ${command.args}` : ''}`,
       description: command.description

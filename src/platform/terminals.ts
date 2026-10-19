@@ -4,10 +4,11 @@ import {resolveCommandDetails} from './executables.js';
 import {identifyPlatform,nativeAdapters} from './runtime.js';
 import {powershellCommand} from './shell.js';
 import {launchEnvironment, nodeLaunchCommand, waitForLaunch} from './launch-command.js';
+import {identifyOmarchy, type OmarchyProbeOptions} from './omarchy.js';
 
 export type TerminalResolver=(command:string)=>string|undefined;
 type TerminalSpawn=(command:string,args:readonly string[],options?:SpawnOptions)=>ChildProcess;
-export type TerminalOptions={platform?:NodeJS.Platform;env?:NodeJS.ProcessEnv;resolve?:TerminalResolver;spawn?:TerminalSpawn};
+export type TerminalOptions={platform?:NodeJS.Platform;env?:NodeJS.ProcessEnv;resolve?:TerminalResolver;spawn?:TerminalSpawn;omarchy?:OmarchyProbeOptions};
 type TerminalCommand=TerminalOptions&{nodePath:string;args:readonly string[];title?:string;closeOnExit?:boolean};
 type TerminalLaunch={terminal:string;command:string;args:string[];environment?:Record<string,string>};
 
@@ -22,8 +23,10 @@ const unixTerminals:UnixTerminal[]=[
   {name:'xterm',args:['-e'],display:'x11'},{name:'uxterm',args:['-e'],display:'x11'}
 ];
 const macTerminals=['darwin:apple-terminal','darwin:iterm','darwin:wezterm','darwin:ghostty','darwin:kitty'];
+const omarchyTerminal='linux:omarchy-launch-tui';
 
-export function detectGraphicalTerminal(platform:NodeJS.Platform=process.platform,env:NodeJS.ProcessEnv=process.env,resolve:TerminalResolver=resolver(platform,env)):string{
+export function detectGraphicalTerminal(platform:NodeJS.Platform=process.platform,env:NodeJS.ProcessEnv=process.env,resolveCommand?:TerminalResolver,omarchy?:OmarchyProbeOptions):string{
+  const resolve=resolveCommand??resolver(platform,env);
   const host=identifyPlatform({platform,env});const adapter=nativeAdapters(host).terminal;
   const unsupported=`${host.id==='unknown'?platform:host.id}:unsupported`;
   const configured=env.RADIOCLI_ALARM_TERMINAL?.trim();
@@ -38,7 +41,10 @@ export function detectGraphicalTerminal(platform:NodeJS.Platform=process.platfor
     return env.WT_SESSION?'win32:windows-terminal':'win32:console';
   }
   if(adapter!=='unix'||!hasDisplay(env))return unsupported;
-  if(configured){
+  const nativeOmarchy=()=>identifyOmarchy({...omarchy,platform,env,...(resolveCommand?{resolve}: {})}).terminal.available;
+  if(configured===omarchyTerminal){
+    if(nativeOmarchy())return omarchyTerminal;
+  }else if(configured){
     const separator=configured.indexOf(':');const prefix=separator<0?'':configured.slice(0,separator);
     if(prefix===host.id||prefix==='linux'){
       const path=resolveUnixTerminal(configured.slice(separator+1),env,resolve);
@@ -48,13 +54,14 @@ export function detectGraphicalTerminal(platform:NodeJS.Platform=process.platfor
   const requested=env.TERMINAL?.trim()||env.TERM_PROGRAM?.trim();
   const selected=requested&&resolveUnixTerminal(requested,env,resolve);
   if(selected)return`${host.id}:${selected}`;
+  if(nativeOmarchy())return omarchyTerminal;
   for(const terminal of unixTerminals){const path=resolveUnixTerminal(terminal.name,env,resolve);if(path)return`${host.id}:${path}`;}
   return unsupported;
 }
 
 export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
   const platform=options.platform??process.platform;const env=options.env??process.env;const resolve=options.resolve??resolver(platform,env);
-  const terminal=detectGraphicalTerminal(platform,env,resolve);const values=[options.nodePath,...options.args];
+  const terminal=detectGraphicalTerminal(platform,env,options.resolve,options.omarchy);const values=[options.nodePath,...options.args];
   if(values.some(value=>value.includes('\0')))throw new Error('Terminal command values cannot contain NUL bytes.');
   const environment=launchEnvironment(env,{platform});
   const direct=nodeLaunchCommand(options.nodePath,options.args,environment);
@@ -81,6 +88,12 @@ export function createTerminalLaunch(options:TerminalCommand):TerminalLaunch{
     if(!wt)throw new Error('Windows Terminal is unavailable; the saved terminal cannot be requested.');
     return{terminal,command:wt,args:['-w','new','new-tab','--title',options.title??'RadioCLI',powershell,...args]};
   }
+  if(terminal===omarchyTerminal){
+    if(!posix.isAbsolute(options.nodePath))throw new Error('The Omarchy launcher requires an absolute Node executable path.');
+    const command=resolve('/usr/share/omarchy/bin/omarchy-launch-tui')??resolve('omarchy-launch-tui');
+    if(!command||!posix.isAbsolute(command)||/[\0\r\n]/.test(command))throw new Error('The Omarchy TUI launcher is unavailable.');
+    return{terminal,command,args:['--app-id=org.radiocli.RadioCLI',...direct]};
+  }
   const executable=terminal.slice(terminal.indexOf(':')+1);const spec=unixTerminals.find(item=>item.name===posix.basename(executable));
   if(!spec)throw new Error('The saved graphical terminal is unsupported.');
   // QTerminal reparses only its first -e argument, then appends argv literally.
@@ -99,7 +112,9 @@ export async function launchTerminalCommand(options:TerminalCommand):Promise<str
   // https://github.com/nodejs/node/issues/51018
   const consoleBootstrap=plan.terminal==='win32:console';
   const child=(options.spawn??spawn)(plan.command,plan.args,{env:{...(options.env??process.env),...plan.environment},detached:!consoleBootstrap,stdio:'ignore',windowsHide:consoleBootstrap});
-  await waitForLaunch(child,{waitForExit:consoleBootstrap});return plan.terminal;
+  // The console bootstrap compiles a small Win32 bridge with Add-Type. Cold
+  // PowerShell/.NET startup on ARM64 needs more time than ordinary launchers.
+  await waitForLaunch(child,{waitForExit:consoleBootstrap,exitTimeoutMs:consoleBootstrap?30_000:undefined});return plan.terminal;
 }
 
 function resolver(platform:NodeJS.Platform,env:NodeJS.ProcessEnv):TerminalResolver{return command=>resolveCommandDetails(command,{platform,env}).path??undefined;}

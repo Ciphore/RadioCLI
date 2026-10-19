@@ -33,6 +33,7 @@ import type {AlarmTuiController} from './use-alarm-tui.js';
 import type {SettingsPage} from './screen-items.js';
 
 type AppContentProps = {
+  platform?: NodeJS.Platform;
   airPlayDevices: AirPlayDevice[];
   airPlayCode: string;
   appVersion: string;
@@ -72,6 +73,7 @@ type AppContentProps = {
 };
 
 export function AppContent({
+  platform = process.platform,
   airPlayDevices,
   airPlayCode,
   appVersion,
@@ -116,6 +118,7 @@ export function AppContent({
     if (screen === 'alarm-ringing') return <AlarmRingingScreen sessions={alarmTui.activeAlarms} alarms={library.alarms} selected={alarmTui.activeSelected} snoozeMinutes={alarmTui.snoozeMinutes} theme={theme} width={frameWidth} height={layout.contentRows} />;
     return (
       <AdaptiveContent
+        platform={platform}
         mode={layout.mode === 'micro' ? 'micro' : 'compact'}
         screen={screen}
         settingsPage={settingsPage}
@@ -275,6 +278,7 @@ export function AppContent({
   if (screen === 'settings') {
     return (
       <SettingsScreen
+        platform={platform}
         page={settingsPage}
         selected={selected}
         settings={library.settings}
@@ -297,6 +301,7 @@ export function AppContent({
   if (screen === 'airplay-settings') {
     return (
       <AirPlaySettingsScreen
+        platform={platform}
         selected={selected}
         settings={library.settings}
         backends={backends}
@@ -321,7 +326,7 @@ export function AppContent({
   }
 
   if (screen === 'help') {
-    return <HelpScreen theme={theme} width={frameWidth} height={layout.contentRows} selected={selected} />;
+    return <HelpScreen airPlaySupported={airPlaySupported} theme={theme} width={frameWidth} height={layout.contentRows} selected={selected} />;
   }
 
   return <Text>Unknown screen.</Text>;

@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction} from 'react';
 import type {Alarm, LibraryState, Screen, Station} from '../types.js';
 import type {JsonLibraryStore} from '../storage/store.js';
+import type {LibraryRepository} from '../storage/repository.js';
 import {applyTextInput, clamp, isEditableInput} from './app-state.js';
 import {
   adjustTime, alarmEditorFields, alarmInputFromDraft, alarmTextFields, cycleWeekdays, defaultAlarmDraft,
@@ -13,11 +14,13 @@ import type {AlarmRuntimeSummary, AlarmTuiService, AlarmVerificationReport, TuiA
 type InkKey = {upArrow?: boolean; downArrow?: boolean; leftArrow?: boolean; rightArrow?: boolean; return?: boolean; escape?: boolean; backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean; scrollDelta?: number};
 type Params = {
   service: AlarmTuiService;
-  store: JsonLibraryStore;
+  store: JsonLibraryStore | LibraryRepository;
   library: LibraryState;
   setLibrary: Dispatch<SetStateAction<LibraryState>>;
   screen: Screen;
+  screenRef: {current: Screen};
   selected: number;
+  selectedRef: {current: number};
   setSelected: Dispatch<SetStateAction<number>>;
   go(screen: Screen, options?: {resetSelection?: boolean; clearMessage?: boolean}): void;
   setMessage: Dispatch<SetStateAction<string | null>>;
@@ -50,7 +53,12 @@ export type AlarmTuiController = {
 };
 
 export function useAlarmTui(params: Params): AlarmTuiController {
-  const {service, store, library, setLibrary, screen, selected, setSelected, go, setMessage, playingStation, previewStation} = params;
+  const {service, store, library, setLibrary, screen, screenRef, selected, selectedRef, setSelected: setSelectionState, go, setMessage, playingStation, previewStation} = params;
+  const setSelected = useCallback<Dispatch<SetStateAction<number>>>(next => {
+    const value = typeof next === 'function' ? next(selectedRef.current) : next;
+    selectedRef.current = value;
+    setSelectionState(value);
+  }, [selectedRef, setSelectionState]);
   const [draft, setDraft] = useState<AlarmDraft | null>(null);
   const [editingField, setEditingField] = useState(false);
   const [editorControl, setEditorControl] = useState<AlarmEditorControl>(null);
@@ -84,7 +92,6 @@ export function useAlarmTui(params: Params): AlarmTuiController {
   const activeSelectedKeyRef = useRef<string | undefined>(undefined);
   const pendingActiveActionsRef = useRef(new Set<string>());
   const acknowledgedActiveKeysRef = useRef(new Set<string>());
-  const screenRef = useRef(screen); screenRef.current = screen;
   const alarmsRef = useRef(library.alarms); alarmsRef.current = library.alarms;
 
   const visibleFields = useMemo(() => alarmEditorFields.filter(field => {
@@ -107,13 +114,15 @@ export function useAlarmTui(params: Params): AlarmTuiController {
       activeSelectedKeyRef.current = sessions[nextIndex]?.key;
       const liveKeys = new Set(sessions.map(session => session.key));
       for (const key of pendingActiveActionsRef.current) if (!liveKeys.has(key)) pendingActiveActionsRef.current.delete(key);
-      activeAlarmsRef.current=sessions;setActiveAlarms(sessions);
+      if (JSON.stringify(activeAlarmsRef.current) !== JSON.stringify(sessions)) {
+        activeAlarmsRef.current=sessions;setActiveAlarms(sessions);
+      }
       if (sessions.length > 0 && activeCountRef.current === 0 && screenRef.current !== 'alarm-ringing') {
         returnScreenRef.current = screenRef.current;
         go('alarm-ringing', {resetSelection: true, clearMessage: false});
       }
       activeCountRef.current = sessions.length;
-  },[go]);
+  },[go, screenRef]);
 
   const refreshActive = useCallback(async () => {
     if (activePollingRef.current) return;
@@ -181,14 +190,14 @@ export function useAlarmTui(params: Params): AlarmTuiController {
     try {
       // Persist the safe state before touching native jobs. A failed cleanup
       // can then be retried without another write in the error handler.
-      const disabled = store.toggleAlarm(alarm.id, false);
+      const disabled = await store.toggleAlarm(alarm.id, false);
       const disabledSnapshot = store.snapshot();
       alarmStateRef.current = disabledSnapshot.alarms;
       setLibrary(disabledSnapshot);
       phase = 'native';
       await service.remove(disabled);
       phase = 'definition';
-      store.removeAlarm(alarm.id);
+      await store.removeAlarm(alarm.id);
       const snapshot = store.snapshot();
       alarmStateRef.current = snapshot.alarms;
       setLibrary(snapshot);
@@ -208,14 +217,14 @@ export function useAlarmTui(params: Params): AlarmTuiController {
     setMessage(message);
   }, [refreshRuntime, service, setLibrary, setMessage, setSelected, store]);
 
-  const saveDraft = useCallback(() => {
+  const saveDraft = useCallback(async () => {
     if (!draft || savingRef.current) return;
     const error = validateAlarmDraft(draft);
     if (error) { setValidationError(error); setMessage(error); return; }
     savingRef.current = true; setSaving(true);
     try {
       const input = alarmInputFromDraft(draft);
-      const alarm = draft.id ? store.updateAlarm(draft.id, input) : store.addAlarm(input);
+      const alarm = draft.id ? await store.updateAlarm(draft.id, input) : await store.addAlarm(input);
       setLibrary(store.snapshot());
       setValidationError(null);
       go('alarms', {resetSelection: true, clearMessage: false});
@@ -229,9 +238,9 @@ export function useAlarmTui(params: Params): AlarmTuiController {
   }, [draft, go, setLibrary, setMessage, store, syncPersisted]);
 
   const editSelected = useCallback(() => {
-    const alarm = alarmStateRef.current[selected - 1]; if (!alarm) return;
+    const alarm = alarmStateRef.current[selectedRef.current - 1]; if (!alarm) return;
     setDraft(draftFromAlarm(alarm)); setEditingField(false); editorControlRef.current=null; setEditorControl(null); timeSegmentRef.current='hour'; setTimeSegment('hour'); weekdayIndexRef.current=0; setWeekdayIndex(0); setValidationError(null); setSelected(0); go('alarm-editor', {resetSelection: true});
-  }, [go, library.alarms, selected, setSelected]);
+  }, [go, selectedRef, setSelected]);
 
   const runVerification=useCallback(()=>{
     if(verificationRunningRef.current)return;
@@ -243,6 +252,9 @@ export function useAlarmTui(params: Params): AlarmTuiController {
   },[library.settings,refreshRuntime,service,setMessage,store]);
 
   const handleInput = useCallback((input: string, key: InkKey): boolean => {
+    const screen = screenRef.current;
+    const selected = selectedRef.current;
+    const editorField = visibleFields[clamp(selected, visibleFields.length - 1)] ?? 'label';
     if (!['alarms', 'alarm-editor', 'alarm-picker', 'alarm-ringing'].includes(screen)) return false;
     if (key.scrollDelta) {
       if (screen === 'alarm-editor') {
@@ -276,7 +288,7 @@ export function useAlarmTui(params: Params): AlarmTuiController {
         if (key.return || ['e',' ','x','t','g'].includes(input)) { setMessage(`Cleanup is still running for ${alarm.label}.`); return true; }
       }
       if ((key.return || input === 'e') && alarm) { editSelected(); return true; }
-      if (input === ' ' && alarm) { const updated = store.toggleAlarm(alarm.id); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); void syncPersisted(updated, `${updated.enabled ? 'Enabled' : 'Disabled'} ${updated.label}.`); return true; }
+      if (input === ' ' && alarm) { void (async () => { const updated = await store.toggleAlarm(alarm.id); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); await syncPersisted(updated, `${updated.enabled ? 'Enabled' : 'Disabled'} ${updated.label}.`); })().catch(error => setMessage(`Alarm save failed: ${messageOf(error)}`)); return true; }
       if (input === 'x' && alarm) {
         if(alarmIsActive){setMessage(`Dismiss or snooze ${alarm.label} before deleting it; current playback was left untouched.`);return true;}
         if (deletingIdRef.current !== alarm.id) { deletingIdRef.current = alarm.id; setDeletingId(alarm.id); setMessage(`Press x again to delete “${alarm.label}”.`); return true; }
@@ -287,7 +299,7 @@ export function useAlarmTui(params: Params): AlarmTuiController {
       if (input !== 'x') { deletingIdRef.current = undefined; setDeletingId(undefined); }
       if (input === 't' && alarm) { void previewStation(alarm.station).then(() => setMessage(`Test-tuning ${alarm.station.name}; no alarm state changed.`)).catch(error => setMessage(`Test tune failed: ${messageOf(error)}`)); return true; }
       if (input === 'r') { const activeIds=new Set(activeAlarmsRef.current.map(session=>session.status.alarmId));const repairable = store.listAlarms().filter(item => !busyAlarmIdsRef.current.has(item.id)&&!activeIds.has(item.id)); void (async()=>{let terminalWarning:string|undefined;try{await service.prepareTerminalAccess?.();}catch(error){terminalWarning=messageOf(error);}try{const results=await service.syncAll(repairable);const failed=results.filter(item=>item.error);setMessage(failed.length?`${failed.length} alarms still degraded: ${failed[0]!.error}`:terminalWarning?`Native jobs repaired, but automatic terminal controls need attention: ${terminalWarning}`:activeIds.size?'Inactive alarms repaired; currently playing alarms were left untouched.':'All alarms repaired and synchronized.');void refreshRuntime();}catch(error){setMessage(`Alarm repair failed: ${messageOf(error)}`);}})(); return true; }
-      if (input === 'g' && alarm) { const updated = store.updateAlarm(alarm.id, {reliability: {...alarm.reliability, keepAwakeUntilAlarm: !alarm.reliability.keepAwakeUntilAlarm}}); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); void syncPersisted(updated, `Alarm Guard ${updated.reliability.keepAwakeUntilAlarm ? 'on' : 'off'} for ${alarm.label}.`); return true; }
+      if (input === 'g' && alarm) { void (async () => { const updated = await store.updateAlarm(alarm.id, {reliability: {...alarm.reliability, keepAwakeUntilAlarm: !alarm.reliability.keepAwakeUntilAlarm}}); const snapshot = store.snapshot(); alarmStateRef.current = snapshot.alarms; setLibrary(snapshot); await syncPersisted(updated, `Alarm Guard ${updated.reliability.keepAwakeUntilAlarm ? 'on' : 'off'} for ${alarm.label}.`); })().catch(error => setMessage(`Alarm save failed: ${messageOf(error)}`)); return true; }
       if (input === 'b' || key.escape) { go('home'); return true; }
       if (key.downArrow || input === 'j') { setSelected(value => clamp(value + 1, library.alarms.length + 1)); return true; }
       if (key.upArrow || input === 'k' || input === 'p') { setSelected(value => clamp(value - 1, library.alarms.length + 1)); return true; }
@@ -389,13 +401,13 @@ export function useAlarmTui(params: Params): AlarmTuiController {
       return true;
     }
     return false;
-  }, [activeAlarms, deleteAlarm, deletingId, draft, editSelected, editingField, editorControl, editorField, go, library.alarms, openForStation, pickerChoices, pickerFallback, previewStation, refreshActive, refreshRuntime, runVerification, saveDraft, screen, selected, service, setLibrary, setMessage, setSelected, snoozeMinutes, store, syncPersisted, timeSegment, verification, visibleFields, weekdayIndex]);
+  }, [activeAlarms, deleteAlarm, deletingId, draft, editSelected, editingField, editorControl, go, library.alarms, openForStation, pickerChoices, pickerFallback, previewStation, refreshActive, refreshRuntime, runVerification, saveDraft, screenRef, selectedRef, service, setLibrary, setMessage, setSelected, snoozeMinutes, store, syncPersisted, timeSegment, verification, visibleFields, weekdayIndex]);
 
   const openActive = useCallback(() => {
     if (!activeAlarms.length) { setMessage('No alarm is currently playing.'); return; }
     if (screenRef.current !== 'alarm-ringing') returnScreenRef.current = screenRef.current;
     activeSelectedRef.current=0;activeSelectedKeyRef.current=activeAlarms[0]?.key;setActiveSelected(0); go('alarm-ringing', {resetSelection: true, clearMessage: false});
-  }, [activeAlarms, go, setMessage]);
+  }, [activeAlarms, go, screenRef, setMessage]);
 
   return {draft, editorField, editingField, editorControl, timeSegment, weekdayIndex, validationError, saving, pickerChoices, pickerFallback, runtime, verification, activeAlarms, activeSelected, snoozeMinutes, deletingId, busyAlarmIds, itemCount(current) { if (current === 'alarms') return library.alarms.length + 2; if (current === 'alarm-editor') return visibleFields.length; if (current === 'alarm-picker') return pickerChoices.length; if (current === 'alarm-ringing') return activeAlarms.length; return undefined; }, handleInput, openForStation, openActive};
 }

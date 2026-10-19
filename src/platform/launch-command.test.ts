@@ -120,7 +120,7 @@ describe('launch path identity', () => {
   });
 
   it('clears absent application overrides inherited from a persistent launcher', () => {
-    const keys = ['RADIOCLI_MPV_PATH', 'RADIOCLI_FFPLAY_PATH', 'RADIOCLI_VLC_PATH', 'RADIOCLI_FFMPEG_PATH', 'RADIOCLI_OFFLINE', 'RADIOCLI_LOW_BANDWIDTH', 'RADIOCLI_ALARM_TERMINAL'];
+    const keys = ['RADIOCLI_MPV_PATH', 'RADIOCLI_FFPLAY_PATH', 'RADIOCLI_VLC_PATH', 'RADIOCLI_FFMPEG_PATH', 'RADIOCLI_DESKTOP_MEDIA', 'RADIOCLI_OFFLINE', 'RADIOCLI_LOW_BANDWIDTH', 'RADIOCLI_ALARM_TERMINAL'];
     const args = ['-e', `process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key] ?? null]))))`];
     const inherited = Object.fromEntries(keys.map(key => [key, 'stale-launcher-value']));
     const output = run(nodeLaunchCommand(process.execPath, args, launchEnvironment({}, {platform: process.platform})), inherited);
@@ -131,6 +131,21 @@ describe('launch path identity', () => {
     expect(launchEnvironment({RADIOCLI_HOME: 'Radio Data', RADIO_ATLAS_HOME: 'C:legacy', APPDATA: '\\roaming', LOCALAPPDATA: '', USERPROFILE: '.\\listener'}, {platform: 'win32', cwd: 'C:\\Project Workspace'})).toEqual({
       RADIOCLI_HOME: 'C:\\Project Workspace\\Radio Data', RADIO_ATLAS_HOME: 'C:\\Project Workspace\\legacy', APPDATA: 'C:\\roaming', LOCALAPPDATA: 'C:\\Project Workspace', USERPROFILE: 'C:\\Project Workspace\\listener'
     });
+  });
+
+  it('captures a managed desktop-media override and preserves it through the encoded command',()=>{
+    const saved=launchEnvironment({RADIOCLI_DESKTOP_MEDIA:'off'},{platform:'linux'});
+    const args=['-e',"process.stdout.write(JSON.stringify(process.env.RADIOCLI_DESKTOP_MEDIA))"];
+    expect(run(nodeLaunchCommand(process.execPath,args,saved),{RADIOCLI_DESKTOP_MEDIA:'on'})).toBe('off');
+  });
+
+  it.each([{}, {DISPLAY:':2',WAYLAND_DISPLAY:'wayland-8',DBUS_SESSION_BUS_ADDRESS:'unix:path=/run/new/bus',XDG_RUNTIME_DIR:'/run/new'}])('inherits only the current desktop connection when explicitly requested: %j',desktop=>{
+    const saved=launchEnvironment({HOME:'/home/saved',RADIOCLI_HOME:'/data/saved',DISPLAY:':0',WAYLAND_DISPLAY:'wayland-old',DBUS_SESSION_BUS_ADDRESS:'unix:path=/old/bus',XDG_RUNTIME_DIR:'/old/runtime',RADIOCLI_DESKTOP_MEDIA:'off'},{platform:'linux',includeDesktop:true,inheritDesktop:true});
+    expect(saved).toEqual({HOME:'/home/saved',RADIOCLI_HOME:'/data/saved',RADIOCLI_DESKTOP_MEDIA:'off'});
+    const keys=['HOME','RADIOCLI_HOME','RADIO_ATLAS_HOME','XDG_DATA_HOME','XDG_CACHE_HOME','DISPLAY','WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR','RADIOCLI_DESKTOP_MEDIA'];
+    const args=['-e',`process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]))))`];
+    const inherited={...desktop,HOME:'/home/manager',RADIOCLI_HOME:'/data/wrong',RADIO_ATLAS_HOME:'/legacy/wrong',XDG_DATA_HOME:'/data/wrong',XDG_CACHE_HOME:'/cache/wrong',RADIOCLI_DESKTOP_MEDIA:'on'};
+    expect(run(nodeLaunchCommand(process.execPath,args,saved,{inheritDesktop:true}),inherited)).toEqual({...saved,...desktop});
   });
 
   it('preserves empty fallback overrides and the invalid empty Windows user profile', () => {

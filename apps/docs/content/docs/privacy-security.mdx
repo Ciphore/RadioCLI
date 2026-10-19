@@ -5,16 +5,26 @@ description: Local-first data behavior, approximate location lookup, and vulnera
 
 RadioCLI does not require secrets or accounts.
 
-## Local Agent Control
+## Local Playback And Agent Control
 
-Agent control is opt-in. Its MCP transport is stdio, and active playback uses a
+Agent control is opt-in, and its MCP transport is stdio. Ordinary CLI commands
+work independently of that setting. An open TUI or background player uses a
 short-lived authenticated HTTP endpoint bound to literal loopback: `127.0.0.1`,
 with `::1` as the fallback when IPv4 loopback is unavailable. The random bearer
 token, address, and port are stored in a user-private runtime file. Requests
 are serialized, and a single-owner lock keeps two local agents from starting
-competing players. The endpoint is not exposed to the LAN or internet.
+competing players. CLI commands use this same authenticated session to control
+the existing player. They do not enable MCP or install agent integrations.
+The endpoint is not exposed to the LAN or internet.
 
-Agent, alarm, and Guard clients accept only those literal loopback addresses.
+The TUI attaches as a view of this playback owner. If its terminal crashes, the
+owner keeps the audio and control channel alive; reopening `radiocli` reconnects
+without creating a second player. Normal TUI quit stops the owner. Attachment
+uses a process-liveness check and a per-view identifier to prevent a second live
+terminal or a stale detach from displacing the current view. AirPlay codes stay
+in the playback process's memory and are not added to the discovery file.
+
+CLI, agent, alarm, and Guard clients accept only those literal loopback addresses.
 They make direct Node HTTP requests with `agent: false`, so public HTTP proxy
 settings cannot forward local control or bearer tokens to a proxy. Loopback
 requests still require authentication; their local address does not replace
@@ -41,11 +51,22 @@ external terminal windows or app-control prompts.
 - Recents, favorites, settings, imports, listening activity, alarm definitions,
   and provider cache data are stored locally on your machine.
 - RadioCLI does not proxy audio. It resolves public stream URLs and hands playback
-  to `mpv`, `ffplay`, or the experimental macOS AirPlay worker.
-- AirPlay discovery uses Bonjour on your local network. AirPlay streaming runs
+  to `mpv`, `ffplay`, or the experimental macOS/native Linux AirPlay worker.
+- AirPlay discovery uses Bonjour on macOS or Avahi on native Linux. Linux
+  requires an explicit per-library setup opt-in and opening or refreshing the
+  picker; startup never scans. The opt-in setup plan may install Avahi and
+  explicitly enable its system discovery service after the plan is accepted.
+  Turning off RadioCLI's opt-in does not disable a service used by other apps.
+  AirPlay streaming runs
   through a local worker and the bundled sender bridge. Offline mode blocks
   receiver discovery. Low-bandwidth mode skips automatic discovery but permits
   an explicit refresh.
+- Linux desktop media controls expose station/title and playback state to the
+  local user bus, with stream URLs and private paths removed. The bridge is
+  independent of agent/MCP consent and yields during alarms. Disable it with
+  `RADIOCLI_DESKTOP_MEDIA=off`. Doctor checks readiness without browsing receivers
+  or registering a media player. RadioCLI does not persist receiver codes or
+  forward them in worker diagnostics.
 - Favoriting a Radio Browser station sends a best-effort vote to that public
   directory by default. Disable **Share favorite votes with Radio Browser** in
   Settings to keep favorites local-only. Offline mode also prevents the vote

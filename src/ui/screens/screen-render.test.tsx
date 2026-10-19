@@ -252,7 +252,7 @@ describe('SettingsScreen rendering', () => {
     expect(frame).not.toContain('ASCII-safe display');
   });
 
-  it('labels AirPlay as macOS-only on unsupported operating systems', () => {
+  it('hides AirPlay on unsupported operating systems', () => {
     const {lastFrame} = render(
       <SettingsScreen
         page="playback"
@@ -271,7 +271,8 @@ describe('SettingsScreen rendering', () => {
       />
     );
 
-    expect(lastFrame()).toContain('AirPlay receiver (macOS only)');
+    expect(lastFrame()).not.toContain('AirPlay receiver');
+    expect(lastFrame()).toContain('Volume up');
   });
 
   it('changes the update settings row when an update is available', () => {

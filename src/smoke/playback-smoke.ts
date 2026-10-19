@@ -1,4 +1,5 @@
 import {setTimeout as delay} from 'node:timers/promises';
+import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -37,6 +38,22 @@ try {
   console.log('source=local-wav');
 
   try {
+    if (backends.includes('mpv')) {
+      let playedBeforeResume = false;
+      const unsubscribe = player.onChange(state => { if (state.state === 'playing') playedBeforeResume = true; });
+      try {
+        await player.play(station, fixture, {startPaused: true});
+        assert.equal(player.getState().state, 'paused');
+        assert.equal(player.getState().ready, true);
+        await delay(300);
+        assert.equal(player.getState().state, 'paused');
+        assert.equal(playedBeforeResume, false, 'A paused station must not report playing before resume.');
+      } finally { unsubscribe(); }
+      assert.equal((await player.resume()).ok, true);
+      assert.equal(player.getState().state, 'playing');
+      await player.stop();
+      console.log('paused_start_and_resume=ok');
+    }
     await player.play(station, fixture);
     await delay(1200);
   } finally {

@@ -94,7 +94,7 @@ export function getHomeJsonLd() {
         codeRepository: repositoryUrl,
         downloadUrl: 'https://www.npmjs.com/package/@ciphore/radiocli',
         installUrl: absoluteUrl('/docs/getting-started/install'),
-        softwareVersion: '0.2.4',
+        softwareVersion: '0.2.5',
         license: licenseUrl,
         isAccessibleForFree: true,
         author: {

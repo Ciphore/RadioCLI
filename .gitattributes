@@ -4,3 +4,6 @@
 *.jpeg binary
 *.gif binary
 *.cast text eol=lf
+# Preserve verified upstream formatting; UPSTREAM.json guards these files.
+vendor/node-airtunes2/src/** -whitespace
+vendor/node-airtunes2/README.md -whitespace

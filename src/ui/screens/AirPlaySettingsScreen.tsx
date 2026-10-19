@@ -16,6 +16,7 @@ import {useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 
 type AirPlaySettingsScreenProps = {
+  platform?: NodeJS.Platform;
   selected: number;
   settings: AppSettings;
   backends: string[];
@@ -26,6 +27,7 @@ type AirPlaySettingsScreenProps = {
 };
 
 export function AirPlaySettingsScreen({
+  platform = process.platform,
   selected,
   settings,
   backends,
@@ -37,7 +39,7 @@ export function AirPlaySettingsScreen({
   const {ascii} = useDisplay();
   const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
-  const availability = airPlayAvailability(backends, devices);
+  const availability = airPlayAvailability(backends, devices, platform);
   const selectedDevice = selectedAirPlayDevice(settings, devices);
   const selectedMissing = Boolean(settings.preferredAirPlayDevice && !selectedDevice);
   const canEnterCode = availability.ready && selectedDevice?.requiresPassword && !selectedDevice.local;
@@ -90,7 +92,7 @@ export function AirPlaySettingsScreen({
               const isSelected = device.id === settings.preferredAirPlayDevice;
               const name = truncate(device.name, Math.max(8, Math.floor(lineWidth * 0.35)));
               const selectedLabel = isSelected ? ' selected' : '';
-              const detail = truncate(airPlayDeviceDetail(device), Math.max(12, lineWidth - name.length - selectedLabel.length - 5));
+              const detail = truncate(airPlayDeviceDetail(device, platform), Math.max(12, lineWidth - name.length - selectedLabel.length - 5));
               return (
                 <Box>
                   <Pointer active={active} />

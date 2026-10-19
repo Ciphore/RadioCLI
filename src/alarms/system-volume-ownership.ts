@@ -5,6 +5,8 @@ import {isAbsolute,join} from 'node:path';
 
 export type OutputSnapshot={volume:number;muted:boolean};
 export type SystemVolumeState={version:1;generation:string;baseline:OutputSnapshot|null;changed:boolean;participants:Array<{id:string;pid:number;phase:'pending'|'active'}>};
+export type OutputIdentity={kind:'pipewire';server:string;id:string;serial:string;name:string}|{kind:'pulse';server:string;id:string;name:string}|{kind:'pulse-pipewire';server:string;id:string;serial:string;nodeId:string;name:string;sinkName:string};
+type StoredVolumeState=SystemVolumeState|{version:2;outputs:Array<{identity:OutputIdentity;lease:SystemVolumeState}>};
 
 /** The output device belongs to the OS account, not a RADIOCLI_HOME/XDG profile. */
 export function defaultSystemVolumeDirectory():string{
@@ -15,7 +17,7 @@ export function defaultSystemVolumeDirectory():string{
 
 /** One short transaction covers both the saved baseline and native mixer writes. */
 export class SystemVolumeOwnership{
-  constructor(private readonly directory:string,private readonly timeoutMs=30_000){}
+  constructor(private readonly directory:string,private readonly timeoutMs=30_000,private readonly output?:OutputIdentity){}
 
   async transaction<T>(work:()=>Promise<T>):Promise<T>{
     const release=await this.lock();
@@ -24,23 +26,67 @@ export class SystemVolumeOwnership{
   }
 
   read():SystemVolumeState|undefined{
+    const value=this.readDocument();
+    if(!value)return undefined;
+    if(value.version===1){
+      if(!this.output)return value;
+      this.checkLegacy(value);return undefined;
+    }
+    if(!this.output)throw new Error('Saved output-volume ownership belongs to an identified Linux audio device; its recovery state was left intact.');
+    return value.outputs.find(item=>sameOutput(item.identity,this.output!))?.lease;
+  }
+
+  /** Enumerate other recovery records while holding the shared root lock. */
+  otherOutputs():OutputIdentity[]{
+    const value=this.readDocument();
+    return this.output&&value?.version===2?value.outputs.map(item=>item.identity).filter(identity=>!sameOutput(identity,this.output!)):[];
+  }
+
+  private readDocument():StoredVolumeState|undefined{
     let text:string;
     try{text=readFileSync(join(this.directory,'state.json'),'utf8');}
     catch(error){if(codeOf(error)==='ENOENT')return undefined;throw error;}
     try{
-      const value=JSON.parse(text) as SystemVolumeState;
-      if(value?.version!==1||!validId(value.generation)||typeof value.changed!=='boolean'||!(value.baseline===null?!value.changed:validSnapshot(value.baseline))||!Array.isArray(value.participants)||!value.participants.every(item=>item&&validId(item.id)&&validPid(item.pid)&&(item.phase==='pending'||item.phase==='active'))||new Set(value.participants.map(item=>item.id)).size!==value.participants.length)throw new Error();
+      const value=JSON.parse(text) as StoredVolumeState;
+      if(value?.version===2){
+        if(!Array.isArray(value.outputs)||value.outputs.length>128||!value.outputs.every(item=>item&&validOutput(item.identity)&&validLease(item.lease))||new Set(value.outputs.map(item=>outputKey(item.identity))).size!==value.outputs.length)throw new Error();
+      }else if(!validLease(value))throw new Error();
       return value;
     }catch{throw new Error('Shared output-volume ownership state is unreadable; the saved output state was left intact.');}
   }
 
   save(value:SystemVolumeState):void{
+    if(!this.output){this.writeDocument(value);return;}
+    const existing=this.readDocument();
+    if(existing?.version===1)this.checkLegacy(existing);
+    const outputs=existing?.version===2?existing.outputs.filter(item=>!sameOutput(item.identity,this.output!)):[];
+    if(outputs.length>=128)throw new Error('Too many unresolved output-volume recovery records; saved output states were retained.');
+    this.writeDocument({version:2,outputs:[...outputs,{identity:this.output,lease:value}]});
+  }
+
+  private writeDocument(value:StoredVolumeState):void{
     const temporary=join(this.directory,`.state-${process.pid}-${randomUUID()}`);
     try{writeFileSync(temporary,JSON.stringify(value),{mode:0o600,flag:'wx'});renameSync(temporary,join(this.directory,'state.json'));}
     catch(error){try{rmSync(temporary,{force:true});}catch{}throw error;}
   }
 
-  clear():void{try{unlinkSync(join(this.directory,'state.json'));}catch(error){if(codeOf(error)!=='ENOENT')throw error;}}
+  clear():void{
+    if(this.output){
+      const value=this.readDocument();
+      if(value?.version===1)this.checkLegacy(value);
+      if(value?.version===2){
+        const outputs=value.outputs.filter(item=>!sameOutput(item.identity,this.output!));
+        if(outputs.length){this.writeDocument({version:2,outputs});return;}
+      }
+    }
+    try{unlinkSync(join(this.directory,'state.json'));}catch(error){if(codeOf(error)!=='ENOENT')throw error;}
+  }
+
+  private checkLegacy(value:SystemVolumeState):void{
+    // Older Linux jobs recorded only the default sink's volume. That baseline
+    // cannot safely be assigned to whichever device happens to be default now.
+    if(value.changed||value.participants.some(item=>item.phase==='active'&&volumeProcessAlive(item.pid)))throw new Error('An earlier alarm saved output-volume ownership without a device identity. Finish its active alarms or repair the saved state.json after checking the original output; the saved state was retained and no output was changed.');
+  }
 
   /** A null PID is intentional: a crash before PID persistence is ambiguous. */
   beginNativeWrite():void{this.saveNativeWrite(null);}
@@ -125,5 +171,13 @@ function removeEmptyLock(directory:string):void{
 function validPid(value:unknown):value is number{return Number.isSafeInteger(value)&&Number(value)>0;}
 function validId(value:unknown):value is string{return typeof value==='string'&&/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(value);}
 function validSnapshot(value:unknown):value is OutputSnapshot{if(!value||typeof value!=='object')return false;const state=value as OutputSnapshot;return Number.isInteger(state.volume)&&state.volume>=0&&state.volume<=100&&typeof state.muted==='boolean';}
+function validLease(value:unknown):value is SystemVolumeState{if(!value||typeof value!=='object')return false;const state=value as SystemVolumeState;return state.version===1&&validId(state.generation)&&typeof state.changed==='boolean'&&(state.baseline===null?!state.changed:validSnapshot(state.baseline))&&Array.isArray(state.participants)&&state.participants.every(item=>item&&validId(item.id)&&validPid(item.pid)&&(item.phase==='pending'||item.phase==='active'))&&new Set(state.participants.map(item=>item.id)).size===state.participants.length;}
+function validOutput(value:unknown):value is OutputIdentity{if(!value||typeof value!=='object')return false;const output=value as OutputIdentity;return ['pipewire','pulse','pulse-pipewire'].includes(output.kind)&&validLabel(output.server)&&validLabel(output.name)&&decimalId(output.id)&&(output.kind==='pulse'||decimalId(output.serial))&&(output.kind!=='pulse-pipewire'||decimalId(output.nodeId)&&validLabel(output.sinkName));}
+function validLabel(value:unknown):value is string{return typeof value==='string'&&value.length>0&&value.length<=1024&&!/[\u0000-\u001f\u007f]/.test(value);}
+function decimalId(value:unknown):value is string{return typeof value==='string'&&/^\d{1,20}$/.test(value);}
+// The PipeWire core, object serial and name identify a sink across both CLIs.
+// Backend-specific IDs remain in the record for independent mutation checks.
+function outputKey(value:OutputIdentity):string{return JSON.stringify(value.kind==='pulse'?['pulse',value.server,value.id,value.name]:['pipewire',value.server,value.serial,value.name]);}
+function sameOutput(first:OutputIdentity,second:OutputIdentity):boolean{return outputKey(first)===outputKey(second);}
 function codeOf(error:unknown):string|undefined{return(error as NodeJS.ErrnoException)?.code;}
 function pause():Promise<void>{return new Promise(resolve=>setTimeout(resolve,20));}

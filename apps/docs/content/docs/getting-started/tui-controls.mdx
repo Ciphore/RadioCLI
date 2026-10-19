@@ -270,8 +270,9 @@ Learn keys from Settings or with `:learn previous`, `:learn play`, and
 
 Location behavior is covered in [Privacy and Security](../privacy-security.mdx).
 
-On macOS, Settings opens a dedicated AirPlay receiver picker for Bonjour
-receivers. Change Audio output to AirPlay with `o`, open AirPlay with `a` or
+On macOS and opted-in native Linux, Settings opens an experimental AirPlay receiver
+picker using Bonjour or Avahi respectively. Change Audio output to AirPlay
+with `o`, open AirPlay with `a` or
 `:airplay`, and choose a visible receiver. If a station is already playing,
 RadioCLI moves it to the selected receiver immediately; switch Audio output back
 to `This device (mpv)` to leave AirPlay. RadioCLI does not auto-pick a receiver.
@@ -279,3 +280,21 @@ AirPlay is a current-session output: restarting RadioCLI returns to automatic
 local playback while remembering the last receiver for the next manual switch.
 If the receiver asks for a code, RadioCLI opens the AirPlay Code screen; you can
 also press `c` from AirPlay settings or use `:airplay-code 1234`.
+
+On Linux, run `radiocli setup --airplay` first. AirPlay settings and suggestions
+are hidden until you opt in, and remain hidden on unsupported platforms.
+An opted-in installation with missing dependencies shows **Setup required**.
+Temporary service or receiver failures stay visible with an explanatory message.
+macOS keeps its existing picker and setup defaults.
+
+Linux discovery starts only when you open or refresh the picker. Offline mode
+blocks it; low-bandwidth mode still permits an explicit refresh. Receiver
+selection is required in each process, including when a previous choice was
+saved. Pause remains a local mpv feature; AirPlay supports volume and mute.
+
+On eligible Omarchy Quattro desktops, the application-owned MPRIS bridge lets
+hardware media keys and the optional shell media widget control the current
+station queue. It also works when MCP is disabled. Use
+`radiocli media-controls [auto|on|off]` and restart the active session to change
+that policy, or set `RADIOCLI_DESKTOP_MEDIA=off` for an environment override.
+Existing learned terminal media-key sequences remain available.

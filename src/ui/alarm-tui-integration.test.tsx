@@ -10,10 +10,13 @@ import * as backendInstall from '../player/backend-install.js';
 import * as airplayDiscovery from '../player/airplay-discovery.js';
 import * as updates from '../update-check.js';
 import * as session from '../agent/session.js';
+import {TuiSession} from '../agent/tui-session.js';
+import * as desktopMedia from '../platform/desktop-media.js';
 import * as presence from '../alarms/tui-presence.js';
 import * as systemActions from './system-actions.js';
 import * as pageFooter from './page-footer.js';
 import {JsonLibraryStore} from '../storage/store.js';
+import {appVersion} from '../version.js';
 import type {Alarm, IcyNowPlaying, PlaybackState, Station} from '../types.js';
 import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
 import {App} from './App.js';
@@ -40,6 +43,7 @@ beforeEach(() => {
   vi.spyOn(backendInstall, 'detectPlaybackBackends').mockReturnValue(['mpv']);
   vi.spyOn(airplayDiscovery, 'discoverAirPlayDevices').mockResolvedValue([]);
   vi.spyOn(ProviderManager.prototype, 'health').mockResolvedValue({});
+  vi.spyOn(ProviderManager.prototype, 'searchPage').mockImplementation(async function(this: ProviderManager, query, settings, options) { const items = await this.search(query, settings, options); return {items, exhausted: true, sources: []}; });
   vi.spyOn(updates, 'checkForUpdate').mockImplementation(async ({currentVersion = '0.2.4'} = {}) => ({
     checkedAt: new Date().toISOString(), currentVersion, updateAvailable: false
   }));
@@ -130,8 +134,8 @@ function simulatedPlayer() {
     metadataListeners.add(listener);
     return () => { metadataListeners.delete(listener); };
   });
-  const play = vi.spyOn(PlayerController.prototype, 'play').mockImplementation(async (selected, url) => {
-    change({state: 'playing', ready: true, stationName: selected.name, streamUrl: url});
+  const play = vi.spyOn(PlayerController.prototype, 'play').mockImplementation(async (selected, url, options) => {
+    change({state: options?.startPaused ? 'paused' : 'playing', ready: true, stationName: selected.name, streamUrl: url});
   });
   const stop = vi.spyOn(PlayerController.prototype, 'stop').mockImplementation(async () => {
     change({state: 'idle', ready: false});
@@ -140,6 +144,10 @@ function simulatedPlayer() {
     change({volume: state.volume + delta});
     return {ok: true};
   });
+  vi.spyOn(PlayerController.prototype, 'pause').mockImplementation(async () => { change({state: 'paused'}); return {ok: true}; });
+  vi.spyOn(PlayerController.prototype, 'resume').mockImplementation(async () => { change({state: 'playing'}); return {ok: true}; });
+  vi.spyOn(PlayerController.prototype, 'setVolume').mockImplementation(async volume => { change({volume}); return {ok: true}; });
+  vi.spyOn(PlayerController.prototype, 'setMuted').mockImplementation(async muted => { change({muted}); return {ok: true}; });
   vi.spyOn(ProviderManager.prototype, 'resolve').mockImplementation(async selected => ({url: selected.streamUrl ?? 'https://example.test/live'}));
   return {play, stop, state: () => state, metadata: (metadata: IcyNowPlaying) => {
     for (const listener of metadataListeners) listener(metadata);
@@ -153,7 +161,291 @@ async function tuneLibrary(app: ReturnType<typeof render>): Promise<void> {
   await settle();
 }
 
+describe('Receiver style cycling', () => {
+  it('wraps directly from Crossfade to Ultracode', async () => {
+    const {store, service} = fixture();
+    store.updateSettings({receiverStyle: 'crossfade'});
+    simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    await tuneLibrary(app);
+    app.stdin.write('v');
+    await settle();
+    expect(store.settings().receiverStyle).toBe('ultracode');
+    expect(app.lastFrame()).toContain('Receiver style: ultracode');
+    app.unmount();
+  });
+});
+
+describe('Canceled station retries', () => {
+  it.each(['desktop Stop', 'CLI stop', 'TUI :stop', 'alarm preemption'] as const)('cancels a broken-stream retry on %s while the backend is idle', async action => {
+    const {store, service} = fixture();
+    store.updateSettings({skipBrokenStreams: true});
+    const broken = {...station, id: 'broken', name: 'Broken station'};
+    const next = {...station, id: 'next', name: 'Next station'};
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    const start = vi.spyOn(desktopMedia, 'startDesktopMediaControls').mockReturnValue({close: vi.fn(), refresh: vi.fn()});
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const desktop = start.mock.calls[0]![0];
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await tuneLibrary(app);
+    player.play.mockClear();
+    vi.mocked(ProviderManager.prototype.resolve).mockRejectedValueOnce(new Error('Stream unavailable.'));
+    let tuning!: Promise<session.RadioSessionResult>;
+    await act(async () => { tuning = handle({type: 'play', station: broken, queue: [broken, next]}, 'cli'); void tuning.catch(() => undefined); });
+    expect(player.state().state).toBe('idle');
+    expect(app.lastFrame()).toContain('Skipping to Next station.');
+    if (action === 'TUI :stop') {
+      app.stdin.write(':stop\r');
+      await settle();
+    }
+    await act(async () => {
+      const stopped = action === 'desktop Stop'
+        ? await desktop.command({type: 'desktop-transport', action: 'stop'})
+        : await handle({type: action === 'CLI stop' ? 'stop' : action === 'TUI :stop' ? 'status' : 'alarm-preempt'}, 'cli');
+      expect(stopped.status.station).toEqual(action === 'desktop Stop' || action === 'TUI :stop' ? station : null);
+    });
+    await settle(1100);
+    if (action === 'TUI :stop') await tuning;
+    else await expect(tuning).rejects.toThrow('canceled');
+    expect(player.play).not.toHaveBeenCalled();
+    expect(player.state().state).toBe('idle');
+    expect(desktop.suspended()).toBe(action === 'alarm preemption');
+
+    await act(async () => {
+      if (action === 'desktop Stop') await desktop.command({type: 'desktop-transport', action: 'play'});
+      else await handle({type: 'play', station}, 'cli');
+    });
+    expect(player.play).toHaveBeenCalledExactlyOnceWith(station, station.streamUrl, expect.objectContaining({signal: expect.any(AbortSignal)}));
+    expect(desktop.suspended()).toBe(false);
+    app.unmount();
+  });
+
+  it.each(['desktop Stop', 'CLI stop', 'TUI :stop', 'alarm preemption'] as const)('invalidates an unresolved interactive tune on %s', async action => {
+    const {store, service} = fixture();
+    store.updateSettings({skipBrokenStreams: true});
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    const start = vi.spyOn(desktopMedia, 'startDesktopMediaControls').mockReturnValue({close: vi.fn(), refresh: vi.fn()});
+    const player = simulatedPlayer();
+    let resolveTune: (() => void) | undefined;
+    vi.mocked(ProviderManager.prototype.resolve).mockImplementationOnce(async selected => {
+      await new Promise<void>(resolve => { resolveTune = resolve; });
+      return {url: selected.streamUrl!};
+    });
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const desktop = start.mock.calls[0]![0];
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await tuneLibrary(app);
+    expect(resolveTune).toBeDefined();
+    if (action === 'TUI :stop') {
+      app.stdin.write(':stop\r');
+      await settle();
+    }
+    await act(async () => {
+      if (action === 'desktop Stop') await desktop.command({type: 'desktop-transport', action: 'stop'});
+      else if (action !== 'TUI :stop') await handle({type: action === 'CLI stop' ? 'stop' : 'alarm-preempt'}, 'cli');
+      resolveTune!();
+    });
+    await settle(1100);
+    expect(player.play).not.toHaveBeenCalled();
+    expect(player.state().state).toBe('idle');
+    expect(desktop.suspended()).toBe(action === 'alarm preemption');
+    app.unmount();
+  });
+
+  it('ignores an old retry when the sleep timer invalidates its tune request', async () => {
+    const {store, service} = fixture();
+    store.updateSettings({skipBrokenStreams: true});
+    const next = {...station, id: 'next', name: 'Next station'};
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await tuneLibrary(app);
+    app.stdin.write(':sleep 1\r');
+    await settle();
+    await settle(59_900);
+    player.play.mockClear();
+    vi.mocked(ProviderManager.prototype.resolve).mockRejectedValueOnce(new Error('Stream unavailable.'));
+    let tuning!: Promise<session.RadioSessionResult>;
+    await act(async () => { tuning = handle({type: 'play', station, queue: [station, next]}, 'cli'); });
+    await settle(1100);
+    await tuning;
+    expect(player.play).not.toHaveBeenCalled();
+    expect(player.state().state).toBe('idle');
+    app.unmount();
+  });
+
+  it('still skips a failed station automatically and lets a deliberate tune replace a later retry', async () => {
+    const {store, service} = fixture();
+    store.updateSettings({skipBrokenStreams: true});
+    const next = {...station, id: 'next', name: 'Next station'};
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    vi.mocked(ProviderManager.prototype.resolve).mockRejectedValueOnce(new Error('Stream unavailable.'));
+    let tuning!: Promise<session.RadioSessionResult>;
+    await act(async () => { tuning = handle({type: 'play', station, queue: [station, next]}, 'cli'); });
+    await settle(1100);
+    await tuning;
+    expect(player.play).toHaveBeenCalledExactlyOnceWith(next, next.streamUrl, expect.objectContaining({signal: expect.any(AbortSignal)}));
+    player.play.mockClear();
+    vi.mocked(ProviderManager.prototype.resolve).mockRejectedValueOnce(new Error('Stream unavailable.'));
+    let replaced!: Promise<session.RadioSessionResult>;
+    let cancellation!: Promise<void>;
+    await act(async () => {
+      replaced = handle({type: 'play', station, queue: [station, next]}, 'cli');
+      cancellation = expect(replaced).rejects.toMatchObject({name: 'AbortError'});
+    });
+    await act(async () => { await handle({type: 'play', station}, 'cli'); });
+    await cancellation;
+    await settle(1100);
+    expect(player.play).toHaveBeenCalledExactlyOnceWith(station, station.streamUrl, expect.objectContaining({signal: expect.any(AbortSignal)}));
+    app.unmount();
+  });
+});
+
 describe('Persistence failure boundaries', () => {
+  it('rechecks agent consent when an accepted command reaches the shared owner queue', async () => {
+    const {store, service} = fixture();
+    store.updateSettings({agentControl: {...store.snapshot().settings.agentControl!, enabled: true}});
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    vi.spyOn(desktopMedia, 'startDesktopMediaControls').mockReturnValue({close: vi.fn(), refresh: vi.fn()});
+    simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const [agent, , options] = vi.mocked(session.startRadioSession).mock.calls[0]!;
+    expect(options).toEqual({queue: 'owner'});
+    await act(async () => {
+      let release: (() => void) | undefined;
+      vi.mocked(ProviderManager.prototype.resolve).mockImplementationOnce(async next => {
+        await new Promise<void>(resolve => { release = resolve; });
+        return {url: next.streamUrl!};
+      });
+      const busy = agent({type: 'play', station});
+      for (let count = 0; count < 12; count++) await Promise.resolve();
+      expect(release).toBeDefined();
+      const disabled = agent({type: 'update-settings', settings: {agentControl: {...store.snapshot().settings.agentControl!, enabled: false}}});
+      const pause = expect(agent({type: 'pause'})).rejects.toThrow('Agent controls are disabled.');
+      release!();
+      await Promise.all([busy, disabled, pause]);
+      expect(PlayerController.prototype.pause).not.toHaveBeenCalled();
+      expect((await agent({type: 'status'})).status.playback.state).toBe('playing');
+    });
+    app.unmount();
+  });
+
+  it.each([
+    ['Pause then Play', ['pause', 'play'], 'kexp'],
+    ['two toggles', ['toggle', 'toggle'], 'kexp'],
+    ['Stop then Play', ['stop', 'play'], 'kexp'],
+    ['Stop then Next then Play', ['stop', 'next', 'play'], 'second']
+  ] as const)('resolves desktop %s after an in-flight agent tune', async (_label, actions, expectedStation) => {
+    const {store, service} = fixture();
+    store.updateSettings({agentControl: {...store.snapshot().settings.agentControl!, enabled: true}});
+    const second = {...station, id: 'second', name: 'Second'};
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    const start = vi.spyOn(desktopMedia, 'startDesktopMediaControls').mockReturnValue({close: vi.fn(), refresh: vi.fn()});
+    simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const desktop = start.mock.calls[0]![0];
+    const agent = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await act(async () => {
+      await agent({type: 'play', station, queue: [station, second]});
+      let release: (() => void) | undefined;
+      vi.mocked(ProviderManager.prototype.resolve).mockImplementationOnce(async next => {
+        await new Promise<void>(resolve => { release = resolve; });
+        return {url: next.streamUrl!};
+      });
+      const busyAgent = agent({type: 'play', station, queue: [station, second]});
+      for (let count = 0; count < 12; count++) await Promise.resolve();
+      expect(release).toBeDefined();
+      const requests = actions.map(action => desktop.command({type: 'desktop-transport', action}));
+      release!();
+      const results = await Promise.allSettled([busyAgent, ...requests]);
+      if ((actions as readonly string[]).includes('stop')) expect(results[0]).toMatchObject({status: 'rejected', reason: expect.objectContaining({name: 'AbortError'})});
+      else expect(results[0]).toMatchObject({status: 'fulfilled', value: {ok: true}});
+      expect(results.slice(1).every(result => result.status === 'fulfilled' && result.value.ok)).toBe(true);
+      expect((await agent({type: 'status'})).status).toMatchObject({station: {id: expectedStation}, playback: {state: 'playing'}});
+    });
+    app.unmount();
+  });
+
+  it('allows local CLI playback with MCP and desktop media disabled', async () => {
+    const {store, service} = fixture();
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: false, preference: 'off', reason: 'Off', mpvArgs: []});
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const handle = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await expect(handle({type: 'play', station}, 'agent')).rejects.toThrow('disabled');
+    await act(async () => {
+      const result = await handle({type: 'play', station}, 'cli');
+      expect(result.ok).toBe(true);
+      expect(result.status.owner).toBe('tui');
+      await handle({type: 'pause'}, 'cli');
+    });
+    expect(player.state().state).toBe('paused');
+    expect(store.snapshot().settings.agentControl?.enabled).toBe(false);
+    app.unmount();
+  });
+
+  it('supports desktop queue controls independently of agent consent and yields to alarms', async () => {
+    const {store, service} = fixture();
+    const second = {...station, id: 'second', name: 'Second station'};
+    store.toggleFavorite(second);
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    const close = vi.fn();
+    const start = vi.spyOn(desktopMedia, 'startDesktopMediaControls').mockReturnValue({close, refresh: vi.fn()});
+    const player = simulatedPlayer();
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    const desktop = start.mock.calls[0]![0];
+    const agent = vi.mocked(session.startRadioSession).mock.calls[0]![0];
+    await expect(agent({type: 'play', station})).rejects.toThrow('disabled');
+    await tuneLibrary(app);
+    const expectedNext = player.play.mock.calls.at(-1)![0].id === station.id ? second : station;
+    await act(async () => {
+      await desktop.command({type: 'desktop-transport', action: 'pause'});
+      const result = await desktop.command({type: 'desktop-transport', action: 'next'});
+      expect(result.ok).toBe(true);
+    });
+    expect(player.play).toHaveBeenLastCalledWith(expectedNext, expectedNext.streamUrl, {startPaused: true, signal: expect.any(AbortSignal)});
+    expect(player.state().state).toBe('paused');
+    await act(async () => {
+      const stopped = await desktop.command({type: 'desktop-transport', action: 'stop'});
+      expect(stopped.status.station).toEqual(expectedNext);
+      const playCount = player.play.mock.calls.length;
+      await desktop.command({type: 'desktop-transport', action: 'next'});
+      expect(player.play.mock.calls).toHaveLength(playCount);
+      const resumed = await desktop.command({type: 'desktop-transport', action: 'play'});
+      expect(resumed.status.playback.state).toBe('playing');
+      await desktop.command({type: 'set-muted', muted: true});
+      await desktop.command({type: 'set-volume', volume: 37, unmute: true});
+      expect(player.state()).toMatchObject({volume: 37, muted: false});
+    });
+    await act(async () => { await agent({type: 'alarm-preempt'}); });
+    expect(desktop.suspended()).toBe(true);
+    await expect(desktop.command({type: 'desktop-transport', action: 'next'})).rejects.toThrow('suspended');
+    app.unmount();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('does not register desktop media if another process owns the control session', async () => {
+    const {store, service} = fixture();
+    vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'auto', reason: 'Verified Quattro', mpvArgs: []});
+    const start = vi.spyOn(desktopMedia, 'startDesktopMediaControls');
+    vi.mocked(session.startRadioSession).mockRejectedValueOnce(new Error('Another playback owner is active.'));
+    const app = render(<App store={store} alarmService={service} />);
+    await settle();
+    expect(start).not.toHaveBeenCalled();
+    app.unmount();
+  });
   const failedSave = () => { throw new Error('Library is read-only. Set RADIOCLI_HOME to a writable directory.'); };
   // Windows ACLs and a privileged POSIX user do not enforce this chmod fixture.
   const nativePermissions = process.platform !== 'win32' && process.getuid?.() !== 0;
@@ -363,6 +655,50 @@ describe('Persistence failure boundaries', () => {
 });
 
 describe('Settings TUI integration', () => {
+  it.each([true, false])('keeps recovered playback controllable during an update (success: %s) and closes the host on quit', async ok => {
+    const {store, service} = fixture();
+    store.updateSettings({automaticUpdateChecks: false, agentControl: {...store.settings().agentControl!, enabled: true}});
+    store.updateCheckState({checkedAt: new Date().toISOString(), currentVersion: '0.2.4', latestVersion: '9.0.0', updateAvailable: true});
+    const status: session.RadioSessionStatus = {
+      owner: 'tui', station, queue: [station],
+      playback: {backend: 'mpv', state: 'playing', volume: 70, muted: false, ready: true},
+      tui: {tuningStation: null, devices: [], selectionRequired: false, desktopMediaCompatible: true,
+        diagnostics: {backend: 'mpv', availableBackends: ['mpv'], preferredBackend: 'mpv', active: true, ready: true, volume: 70, muted: false}}
+    };
+    const call = vi.fn(async (_command: session.RadioSessionCommand) => ({ok: true, message: 'ok', status: structuredClone(status)}));
+    vi.spyOn(session, 'ensureRadioSession').mockResolvedValue({call, status: async () => structuredClone(status)});
+    const playbackSession = await TuiSession.connect();
+    let finish!: (result: updates.UpdateInstallResult) => void;
+    const install = vi.spyOn(updates, 'installUpdate').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const configure = vi.fn(async () => []);
+    const app = render(<App store={store} alarmService={service} playbackSession={playbackSession} mcpConfigurator={configure} />);
+    try {
+      await settle();
+      app.stdin.write('b'); await settle();
+      app.stdin.write('9'); await settle();
+      await moveDown(app, 6);
+      app.stdin.write('\r'); await settle();
+      expect(app.lastFrame()).toContain('Settings › Updates');
+      await moveDown(app, 1);
+      app.stdin.write('\r'); await settle();
+      expect(install).toHaveBeenCalledOnce();
+      expect(playbackSession.status.playback.state).toBe('playing');
+      app.stdin.write('\r'); await settle();
+      expect(install).toHaveBeenCalledOnce();
+      expect(app.lastFrame()).toContain('already running');
+      await act(async () => { finish({ok, command: 'fixture-update', output: ok ? '' : 'fixture failure'}); });
+      await settle();
+      expect(app.lastFrame()).toContain(ok ? 'restart MCP clients' : 'Update install failed');
+      expect(configure).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(call.mock.calls.some(([command]) => ['stop', 'tui-detach'].includes(command.type))).toBe(false);
+      expect(playbackSession.status).toMatchObject({station, queue: [station], playback: {state: 'playing'}});
+      app.stdin.write('q'); await settle();
+      expect(call).toHaveBeenCalledWith({type: 'tui-detach', clientId: playbackSession.clientId});
+    } finally {
+      await act(async () => { await playbackSession.close(); app.unmount(); });
+    }
+  });
+
   it('checks once at launch and shows the available version beside the installed version', async () => {
     vi.stubEnv('CI', 'false');
     vi.stubEnv('RADIOCLI_DISABLE_UPDATE_CHECK', '0');
@@ -378,7 +714,7 @@ describe('Settings TUI integration', () => {
     await settle();
 
     expect(updateChecker).toHaveBeenCalledOnce();
-    expect(app.lastFrame()).toContain('v0.3.0 available  v0.2.4');
+    expect(app.lastFrame()).toContain(`v0.3.0 available  v${appVersion()}`);
     app.unmount();
   });
 

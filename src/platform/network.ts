@@ -1,8 +1,9 @@
 import {resolve4, resolve6} from 'node:dns/promises';
 import {request as requestHttps, type RequestOptions as HttpsRequestOptions} from 'node:https';
+import {parseJsonAsync} from './json-worker.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
-type ExternalRequestOptions = {timeoutMs: number; init?: RequestInit; fetchImpl?: FetchLike};
+type ExternalRequestOptions = {timeoutMs: number; init?: RequestInit; fetchImpl?: FetchLike; maxResponseBytes?: number};
 type ResolvedAddress = {address: string; family: 4 | 6};
 type ResolverRuntime = {
   resolve4?: (hostname: string) => Promise<string[]>;
@@ -40,7 +41,7 @@ export function networkDiagnostic() {
 /** Keep the request deadline active through body consumption, including errors. */
 export async function withExternalResponse<T>(
   url: string | URL,
-  {timeoutMs, init = {}, fetchImpl = fetch}: ExternalRequestOptions,
+  {timeoutMs, init = {}, fetchImpl = fetch, maxResponseBytes = maxResolvedResponseBytes}: ExternalRequestOptions,
   consume: (response: Response) => T | Promise<T>
 ): Promise<T> {
   if (networkPolicy().offline) throw new Error('RadioCLI is offline (RADIOCLI_OFFLINE=1).');
@@ -61,6 +62,7 @@ export async function withExternalResponse<T>(
     try {
       // A custom fetch can resolve after the deadline without observing abort.
       signal.throwIfAborted();
+      response = boundedResponse(response, maxResponseBytes, signal);
       return await consume(response);
     } finally {
       cancelBody(response);
@@ -74,6 +76,56 @@ export async function withExternalResponse<T>(
     controller.abort();
     if (response) cancelBody(response);
   }
+}
+
+/** Count actual decoded body bytes, including chunked responses and deceptive
+ * content lengths. Preserve redirects used by playlist/import consumers. */
+function boundedResponse(response: Response, maxBytes: number, signal: AbortSignal): Response {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Response size limit must be a positive number of bytes.');
+  if (!response.body) return response;
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > maxBytes) throw responseSizeError(maxBytes);
+  const reader = response.body.getReader();
+  let bytes = 0;
+  let ended = false;
+  let controller: ReadableStreamDefaultController<Uint8Array>;
+  const cleanup = () => signal.removeEventListener('abort', aborted);
+  const aborted = () => {
+    if (ended) return;
+    ended = true;
+    cleanup();
+    controller.error(signal.reason);
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    start(value) { controller = value; signal.addEventListener('abort', aborted, {once: true}); },
+    async pull(value) {
+      try {
+        const chunk = await reader.read();
+        if (ended) return;
+        if (chunk.done) { ended = true; cleanup(); value.close(); return; }
+        bytes += chunk.value.byteLength;
+        if (bytes > maxBytes) {
+          ended = true;
+          cleanup();
+          const error = responseSizeError(maxBytes);
+          value.error(error);
+          void reader.cancel(error).catch(() => undefined);
+          return;
+        }
+        value.enqueue(chunk.value);
+      } catch (error) { if (!ended) { ended = true; cleanup(); value.error(error); } }
+    },
+    cancel(reason) { ended = true; cleanup(); void reader.cancel(reason).catch(() => undefined); }
+  });
+  const bounded = new Response(body, {status: response.status, statusText: response.statusText, headers: response.headers});
+  for (const key of ['url', 'redirected', 'type'] as const) Object.defineProperty(bounded, key, {value: response[key]});
+  Object.defineProperty(bounded, 'json', {value: async () => parseJsonAsync(await bounded.text(), signal)});
+  return bounded;
+}
+
+function responseSizeError(maxBytes: number): Error {
+  return new Error(`HTTP response exceeded the ${maxBytes} byte safety limit.`);
 }
 
 /**

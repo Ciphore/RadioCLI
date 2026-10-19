@@ -1,3 +1,6 @@
+import {airPlayPolicy} from '../player/airplay-policy.js';
+import {readSettingsWithoutMigration} from '../storage/read-settings.js';
+import {defaultLibraryPath} from '../storage/store.js';
 import type {AgentRuntime} from './service.js';
 import {AgentRadioService, stationForAgent} from './service.js';
 import {configureMcpIntegrations, mcpIntegrationReport, portableMcpConfig} from './mcp-install.js';
@@ -52,7 +55,7 @@ export async function runAgentCliCommand(args: string[], runtime: AgentRuntime):
   else if (command === 'airplay') value = await runAirPlayCommand(rest, service);
   else if (command === 'preset') value = service.configureCompletionPreset(parsePreset(rest));
   else if (command === 'done') value = await service.runCompletionPreset();
-  else throw new Error('Usage: radiocli agent <status|search|browse|play|pause|resume|stop|next|previous|volume|mute|unmute|favorite|unfavorite|stats|appearance|airplay|preset|done>');
+  else throw new Error(agentCommandUsage());
   console.log(JSON.stringify(value, null, 2));
 }
 
@@ -157,4 +160,12 @@ function assertMcpInstallSucceeded(results: Awaited<ReturnType<typeof configureM
   const failed = results.filter(result => result.status === 'failed');
   if (failed.length === 0) return;
   throw new Error(`RadioCLI was ${action} where possible, but ${failed.length} integration${failed.length === 1 ? '' : 's'} failed: ${failed.map(result => `${result.client} (${result.detail})`).join('; ')}`);
+}
+
+export function agentCommandUsage(): string {
+  let enabled = airPlayPolicy().enabled;
+  if (process.platform === 'linux') {
+    try { enabled = airPlayPolicy({linuxAirPlayEnabled: readSettingsWithoutMigration(defaultLibraryPath())?.linuxAirPlayEnabled === true}).enabled; } catch { enabled = false; }
+  }
+  return `Usage: radiocli agent <status|search|browse|play|pause|resume|stop|next|previous|volume|mute|unmute|favorite|unfavorite|stats|appearance${enabled ? '|airplay' : ''}|preset|done>`;
 }

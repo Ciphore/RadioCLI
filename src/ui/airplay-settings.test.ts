@@ -21,7 +21,7 @@ const device: AirPlayDevice = {
 describe('AirPlay settings helpers', () => {
   it('reports availability from detected playback backends', () => {
     expect(isAirPlayBackendAvailable(['mpv', 'airplay'])).toBe(true);
-    expect(airPlayAvailability(['mpv'], [device])).toMatchObject({
+    expect(airPlayAvailability(['mpv'], [device], 'darwin')).toMatchObject({
       ready: false,
       label: 'Not ready'
     });
@@ -30,16 +30,16 @@ describe('AirPlay settings helpers', () => {
   it('summarizes the selected receiver without an automatic target state', () => {
     expect(airPlayReceiverSettingValue(settings(), [device], ['airplay'])).toBe('Choose receiver... · 1 receiver');
     expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [device], ['airplay'])).toBe('Office · 1 receiver');
-    expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [{...device, local: true}], ['airplay'])).toBe('Office · this Mac');
+    expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [{...device, local: true}], ['airplay'], 'darwin')).toBe('Office · this Mac');
     expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: 'missing'}), [device], ['airplay'])).toBe('Saved receiver missing · 1 receiver');
     expect(airPlayReceiverSettingValue(settings(), [], ['airplay'])).toBe('No receivers found');
-    expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [device], ['mpv'])).toBe('Office · playback unavailable');
+    expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [device], ['mpv'], 'darwin')).toBe('Office · playback unavailable');
   });
 
   it('formats receiver metadata for the picker list', () => {
     expect(selectedAirPlayDevice(settings({preferredAirPlayDevice: device.id}), [device])).toEqual(device);
     expect(airPlayDeviceDetail(device)).toBe('Sonos-5CAAFD0046D4.local:7000 · AirPlay 2 · no code');
-    expect(airPlayDeviceDetail({...device, host: '192.168.1.27', local: true})).toBe('192.168.1.27:7000 · this Mac · use local output');
+    expect(airPlayDeviceDetail({...device, host: '192.168.1.27', local: true}, 'darwin')).toBe('192.168.1.27:7000 · this Mac · use local output');
     expect(airPlayDeviceDetail({...device, requiresPassword: true, airplay2: false})).toContain('code shown on receiver');
   });
 });
@@ -60,3 +60,16 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     ...overrides
   };
 }
+
+describe('Linux receiver labels and unverified prerequisites', () => {
+  it('keeps Setup required visible after Linux opt-in when prerequisites are missing', () => {
+    expect(airPlayAvailability(['mpv'], [], 'linux')).toMatchObject({ready: false, label: 'Setup required', detail: expect.stringContaining('setup --airplay')});
+    expect(airPlayReceiverSettingValue(settings({linuxAirPlayEnabled: true, preferredAirPlayDevice: device.id}), [device], ['mpv'], 'linux')).toBe('Setup required');
+  });
+  it('labels local Linux receivers as this device and retains macOS labels', () => {
+    expect(airPlayDeviceDetail({...device, local: true}, 'linux')).toContain('this device');
+    expect(airPlayReceiverSettingValue(settings({preferredAirPlayDevice: device.id}), [{...device, local: true}], ['airplay'], 'linux')).toBe('Office · this device');
+    expect(airPlayAvailability(['airplay'], [], 'linux')).toMatchObject({ready: false, label: 'Unverified'});
+    expect(airPlayAvailability(['airplay'], [], 'darwin')).toMatchObject({ready: true, label: 'Ready'});
+  });
+});

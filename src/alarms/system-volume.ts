@@ -4,6 +4,7 @@ import type {Readable} from 'node:stream';
 import {resolveCommand} from '../platform/executables.js';
 import {identifyPlatform,nativeAdapters} from '../platform/runtime.js';
 import {defaultSystemVolumeDirectory,SystemVolumeOwnership,volumeProcessAlive,type OutputSnapshot,type SystemVolumeState} from './system-volume-ownership.js';
+import {linuxVolumeBackend,type LinuxVolumeBackend} from './system-volume-linux.js';
 
 type Snapshot=OutputSnapshot;
 type Result={code:number;stdout:string;stderr:string};
@@ -13,13 +14,30 @@ export type SystemVolumeController={acquireMinimum(volume:number):Promise<System
 
 export function createSystemVolumeController(platform:NodeJS.Platform=process.platform,run:Run=runCommand,resolve:(command:string)=>string|null=resolveCommand,options:{directory?:string;lockTimeoutMs?:number}={}):SystemVolumeController{
   const host=identifyPlatform({platform});const adapter=nativeAdapters(host).volume;
-  const backend=adapter==='macos'?macBackend(run):adapter==='unix-audio'?linuxBackend(run,resolve):adapter==='windows'?windowsBackend(run,resolve):undefined;
+  const backend=adapter==='macos'?macBackend(run):adapter==='unix-audio'?linuxVolumeBackend(run,resolve):adapter==='windows'?windowsBackend(run,resolve):undefined;
   return{async acquireMinimum(volume){
     if(!backend)throw new Error(`System output volume control is unavailable on ${host.id==='unknown'?platform:host.id}.`);
-    const ownership=new SystemVolumeOwnership(options.directory??defaultSystemVolumeDirectory(),options.lockTimeoutMs);
-    const write=(value:Snapshot)=>backend.write(value,run===runCommand?(command,args)=>runCommand(command,args,ownership):run);
+    const output=await backend.select?.();
+    const directory=options.directory??defaultSystemVolumeDirectory();
+    const ownership=new SystemVolumeOwnership(directory,options.lockTimeoutMs,output);
+    const execute=run===runCommand?(command:string,args:string[])=>runCommand(command,args,ownership):run;
+    const write=(value:Snapshot)=>backend.write(value,execute,output);
     return ownership.transaction(async()=>{
       let state=ownership.read();
+      let pendingRecovery=0;
+      // Recover dead owners on their still-connected original outputs even if
+      // the default has moved. An unplugged output remains repairable without
+      // preventing a different output from ringing.
+      for(const identity of ownership.otherOutputs()){
+        const priorOutput=new SystemVolumeOwnership(directory,options.lockTimeoutMs,identity);
+        const prior=priorOutput.read();
+        if(!prior||prior.participants.some(activeParticipant))continue;
+        if(prior.changed&&prior.baseline){
+          try{await backend.write(prior.baseline,execute,identity);}
+          catch{pendingRecovery+=1;continue;}
+        }
+        priorOutput.clear();
+      }
       if(state){
         state.participants=state.participants.filter(activeParticipant);
         if(state.participants.length===0){
@@ -29,7 +47,7 @@ export function createSystemVolumeController(platform:NodeJS.Platform=process.pl
           ownership.clear();state=undefined;
         }
       }
-      const target=clamp(volume);const before=await backend.read();const changed=before.muted||before.volume<target;
+      const target=clamp(volume);const before=await backend.read(output);const changed=before.muted||before.volume<target;
       const prior=state;const id=randomUUID();
       const joined:SystemVolumeState={version:1,generation:state?.generation??randomUUID(),baseline:state?.baseline??before,changed:Boolean(state?.changed)||changed,participants:[...state?.participants??[],{id,pid:process.pid,phase:'pending'}]};
       // Persist the original state before any mixer command can partly succeed.
@@ -51,7 +69,7 @@ export function createSystemVolumeController(platform:NodeJS.Platform=process.pl
       }
       let released=false;
       return{
-        message:changed?`Local output raised to at least ${target}% and unmuted for the alarm.`:`Local output was already at least ${target}% and unmuted.`,
+        message:(changed?`Local output raised to at least ${target}% and unmuted for the alarm.`:`Local output was already at least ${target}% and unmuted.`)+(pendingRecovery?` ${pendingRecovery} earlier output recovery record${pendingRecovery===1?' remains':'s remain'} unresolved and retained; its original device must be checked.`:''),
         async release({preserve=false}={}){
           if(released)return;
           await ownership.transaction(async()=>{
@@ -79,15 +97,8 @@ export function createSystemVolumeController(platform:NodeJS.Platform=process.pl
 
 function activeParticipant(item:SystemVolumeState['participants'][number]):boolean{return item.phase==='active'&&volumeProcessAlive(item.pid);}
 
-type Backend={read():Promise<Snapshot>;write(value:Snapshot,execute?:Run):Promise<void>};
+type Backend=LinuxVolumeBackend;
 function macBackend(run:Run):Backend{return{async read(){const result=await checked(run('/usr/bin/osascript',['-e','set s to get volume settings','-e','return (output volume of s as text) & "," & (output muted of s as text)']),'read macOS output volume');const match=/^(\d+)\s*,\s*(true|false)/i.exec(result.stdout.trim());if(!match)throw new Error('macOS returned an unreadable output-volume state.');return{volume:clamp(Number(match[1])),muted:match[2]?.toLowerCase()==='true'};},async write(value,execute=run){await checked(execute('/usr/bin/osascript',['-e',`set volume output volume ${clamp(value.volume)} ${value.muted?'with':'without'} output muted`]),'set macOS output volume');}};}
-
-function linuxBackend(run:Run,resolve:(command:string)=>string|null):Backend|undefined{
-  const wpctl=resolve('wpctl');if(wpctl)return{async read(){const result=await checked(run(wpctl,['get-volume','@DEFAULT_AUDIO_SINK@']),'read PipeWire output volume');const match=/Volume:\s*([\d.]+)/i.exec(result.stdout);if(!match)throw new Error('wpctl returned an unreadable output-volume state.');return{volume:clamp(Number(match[1])*100),muted:/\[MUTED\]/i.test(result.stdout)};},async write(value,execute=run){await checked(execute(wpctl,['set-volume','@DEFAULT_AUDIO_SINK@',`${clamp(value.volume)}%`]),'set PipeWire output volume');await checked(execute(wpctl,['set-mute','@DEFAULT_AUDIO_SINK@',value.muted?'1':'0']),'set PipeWire mute state');}};
-  const pactl=resolve('pactl');if(pactl)return{async read(){const [volume,mute]=await Promise.all([checked(run(pactl,['get-sink-volume','@DEFAULT_SINK@']),'read PulseAudio output volume'),checked(run(pactl,['get-sink-mute','@DEFAULT_SINK@']),'read PulseAudio mute state')]);const match=/(\d+)%/.exec(volume.stdout);if(!match)throw new Error('pactl returned an unreadable output-volume state.');return{volume:clamp(Number(match[1])),muted:/yes/i.test(mute.stdout)};},async write(value,execute=run){await checked(execute(pactl,['set-sink-volume','@DEFAULT_SINK@',`${clamp(value.volume)}%`]),'set PulseAudio output volume');await checked(execute(pactl,['set-sink-mute','@DEFAULT_SINK@',value.muted?'1':'0']),'set PulseAudio mute state');}};
-  const amixer=resolve('amixer');if(amixer)return{async read(){const result=await checked(run(amixer,['get','Master']),'read ALSA output volume');const matches=[...result.stdout.matchAll(/\[(\d+)%\]/g)];const last=matches.at(-1);if(!last)throw new Error('amixer returned an unreadable output-volume state.');return{volume:clamp(Number(last[1])),muted:/\[off\]/i.test(result.stdout)};},async write(value,execute=run){await checked(execute(amixer,['set','Master',`${clamp(value.volume)}%`,value.muted?'mute':'unmute']),'set ALSA output volume');}};
-  return undefined;
-}
 
 function windowsBackend(run:Run,resolve:(command:string)=>string|null):Backend|undefined{const powershell=resolve('powershell.exe')??resolve('pwsh.exe');if(!powershell)return undefined;return{async read(){const result=await checked(run(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',`${windowsCoreAudio}; [RadioCliVolume]::Get()`]),'read Windows output volume');const match=/^(\d+)\s*,\s*(true|false)/im.exec(result.stdout);if(!match)throw new Error('Windows returned an unreadable output-volume state.');return{volume:clamp(Number(match[1])),muted:match[2]?.toLowerCase()==='true'};},async write(value,execute=run){await checked(execute(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',`${windowsCoreAudio}; [RadioCliVolume]::Set(${clamp(value.volume)}, $${value.muted?'true':'false'})`]),'set Windows output volume');}};}
 
@@ -107,10 +118,11 @@ function runCommand(command:string,args:string[],ownership?:SystemVolumeOwnershi
   return new Promise(resolve=>{
     ownership?.beginNativeWrite();
     let child:ChildProcessByStdio<null,Readable,Readable>;
-    try{child=spawn(command,args,{stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:10_000,killSignal:'SIGKILL'});}
+    try{child=spawn(command,args,{stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:10_000,killSignal:'SIGKILL',env:{...process.env,LC_ALL:'C'}});}
     catch(error){let message=messageOf(error);try{ownership?.finishNativeWrite();}catch(cleanupError){message+=`; system-output command journal cleanup failed: ${messageOf(cleanupError)}`;}resolve({code:127,stdout:'',stderr:message});return;}
     let stdout='';let stderr='';let failure:string|undefined;
-    child.stdout.on('data',value=>stdout+=String(value));child.stderr.on('data',value=>stderr+=String(value));
+    const append=(value:unknown,output:'stdout'|'stderr')=>{const text=String(value);if(output==='stdout')stdout+=text;else stderr+=text;if(Buffer.byteLength(stdout)+Buffer.byteLength(stderr)>64*1024){stdout=stdout.slice(0,32768);stderr=stderr.slice(0,32768);failure='The output-volume command returned too much data.';try{child.kill('SIGKILL');}catch{}}};
+    child.stdout.on('data',value=>append(value,'stdout'));child.stderr.on('data',value=>append(value,'stderr'));
     // Spawn/kill errors do not prove the helper has closed. Keep ownership until
     // close, including when recording its PID fails after the process starts.
     child.on('error',error=>{failure=error.message;});

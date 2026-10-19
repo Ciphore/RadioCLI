@@ -80,30 +80,44 @@ jobs:
         run: npm ci
 
       - name: Audit required runtime dependencies
+        id: audit
+        env:
+          RADIOCLI_AUDIT_EVIDENCE_PATH: output/release-evidence/audit-runtime.json
         run: npm run audit:runtime
 
       - name: Typecheck
+        id: typecheck
         run: npm run check
 
       - name: Lint
+        id: lint
         run: npm run lint
 
       - name: Test
+        id: tests
+        # Rendering and storage fixtures can saturate small hosted runners.
+        # Bound concurrency without changing assertions or test deadlines.
+        env:
+          VITEST_MAX_WORKERS: '1'
         run: npm run test
 
       - name: Package smoke harness tests
-        run: node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs
+        id: harness
+        run: node --test scripts/packed-smoke.test-node.mjs scripts/install-smoke-mpv.test-node.mjs scripts/release-evidence.test-node.mjs scripts/audit-ci.test-node.mjs scripts/build-airplay-native.test-node.mjs
 
       - name: Build
+        id: build
         run: npm run build
 
       - name: MCP stdio smoke
+        id: source-mcp
         run: npm run smoke:mcp
 
       - name: Package dry run
         run: npm run pack:check
 
       - name: Package lint
+        id: package
         run: npm run check:package
 
       - name: Data smoke
@@ -117,22 +131,46 @@ jobs:
       - name: Install pinned native macOS or Windows playback fixture
         if: runner.os != 'Linux'
         env:
-          RADIOCLI_SMOKE_EVIDENCE_DIR: packed-evidence
+          RADIOCLI_SMOKE_EVIDENCE_DIR: output/release-evidence
         run: node scripts/install-smoke-mpv.mjs
 
+      - name: Background CLI playback smoke
+        id: background-cli
+        run: npm run smoke:cli
+
+      - name: Native TUI crash recovery
+        id: native-tui
+        env:
+          RADIOCLI_REQUIRE_TUI_RECOVERY: '1'
+          RADIOCLI_TUI_RECOVERY_BUILT: '1'
+        run: npx vitest run src/agent/tui-recovery.native.test.ts
+
+      - name: Native network security and recovery
+        id: native-network
+        env:
+          RADIOCLI_SMOKE_EVIDENCE_DIR: output/release-evidence
+        run: npm run smoke:network
+
       - name: Fresh install smoke
+        id: packed
         env:
           RADIOCLI_EXPECTED_ARCH: ${{ matrix.architecture }}
           RADIOCLI_SMOKE_EXECUTION_METHOD: GitHub-hosted native OS/CPU VM (${{ matrix.os }})
-          RADIOCLI_SMOKE_EVIDENCE_DIR: packed-evidence
-        run: npm run fresh:check -- --require-mpv
+          RADIOCLI_SMOKE_EVIDENCE_DIR: output/release-evidence
+        run: npm run fresh:check -- --require-mpv --require-clean
+
+      - name: Bind release evidence to this revision and artifact
+        if: always()
+        env:
+          RADIOCLI_CHECK_OUTCOMES: ${{ toJSON(steps) }}
+        run: node scripts/release-evidence.mjs output/release-evidence
 
       - name: Preserve packed runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: packed-${{ matrix.os }}-${{ matrix.node-version }}
-          path: packed-evidence/*.json
+          path: output/release-evidence/
           if-no-files-found: warn
 
   playback-smoke:
@@ -162,7 +200,7 @@ jobs:
           cache: npm
 
       - name: Install system playback backend
-        run: sudo apt-get update && sudo apt-get install -y mpv ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y mpv mpv-mpris ffmpeg vlc dbus-daemon dbus-bin pipewire pipewire-pulse wireplumber pulseaudio-utils avahi-daemon avahi-utils shairport-sync
 
       - name: Install
         run: npm ci
@@ -170,6 +208,32 @@ jobs:
       - name: Playback smoke
         # Packed normal/omit-optional installs for this OS/CPU/Node matrix run in verify.
         run: npm run smoke:playback
+
+      - name: Native network and fallback playback
+        env:
+          RADIOCLI_REQUIRE_FALLBACKS: '1'
+        run: npm run smoke:network
+
+      - name: Native desktop media protocol
+        # Real session-bus transport on both CPUs and Node lines. This does not
+        # establish Hyprland/Quickshell, hardware keys, or audible output.
+        run: |
+          test -f /usr/lib/mpv-mpris/mpris.so
+          dbus-run-session -- npx vitest run src/platform/mpris.native.test.ts src/player/mpv-desktop-media.native.test.ts src/platform/diagnostics.native.test.ts
+
+      - name: Native alarm output restoration
+        # Synthetic sinks on an isolated server verify device ownership, not speakers.
+        env:
+          RADIOCLI_NATIVE_PIPEWIRE_TEST: '1'
+        run: dbus-run-session -- npx vitest run src/alarms/system-volume.native.test.ts
+
+      - name: Native AirPlay software receiver
+        # Decoded PCM, authentication, controls and cleanup; no physical receiver claim.
+        env:
+          RADIOCLI_NATIVE_AIRPLAY_TEST: '1'
+        run: |
+          sudo systemctl start avahi-daemon
+          npx vitest run src/player/airplay.native.test.ts
 
   docs:
     name: Docs
@@ -205,6 +269,19 @@ jobs:
       - name: Build
         working-directory: apps/docs
         run: npm run build
+
+  required-release-checks:
+    name: Required Release Checks
+    needs: [verify, playback-smoke, docs]
+    if: always() && github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all maintained-platform jobs
+        env:
+          VERIFY: ${{ needs.verify.result }}
+          PLAYBACK: ${{ needs.playback-smoke.result }}
+          DOCS: ${{ needs.docs.result }}
+        run: test "$VERIFY" = success && test "$PLAYBACK" = success && test "$DOCS" = success
 
   # Experimental jobs run in full guest kernels, not Linux containers. They are
   # opt-in/weekly and do not establish maintained or audible-playback support.
@@ -323,10 +400,11 @@ jobs:
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
             # The minimal guest omits X11 libraries required by pkgsrc mpv,
             # even for null audio/video. Install the matching official OS set.
-            # Digest: NetBSD-10.1/amd64/binary/sets/SHA512 on cdn.NetBSD.org.
+            # The matching 10.1 set moved to the official release archive.
+            # Digest: NetBSD-10.1/amd64/binary/sets/SHA512 on archive.netbsd.org.
             radiocli_xbase=$(mktemp /tmp/radiocli-xbase.XXXXXX)
             trap 'rm -f "$radiocli_xbase"' EXIT
-            ftp -q 60 -o "$radiocli_xbase" https://cdn.NetBSD.org/pub/NetBSD/NetBSD-10.1/amd64/binary/sets/xbase.tar.xz
+            ftp -q 60 -o "$radiocli_xbase" https://archive.netbsd.org/pub/NetBSD-archive/NetBSD-10.1/amd64/binary/sets/xbase.tar.xz
             test "$(cksum -a SHA512 -q "$radiocli_xbase")" = b6ac2195f91d7ae395ec2734c9ae2a4727014629fbdc94562531225e0d51e3b2705047e8440fcf75e1dacdcecb3cb980df7a82f838c12ad5274ba8ce95e49b72
             tar -xpf "$radiocli_xbase" -C /
             /usr/sbin/pkg_add pkgin

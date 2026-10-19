@@ -1,6 +1,7 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path';
 import type {Station} from '../types.js';
+import {customStationId} from '../storage/station-identity.js';
 
 export function parsePlaylistFile(filePath: string, depth = 0): Station[] {
   if (!existsSync(filePath)) {
@@ -39,7 +40,7 @@ export function writeM3u(filePath: string, stations: Station[]): void {
 export function stationFromUrl(url: string, name = url): Station {
   const cleanedName = cleanName(name) || url;
   return {
-    id: stableId(url),
+    id: customStationId(url),
     provider: 'playlist',
     name: cleanedName,
     tags: ['custom'],
@@ -130,22 +131,18 @@ function firstTag(text: string, tag: string): string | undefined {
 }
 
 function decodeXml(value?: string): string | undefined {
-  return value
-    ?.replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .trim();
-}
-
-function stableId(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-
-  return `custom-${hash.toString(16)}`;
+  // Decode in one pass: CDATA is literal text, and &amp;lt; represents &lt;,
+  // not a second reference to expand. No DTD or external entity is evaluated.
+  const entities: Record<string, string> = {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'"};
+  return value?.replace(/<!\[CDATA\[([\s\S]*?)\]\]>|&(amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);/g,
+    (reference: string, cdata: string | undefined, entity: string | undefined) => {
+      if (cdata !== undefined) return cdata;
+      if (!entity) return reference;
+      if (!entity.startsWith('#')) return entities[entity] ?? reference;
+      const point = entity.startsWith('#x') ? Number.parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+      return Number.isInteger(point) && point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)
+        ? String.fromCodePoint(point) : reference;
+    }).trim();
 }
 
 function normalizePlaylistTarget(target: string, root: string): string | null {
@@ -154,7 +151,8 @@ function normalizePlaylistTarget(target: string, root: string): string | null {
     return trimmed;
   }
 
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+  // On Windows a native drive path has a colon but is not a URL scheme.
+  if (isAbsolute(trimmed) || !/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     const filePath = isAbsolute(trimmed) ? trimmed : resolve(root, trimmed);
     if (existsSync(filePath)) {
       return filePath;

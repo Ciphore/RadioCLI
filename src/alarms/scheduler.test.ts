@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import type {Alarm} from '../types.js';
 import {createSchedulerAdapter, SchedulerService,shouldRunLaunchdOccurrence,type SchedulerAdapter} from './scheduler.js';
 import {pathEnvironmentKeys, platformPaths} from '../platform/paths.js';
+import type {OmarchyProbeOptions} from '../platform/omarchy.js';
 
 const alarm: Alarm = {
   id: 'wake<&"', label: 'Morning <&>', enabled: true,
@@ -57,6 +58,14 @@ function windowsLookupResult(overrides: Record<string, unknown> = {}) {
   return {code: 0, stdout: JSON.stringify({taskPath: windowsTaskPath(alarm.id), stage: 'lookup', status: 'error', hresult: -2147024894, message: 'El sistema no puede encontrar el archivo especificado.', ...overrides}), stderr: ''};
 }
 
+function omarchyInstallation(name='omarchy',version='4.0.4-1'):OmarchyProbeOptions{
+  return{
+    resolve:command=>command.startsWith('/')?command:`/usr/bin/${command}`,
+    isDirectory:path=>path==='/usr/share/omarchy',readFile:()=>null,
+    run:(_command,args)=>args[0]==='-Q'&&args[1]===name?`${name} ${version}`:null
+  };
+}
+
 describe('native alarm schedulers', () => {
   it('generates safely escaped launchd artifacts and an argv-only command', async () => {
     const write = vi.fn(); const run = vi.fn(async () => ({code: 0, stdout: '', stderr: ''}));
@@ -97,6 +106,64 @@ describe('native alarm schedulers', () => {
     expect(writes.map(item => item[1]).join('\n')).toContain('AccuracySec=1s');
     expect(schedulerPayload(writes.find(([path]) => path.endsWith('.service'))![1], 'linux').args).toEqual(['/opt/radio cli/dist/cli.js', 'alarm', 'internal-run', alarm.id, '2030-02-03T14:05:00.000Z']);
     expect(writes.map(item => item[1]).join('\n')).toContain('RADIOCLI_ALARM_TERMINAL=linux:unsupported');
+  });
+
+  // This executes a Linux bootstrap. Windows restores USERPROFILE in child
+  // processes even when a POSIX launch correctly omits that unused selector.
+  it.skipIf(process.platform === 'win32').each([true,false])('launches packaged Quattro alarms with current user-manager desktop variables (present: %s)',async connected=>{
+    const root=mkdtempSync(join(tmpdir(),'radiocli-quattro-job-'));
+    try{
+      const cliPath=join(root,"literal ' $() ; & % cli.cjs");
+      const keys=[...pathEnvironmentKeys,'DISPLAY','WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS','RADIOCLI_DESKTOP_MEDIA','RADIOCLI_OFFLINE','RADIOCLI_ALARM_TERMINAL'];
+      writeFileSync(cliPath,`process.stdout.write(JSON.stringify({args:process.argv.slice(2),env:Object.fromEntries(${JSON.stringify(keys)}.filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]))}))`);
+      const writes:Array<[string,string]>=[];
+      const configured={HOME:'/home/registered',RADIOCLI_HOME:"/data/literal ' $() & %",XDG_DATA_HOME:'/saved/data',XDG_CACHE_HOME:'/saved/cache',RADIOCLI_DESKTOP_MEDIA:'off',RADIOCLI_OFFLINE:'1'};
+      const stale={DISPLAY:':0',WAYLAND_DISPLAY:'wayland-stale',DBUS_SESSION_BUS_ADDRESS:'unix:path=/stale/bus',XDG_RUNTIME_DIR:'/stale/run'};
+      const adapter=createSchedulerAdapter({platform:'linux',home:root,nodePath:process.execPath,cliPath,env:{...configured,...stale,PATH:'/usr/bin'},omarchy:omarchyInstallation(),commandExists:()=>true,writeFile:(path,text)=>writes.push([path,text]),run:async()=>({code:0,stdout:'',stderr:''})});
+      await adapter.install({...alarm,id:"literal ' $() ; & % id"},new Date('2030-02-03T14:05:00.000Z'));
+      const body=writes.find(([path])=>path.endsWith('.service'))![1];
+      const snapshot=schedulerEnvironment(body,'linux');
+      expect(snapshot).toEqual({...configured,RADIOCLI_ALARM_TERMINAL:'linux:omarchy-launch-tui'});
+      expect(schedulerPayload(body,'linux').environment).toEqual(snapshot);
+      for(const value of Object.values(stale))expect(body).not.toContain(value);
+      const live=connected?{DISPLAY:':9',WAYLAND_DISPLAY:'wayland-23',DBUS_SESSION_BUS_ADDRESS:'unix:path=/live/bus',XDG_RUNTIME_DIR:'/live/run'}:{};
+      const inherited={...Object.fromEntries(pathEnvironmentKeys.map(key=>[key,`/wrong/${key}`])),RADIOCLI_DESKTOP_MEDIA:'on',RADIOCLI_OFFLINE:'0',...live};
+      if(!connected)delete inherited.XDG_RUNTIME_DIR;
+      const invocation=schedulerInvocation(body,'linux');
+      const result=JSON.parse(execFileSync(invocation.command,invocation.args,{env:{...inherited,...snapshot},encoding:'utf8'}));
+      expect(result).toEqual({args:['alarm','internal-run',"literal ' $() ; & % id",'2030-02-03T14:05:00.000Z'],env:{...snapshot,...live}});
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
+
+  it.each([
+    {name:'omarchy',version:'3.9.0-1'},
+    {name:'omarchy-dev',version:'4.0.4-1'},
+    {name:'omarchy',version:'5.0.0-1'},
+    {name:'missing',version:'4.0.4-1'}
+  ])('keeps saved desktop snapshots for non-Quattro installation $name $version',async({name,version})=>{
+    const writes:Array<[string,string]>=[];
+    const desktop={DISPLAY:':0',WAYLAND_DISPLAY:'wayland-old',DBUS_SESSION_BUS_ADDRESS:'unix:path=/old/bus',XDG_RUNTIME_DIR:'/old/run'};
+    const adapter=createSchedulerAdapter({platform:'linux',home:'/home/test',nodePath:'/node',cliPath:'/cli.js',env:{...desktop,PATH:'/usr/bin'},omarchy:omarchyInstallation(name,version),commandExists:()=>true,writeFile:(path,text)=>writes.push([path,text]),run:async()=>({code:0,stdout:'',stderr:''})});
+    await adapter.install(alarm,new Date('2030-02-03T14:05:00.000Z'));
+    const body=writes.find(([path])=>path.endsWith('.service'))![1];
+    expect(schedulerEnvironment(body,'linux')).toMatchObject(desktop);
+    expect(schedulerPayload(body,'linux').environment).toMatchObject(desktop);
+  });
+
+  it.each([undefined,'linux:unsupported','linux:/custom/terminal'])('does not persist missing registration-time desktop capability over a later Quattro session (override: %s)',async terminal=>{
+    const writes:Array<[string,string]>=[];
+    const adapter=createSchedulerAdapter({platform:'linux',home:'/home/test',nodePath:'/node',cliPath:'/cli.js',env:{PATH:'/usr/bin',RADIOCLI_ALARM_TERMINAL:terminal},omarchy:omarchyInstallation(),commandExists:()=>true,writeFile:(path,text)=>writes.push([path,text]),run:async()=>({code:0,stdout:'',stderr:''})});
+    await adapter.install(alarm,new Date('2030-02-03T14:05:00.000Z'));
+    const body=writes.find(([path])=>path.endsWith('.service'))![1];
+    expect(schedulerEnvironment(body,'linux')).toEqual(terminal?{RADIOCLI_ALARM_TERMINAL:terminal}:{});
+  });
+
+  it('preserves an explicit unsupported terminal selector even when the Quattro launcher is available',async()=>{
+    const writes:Array<[string,string]>=[];
+    const adapter=createSchedulerAdapter({platform:'linux',home:'/home/test',nodePath:'/node',cliPath:'/cli.js',env:{PATH:'/usr/bin',WAYLAND_DISPLAY:'wayland-live',DBUS_SESSION_BUS_ADDRESS:'unix:path=/run/live/bus',RADIOCLI_ALARM_TERMINAL:'linux:unsupported'},omarchy:omarchyInstallation(),commandExists:()=>true,writeFile:(path,text)=>writes.push([path,text]),run:async()=>({code:0,stdout:'',stderr:''})});
+    await adapter.install(alarm,new Date('2030-02-03T14:05:00.000Z'));
+    const body=writes.find(([path])=>path.endsWith('.service'))![1];
+    expect(schedulerPayload(body,'linux').environment.RADIOCLI_ALARM_TERMINAL).toBe('linux:unsupported');
   });
 
   it('exposes truthful unsupported Linux capability', () => {

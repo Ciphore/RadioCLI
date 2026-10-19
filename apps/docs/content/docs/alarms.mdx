@@ -64,6 +64,13 @@ configured alarm volume. During an interactive handoff, that audible level is
 preserved for regular playback. Scheduled alarms use local speakers; unattended
 AirPlay is not supported.
 
+On Linux, PipeWire/PulseAudio volume leases remember the output actually changed.
+Changing the default sink cannot restore an earlier device's volume onto the new
+one. Overlapping alarms share a lease for the same output, including when they
+use different mixer tools. If an output disappears or cannot be identified
+safely, RadioCLI retains the recovery record for repair instead of changing an
+unrelated replacement device.
+
 ## Background Delivery And Power
 
 All platforms require a powered-on machine, a logged-in interactive audio
@@ -76,6 +83,13 @@ Alarm Guard is separate from the scheduler wake request. It prevents ordinary
 idle sleep until the next occurrence using `caffeinate`, `systemd-inhibit`, or
 Windows execution-state APIs. It consumes power and cannot override shutdown,
 hibernate, explicit sleep, a closed lid, logout, or enforced OS policy.
+
+Packaged Omarchy Quattro systemd user jobs retain the saved RadioCLI data and
+Node executable identity, while desktop/audio connection variables come from
+the user manager at launch. Explicit terminal choices remain preserved; the
+native Quattro default resolves the currently selected desktop terminal.
+This avoids storing stale display and bus addresses in the job. It still
+requires a usable logged-in user session and does not add exact-wake support.
 
 See [Reliability](./reliability.mdx) for the platform matrix, permission flow,
 timezone and DST semantics, fallback behavior, volume integration, and known

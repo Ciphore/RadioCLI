@@ -8,5 +8,6 @@ export async function launchRadioTui(nodePath: string, cliPath: string, encodedC
 }
 
 export async function launchHeadlessHost(nodePath: string, cliPath: string): Promise<void> {
-  await waitForLaunch(spawn(nodePath, [cliPath, 'agent-host'], {detached: true, stdio: 'ignore', windowsHide: false}));
+  const loader = cliPath.endsWith('.tsx') ? ['--import', import.meta.resolve('tsx')] : [];
+  await waitForLaunch(spawn(nodePath, [...loader, cliPath, 'agent-host'], {detached: true, stdio: 'ignore', windowsHide: true}));
 }

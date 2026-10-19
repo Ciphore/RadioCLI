@@ -1,4 +1,4 @@
-import type {AppSettings, Country, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import type {AppSettings, Country, DiscoverySourceStatus, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import {isPlaybackOutputError} from '../player/player-controller.js';
 import {isProviderUnavailableError} from '../providers/radio-browser.js';
 import type {TopTab} from './components/TopTabs.js';
@@ -14,6 +14,8 @@ export type StationContext = {
   query?: string;
   country?: Country;
   hasMore?: boolean;
+  nextCursor?: string;
+  sources?: DiscoverySourceStatus[];
 };
 
 export type StationContextKey = 'explore' | 'stations' | 'search' | 'nearby' | 'library';
@@ -37,6 +39,8 @@ export type NavigationOptions = {
 };
 
 export type PlayStationOptions = {
+  signal?: AbortSignal;
+  startPaused?: boolean;
   openNowPlaying?: boolean;
   queue?: PlaybackQueue;
 };

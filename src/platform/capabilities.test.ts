@@ -50,3 +50,14 @@ describe('independent capabilities', () => {
     expect(report.playback.status).toBe('available');
   });
 });
+
+describe('experimental Linux AirPlay capability evidence', () => {
+  const host = identifyPlatform({platform: 'linux', env: {}, release: '6.6'});
+  const evidence = {backends: ['mpv', 'airplay'], commands: ['avahi-browse', 'ffmpeg'], graphicalSession: true};
+  it('never mistakes installed tools for a ready daemon or loadable sender', () => {
+    expect(platformCapabilities(host, evidence).airPlay.status).toBe('unverified');
+    expect(platformCapabilities(host, {...evidence, airPlay: {ready: false, discoveryService: 'unavailable', message: 'Avahi stopped'}}).airPlay).toEqual({status: 'unavailable', message: 'Avahi stopped'});
+    expect(platformCapabilities(host, {...evidence, airPlay: {ready: true, discoveryService: 'unverified', message: 'Receiver connection required'}}).airPlay.status).toBe('unverified');
+    expect(platformCapabilities(host, {...evidence, airPlay: {ready: true, discoveryService: 'ready', message: 'Experimental prerequisites ready'}}).airPlay.status).toBe('available');
+  });
+});

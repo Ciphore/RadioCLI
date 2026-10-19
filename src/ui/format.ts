@@ -1,5 +1,10 @@
 import type {Station} from '../types.js';
 
+// Use Ink's width rules on supported Node runtimes, including emoji sequences
+// and text/emoji presentation selectors. Retain code-point fallback for hosts
+// without Intl.Segmenter, where full grapheme rendering is unavailable.
+const rendererWidth = typeof Intl.Segmenter === 'function' ? (await import('string-width')).default : undefined;
+
 export function stationLocation(station: Station): string {
   return [station.city, station.state, station.country].filter(Boolean).join(', ') || station.countryCode || 'Unknown origin';
 }
@@ -41,6 +46,7 @@ export function truncate(value: string, length: number): string {
 }
 
 export function displayWidth(value: string): number {
+  if (rendererWidth) return rendererWidth(value);
   let width = 0;
   for (const grapheme of graphemes(value)) {
     if (/^\p{Mark}+$/u.test(grapheme)) continue;
@@ -61,17 +67,44 @@ export function sliceDisplay(value: string, start: number, length: number): stri
   let skippedWidth = 0;
   let outputWidth = 0;
   let result = '';
+  let started = false;
   for (const grapheme of graphemes(value)) {
     const graphemeWidth = displayWidth(grapheme);
-    if (skippedWidth + graphemeWidth <= safeStart) {
+    if (!started && skippedWidth + graphemeWidth <= safeStart) {
       skippedWidth += graphemeWidth;
       continue;
     }
+    started = true;
     if (outputWidth + graphemeWidth > safeLength) break;
     result += grapheme;
     outputWidth += graphemeWidth;
   }
   return result;
+}
+
+/** Clip from the logical end for rightward scrolling, without reversing text. */
+export function sliceDisplayFromEnd(value: string, start: number, length: number): string {
+  const safeStart = Math.max(0, Math.floor(start));
+  const safeLength = Math.max(0, Math.floor(length));
+  if (safeLength === 0) return '';
+
+  let skippedWidth = 0;
+  let outputWidth = 0;
+  const parts = graphemes(value);
+  const result: string[] = [];
+  for (let index = parts.length - 1; index >= 0; index--) {
+    const grapheme = parts[index]!;
+    const graphemeWidth = displayWidth(grapheme);
+    // Skip the entire cluster when the moving edge lands inside a wide glyph.
+    if (skippedWidth < safeStart) {
+      skippedWidth += graphemeWidth;
+      continue;
+    }
+    if (outputWidth + graphemeWidth > safeLength) break;
+    result.push(grapheme);
+    outputWidth += graphemeWidth;
+  }
+  return result.reverse().join('');
 }
 
 export function removeLastGrapheme(value: string): string {
@@ -80,10 +113,11 @@ export function removeLastGrapheme(value: string): string {
   return parts.join('');
 }
 
+const graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, {granularity: 'grapheme'}) : null;
+
 function graphemes(value: string): string[] {
-  const Segmenter = Intl.Segmenter;
-  if (Segmenter) {
-    return [...new Segmenter(undefined, {granularity: 'grapheme'}).segment(value)].map(item => item.segment);
+  if (graphemeSegmenter) {
+    return [...graphemeSegmenter.segment(value)].map(item => item.segment);
   }
   return Array.from(value);
 }

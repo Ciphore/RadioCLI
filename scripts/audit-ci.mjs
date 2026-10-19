@@ -1,45 +1,38 @@
 import {spawnSync} from 'node:child_process';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {dirname, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {setTimeout as delay} from 'node:timers/promises';
+import {npmCommand} from './packed-smoke.mjs';
 
-const npmCliPath = process.env.npm_execpath;
-if (!npmCliPath) {
-  console.error('Unable to locate the npm CLI for the audit.');
-  process.exit(1);
+/** An unavailable audit is a distinct failure, never evidence of a clean audit. */
+export async function runAudit(args, {execute = spawnSync, wait = delay, env = process.env, write = text => process.stdout.write(text), writeError = text => process.stderr.write(text)} = {}) {
+  const npm = npmCommand({env});
+  const auditArgs = [...npm.args, 'audit', ...args, '--fetch-timeout=30000', '--fetch-retries=1'];
+  const transient = /audit endpoint returned an error|service unavailable|network timeout|ECONNRESET|EAI_AGAIN|ETIMEDOUT|ENOTFOUND|ENETUNREACH|EHOSTUNREACH/i;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = execute(npm.command, auditArgs, {encoding: 'utf8', env, shell: false, windowsHide: true, timeout: 90_000, maxBuffer: 4 * 1024 * 1024});
+    write(result.stdout ?? '');
+    writeError(result.stderr ?? '');
+    const unavailable = transient.test(`${result.stdout ?? ''}\n${result.stderr ?? ''}\n${result.error?.code ?? ''}`);
+    const status = !result.error && result.status === 0 ? 'passed' : unavailable ? 'unavailable' : 'failed';
+    if (status === 'unavailable' && attempt < 3) {
+      writeError(`npm audit service unavailable; retrying (${attempt}/3)...\n`);
+      await wait(attempt * 5000);
+      continue;
+    }
+    const evidence = {schemaVersion: 1, checkedAt: new Date().toISOString(), sourceRevision: env.RADIOCLI_SOURCE_REVISION ?? env.GITHUB_SHA ?? null, status, attempts: attempt,
+      exitCode: status === 'passed' ? 0 : status === 'unavailable' ? 2 : result.status || 1,
+      scope: args.some(arg => arg.startsWith('--prefix=')) ? args.find(arg => arg.startsWith('--prefix=')) : 'required-runtime', arguments: args};
+    if (env.RADIOCLI_AUDIT_EVIDENCE_PATH) {
+      mkdirSync(dirname(resolve(env.RADIOCLI_AUDIT_EVIDENCE_PATH)), {recursive: true});
+      writeFileSync(env.RADIOCLI_AUDIT_EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`);
+    }
+    if (status === 'unavailable') writeError('npm audit remained unavailable; no security result was obtained. Rerun the audit before release.\n');
+    return evidence;
+  }
 }
 
-const auditArguments = [
-  npmCliPath,
-  'audit',
-  ...process.argv.slice(2),
-  '--fetch-timeout=30000',
-  '--fetch-retries=1'
-];
-const transientFailure =
-  /audit endpoint returned an error|service unavailable|network timeout|ECONNRESET|EAI_AGAIN|ETIMEDOUT/i;
-const maxAttempts = 3;
-
-for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-  const result = spawnSync(process.execPath, auditArguments, {
-    encoding: 'utf8',
-    env: process.env
-  });
-
-  process.stdout.write(result.stdout ?? '');
-  process.stderr.write(result.stderr ?? '');
-
-  if (result.status === 0) {
-    process.exit(0);
-  }
-
-  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
-  if (!transientFailure.test(output)) {
-    process.exit(result.status ?? 1);
-  }
-
-  if (attempt === maxAttempts) {
-    console.error('npm audit service remained unavailable after three attempts; continuing.');
-    process.exit(0);
-  }
-
-  console.error(`npm audit service unavailable; retrying (${attempt}/${maxAttempts})...`);
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 5_000);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await runAudit(process.argv.slice(2)).then(result => { process.exitCode = result.exitCode; }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }

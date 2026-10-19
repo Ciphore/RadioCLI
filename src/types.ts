@@ -64,6 +64,7 @@ export type Country = {
 
 export type Station = {
   id: string;
+  legacyIds?: string[];
   provider: ProviderId;
   name: string;
   country?: string;
@@ -110,7 +111,27 @@ export type SearchOptions = {
   codec?: string;
   language?: string;
   minBitrate?: number;
+  signal?: AbortSignal;
 };
+
+/** Progress belongs to the source rows consumed, never the displayed item count. */
+export type DiscoverySourceStatus = {
+  provider: Station['provider'];
+  source: string;
+  consumed: number;
+  exhausted: boolean;
+  status: 'available' | 'unavailable';
+  message?: string;
+};
+
+export type DiscoveryPage = {
+  items: Station[];
+  nextCursor?: string;
+  exhausted: boolean;
+  sources: DiscoverySourceStatus[];
+};
+
+export type DiscoveryPageOptions = Omit<SearchOptions, 'offset'> & {cursor?: string};
 
 export type MediaKeyBindings = {
   previous: string[];
@@ -139,6 +160,7 @@ export type AppSettings = {
   shareDirectoryVotes: boolean;
   preferredBackend: 'auto' | 'mpv' | 'ffplay' | 'vlc' | 'airplay';
   preferredAirPlayDevice?: string;
+  linuxAirPlayEnabled?: boolean;
   tuneTimeoutSeconds: number;
   skipBrokenStreams: boolean;
   mediaKeys: MediaKeyBindings;
@@ -149,6 +171,7 @@ export type AppSettings = {
   mouseSupport?: boolean;
   automaticUpdateChecks?: boolean;
   agentControl?: AgentControlSettings;
+  desktopMediaControls?: 'auto' | 'on' | 'off';
 };
 
 export type UpdateCheckState = {
@@ -265,6 +288,7 @@ export type AlarmPowerGuardState = {
 export type LibraryState = {
   recent: RecentPlay[];
   favorites: Station[];
+  presets?: {name: string; station: Station}[];
   imported: Station[];
   activity: ListeningActivity;
   trackHistory: TrackPlay[];
@@ -285,6 +309,7 @@ export type PlaybackState = {
   stationName?: string;
   airPlayDeviceName?: string;
   ready: boolean;
+  buffering?: boolean;
   elapsedSeconds?: number;
 };
 

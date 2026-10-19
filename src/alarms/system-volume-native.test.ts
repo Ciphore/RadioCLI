@@ -23,7 +23,7 @@ describe('native system-output command lifetime',()=>{
       else{
         const match=/set volume output volume (\\d+) (with|without) output muted/.exec(args.join(' '));
         const state={volume:Number(match[1]),muted:match[2]==='with'};
-        if(state.volume===70){fs.writeFileSync(helperFile,JSON.stringify({pid:process.pid}));const timer=setInterval(()=>{if(fs.existsSync(gate)){fs.writeFileSync(output,JSON.stringify(state));clearInterval(timer);}},10);setTimeout(()=>process.exit(3),8000).unref();}
+        if(state.volume===70){fs.writeFileSync(helperFile+'.tmp',JSON.stringify({pid:process.pid}));fs.renameSync(helperFile+'.tmp',helperFile);const timer=setInterval(()=>{if(fs.existsSync(gate)){fs.writeFileSync(output,JSON.stringify(state));clearInterval(timer);}},10);setTimeout(()=>process.exit(3),8000).unref();}
         else fs.writeFileSync(output,JSON.stringify(state));
       }
     `;
@@ -40,6 +40,7 @@ describe('native system-output command lifetime',()=>{
     let helperPid:number|undefined;let acquired=false;let acquisition:ReturnType<ReturnType<typeof createSystemVolumeController>['acquireMinimum']>|undefined;
     try{
       await until(()=>fs.existsSync(helperFile));helperPid=(JSON.parse(fs.readFileSync(helperFile,'utf8')) as {pid:number}).pid;
+      await until(()=>{try{return JSON.parse(fs.readFileSync(join(directory,'native-write.json'),'utf8')).helperPid===helperPid;}catch{return false;}});
       expect(JSON.parse(fs.readFileSync(join(directory,'native-write.json'),'utf8'))).toMatchObject({helperPid});
       parent.kill('SIGKILL');await parentClosed;expect(()=>process.kill(helperPid!,0)).not.toThrow();
       const run=async(_command:string,args:string[])=>{

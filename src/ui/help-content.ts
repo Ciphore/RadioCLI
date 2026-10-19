@@ -87,7 +87,7 @@ export const commandHelp: CommandHelp[] = [
   {name: 'ascii', args: '<on|off>', description: 'ASCII-safe display'},
   {name: 'motion', args: '<on|off>', description: 'Reduce motion'},
   {name: 'background', args: '<on|off>', description: 'Transparent background'},
-  {name: 'airplay', description: 'Open AirPlay settings (macOS only)'},
+  {name: 'airplay', description: 'Open experimental AirPlay settings'},
   {name: 'learn', args: '<previous|play|next>', description: 'Learn a media key'},
   {name: 'keys', args: '[reset]', description: 'Show or reset learned media keys'},
   {name: 'favorite', description: 'Favorite the current station (alias :fav)'},
@@ -103,7 +103,7 @@ export const commandHelp: CommandHelp[] = [
   {name: 'help', description: 'Open this help'}
 ];
 
-export const helpItemCount =
+const helpItemCount =
   keyHelpSections.reduce((total, section) => total + 1 + section.entries.length, 0) +
   1 +
   commandHelp.length;
@@ -160,3 +160,9 @@ function longestCommonPrefix(values: string[]): string {
 
   return prefix;
 }
+
+export function commandHelpForAirPlay(visible = true): CommandHelp[] { return commandHelp.filter(command => visible || !command.name.startsWith('airplay')); }
+
+export function commandNamesForAirPlay(visible = true): string[] { return commandNames.filter(name => visible || !name.startsWith('airplay')); }
+
+export function helpItemCountForAirPlay(visible = true): number { return helpItemCount - commandHelp.length + commandHelpForAirPlay(visible).length; }

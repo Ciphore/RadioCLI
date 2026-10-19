@@ -29,10 +29,29 @@ npm run verify:release
 npm pack --dry-run
 ```
 
+`verify:release` requires a clean committed checkout. It records each completed
+gate, requires native mpv in both packed installation modes, and saves the exact
+tested tarball under `output/release-evidence/`. Its manifest links the source
+revision and dependency lockfile digest to the tarball SHA-256, runtime, audit,
+and test outcomes. Publish that preserved tarball after reviewing the release
+evidence; repacking would create a candidate that needs its own verification.
+Set `RADIOCLI_SMOKE_EVIDENCE_DIR` to choose another destination outside the
+tracked source tree. Failed or interrupted checks cannot produce a complete
+manifest. An unavailable npm audit now exits unsuccessfully and records
+`unavailable`; it must be rerun successfully before release.
+
+The local release gate also requires built TUI crash recovery and installs,
+audits, typechecks, and builds the documentation site. This catches documentation
+security or build failures before they can fail the release's CI run.
+
+Publishing from a source directory runs the same `verify:release` gate through
+`prepublishOnly`. Publishing a preserved tarball still requires reviewing its
+recorded evidence; npm cannot rerun the source verification from that artifact.
+
 Test the packed tarball locally:
 
 ```bash
-VERSION=0.2.4
+VERSION=0.2.5
 npm pack
 npm install -g "./ciphore-radiocli-$VERSION.tgz"
 radiocli --help
@@ -44,7 +63,7 @@ Publish:
 
 ```bash
 npm login
-npm publish --access public
+npm publish ./output/release-evidence/ciphore-radiocli-0.2.5.tgz --access public
 ```
 
 After publishing, `npm install -g @ciphore/radiocli` should install the
@@ -76,6 +95,63 @@ audio-device output, a receiver connection, wake delivery, or a particular
 terminal application. Set `RADIOCLI_SMOKE_EVIDENCE_DIR` to preserve JSON records
 containing the artifact SHA-256, runtime identity, installation mode, and results.
 Set `RADIOCLI_MPV_PATH` when the verified native executable is outside `PATH`.
+The evidence directory also retains the tested tarball and a `candidate.json`
+source record. `--require-clean` rejects a dirty or unknown source state when
+running the fresh-install harness directly.
+
+The same harness upgrades separate installations of published versions 0.2.3
+and 0.2.4 to the candidate tarball. It keeps each older storage implementation
+running throughout the replacement, then checks all 63 supported receivers while
+old and new processes read and write one library. Favorites, recent stations,
+track/search history, alarms, and the previously selected receiver must survive.
+Each `upgrade-<version>.json` record is bound to the tested artifact, source, and
+runtime; missing or failed upgrade evidence blocks a complete release manifest.
+
+The twelve removed preview scenes fall back to Ultracode when loading a library,
+a preview receiver-preference file, or a JSON backup. Favorites, history, alarms,
+and other settings remain intact. Removed scenes are absent from cycling and MCP
+appearance choices.
+
+### Device Rehearsal
+
+The manifest covers one OS, CPU, and Node runtime. Review all required CI matrix
+jobs for the same source revision and retain their artifacts before publication.
+A local or CI null-output pass leaves physical speakers, headphones, receiver
+connections, terminal applications, and suspend/wake delivery unverified.
+
+The required `smoke:network` check uses only loopback fixtures and null/dummy
+audio. It exercises trusted and untrusted certificates, hostname mismatches,
+redirects, live EOF, open-but-stalled streams, finite recordings, and Stop after
+recovery. Installed fallbacks also exercise decoded readiness, ordinary local
+and HTTP media, and blocked unsafe nested requests. The dedicated Linux jobs
+require ffplay, FFmpeg and VLC rather than silently skipping missing fallbacks.
+Numeric-IP certificate mismatch behavior is recorded as a known upstream
+limitation when the native TLS backend accepts it.
+
+The pinned Windows player uses Schannel, which ignores a private CA file.
+Windows still requires untrusted-certificate, redirect and nested-request
+rejection, finite HTTP playback, recovery and Stop checks. Trusted private-CA
+playback and trusted DNS/IP identity fixtures remain explicitly unverified
+there; the harness never installs test roots into the user's trust store.
+`RADIOCLI_SMOKE_PRIVATE_CA=1` opts into those additional fixtures on a Windows
+test installation known to use a CA-file-capable backend. The per-check outcomes
+are retained in `network-playback.json` and bound to the release revision/runtime.
+
+On each intended device and output route, retain the candidate SHA-256 and
+`radiocli doctor --playback --json`, then record observed results for these paths:
+
+| Path | Evidence to record |
+| --- | --- |
+| Interactive TUI | Start a station, change stations, change volume, pause/resume where supported, then stop; verify audible output and keyboard response. |
+| Background CLI and MCP | Play and inspect status, replace a pending tune, stop during startup, and confirm the native child exits. |
+| Discovery and saved library | Apply minimum bitrate, load several search/country pages, save a favorite from another process, and confirm the open session refreshes. |
+| AirPlay, where supported and enabled | Discover and authenticate the actual receiver, tune twice on the same receiver, change volume, return to local output, and verify cleanup. |
+| Alarms and desktop integration, where supported | Exercise a short alarm, snooze/dismiss, restore the previous output, and test media keys and suspend/wake on the actual desktop session. |
+| Fallback players | Select installed ffplay or VLC, confirm audible playback and stop, and retain the documented limited-control behavior. |
+
+Record `passed`, `failed`, or `unverified` with the OS/CPU, player version, output
+device or receiver, and terminal application. A route that was not exercised
+retains `unverified`; success on a different device does not fill that gap.
 
 ### Release Gates And Experimental Checks
 
@@ -86,6 +162,13 @@ checks. Documentation checks run on Node 22/24. All required jobs must pass on
 the release candidate before publication; a failed required job blocks release.
 Inspect the recorded runner OS/version and CPU before carrying evidence into
 a release. Repository protection settings and publication remain owner-managed.
+
+The stable **Required Release Checks** job aggregates the complete verification,
+native playback and documentation matrices. Maintainers should select this
+check in branch protection after the workflow has run. The repository files do
+not activate remote protection settings. Evidence completeness also requires
+the source MCP, background CLI and native network checks; a skipped or absent
+check cannot produce a passing release manifest.
 
 All workflow actions use immutable commit pins. macOS and Windows playback
 fixtures come from explicitly selected official mpv release assets, checked
@@ -117,7 +200,7 @@ The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`
 After each npm publish, fetch the npm tarball URL and SHA:
 
 ```bash
-VERSION=0.2.4
+VERSION=0.2.5
 TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
 curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
 shasum -a 256 "/tmp/radiocli-$VERSION.tgz"
@@ -180,9 +263,27 @@ smoke checks should treat it as playback-only. `radiocli doctor` reports
 `controls=limited` when only `ffplay` is available and `controls=full` when
 `mpv` is available.
 
-AirPlay is experimental on macOS. Its optional sender dependency must install
-and load successfully, and Bonjour and FFmpeg must be usable. The Homebrew
+AirPlay is experimental on macOS and native Linux. Its optional sender dependency
+must install and load successfully, and Bonjour or Avahi plus FFmpeg must be
+usable. Linux additionally requires the per-library opt-in from
+`radiocli setup --airplay`; installed dependencies do not enable it. The Homebrew
 formula installs FFmpeg; that does not establish a working receiver connection.
-Release checks should keep high/critical
-sender dependency advisories out of the shipped tree. AirPlay should remain an
+The fixed sender source ships with RadioCLI; its runtime dependencies remain
+optional. The required runtime audit includes those optional dependencies and
+fails on advisories at every severity. AirPlay should remain an
 explicit session output rather than the automatic startup fallback.
+
+Linux CI includes real D-Bus/mpv-MPRIS checks, isolated PipeWire/PulseAudio output
+restoration, and Shairport Sync software receiver checks for discovery, decoded
+PCM, password entry, volume/mute, retuning, metadata, and cleanup. These tests do
+not establish a Quattro desktop, audible speakers, physical receiver compatibility,
+or suspend/wake delivery. Fresh and upgraded Quattro desktop acceptance and
+physical macOS/Linux receiver regression remain release gates for a broader
+verified-support claim; keep the desktop integration experimental meanwhile.
+
+To roll back the desktop bridge, set `RADIOCLI_DESKTOP_MEDIA=off` and restart
+RadioCLI. A 0.2.4 library rewrite can discard the additive `desktopMediaControls`
+setting, causing it to default to `auto` after upgrading again; the environment
+override survives that downgrade. Existing station/library data stays compatible.
+After changing executable paths or restoring an older installation, run
+`radiocli alarm sync` and verify alarm setup again.

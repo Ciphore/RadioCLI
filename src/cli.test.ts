@@ -1,4 +1,4 @@
-import {existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -11,6 +11,9 @@ import * as platformPaths from './platform/paths.js';
 import * as schedulers from './alarms/scheduler.js';
 import * as support from './platform/support.js';
 import {identifyPlatform} from './platform/runtime.js';
+import * as nativeDiagnostics from './platform/diagnostics.js';
+import * as airPlayReadiness from './player/airplay-readiness.js';
+import * as commandDiagnostics from './player/command-diagnostics.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -56,11 +59,31 @@ describe('CLI command dispatch', () => {
   it('prints help without creating user library state', async () => {
     await runCommand(['help']);
 
+    expect(logs.join('\n')).toContain('radiocli play [station]');
+    expect(logs.join('\n')).toContain('radiocli help --all');
+    expect(logs.join('\n')).not.toContain('radiocli agent');
+    expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it.each([['help', '--all'], ['--help', '--all']])('shows the full command reference with %s %s without creating state', async (...args) => {
+    await runCommand(args);
+
     expect(logs.join('\n')).toContain('radiocli doctor');
     expect(logs.join('\n')).toContain('radiocli setup');
     expect(logs.join('\n')).toContain('radiocli import <target>');
     expect(logs.join('\n')).not.toContain('add-url');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('persists desktop media controls without changing the settings-screen layout', async () => {
+    await runCommand(['media-controls', 'off']);
+    expect(new JsonLibraryStore().snapshot().settings.desktopMediaControls).toBe('off');
+    expect(logs.join('\n')).toContain('desktop_media_preference=off');
+    expect(logs.join('\n')).toContain('RADIOCLI_DESKTOP_MEDIA=off');
+    await runCommand(['media-controls', 'auto']);
+    expect(new JsonLibraryStore().snapshot().settings.desktopMediaControls).toBe('auto');
+    await expect(runCommand(['media-controls', 'yes'])).rejects.toThrow('Usage:');
+    await expect(runCommand(['media-controls', 'on', 'extra'])).rejects.toThrow('Usage:');
   });
 
   it('prints setup help without probing or changing the system', async () => {
@@ -78,6 +101,7 @@ describe('CLI command dispatch', () => {
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
   });
 
+  // Doctor permits a bounded 10-second PowerShell scheduler probe on Windows.
   it('prints doctor setup guidance without creating user library state', async () => {
     await runCommand(['doctor']);
 
@@ -87,7 +111,7 @@ describe('CLI command dispatch', () => {
     expect(logs.join('\n')).toContain('mpv_path=');
     expect(logs.join('\n')).toContain('mpv_launch=');
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
-  });
+  }, process.platform === 'win32' ? 15_000 : 5_000);
 
   it('prints a machine-readable, state-free doctor report', async () => {
     await runCommand(['doctor', '--json']);
@@ -129,6 +153,87 @@ describe('CLI command dispatch', () => {
     expect(report.capabilities.storage.message).toContain('RADIOCLI_HOME');
     expect(JSON.stringify(report)).not.toContain(blockedHome);
     expect(readFileSync(blockedHome, 'utf8')).toBe('preserve me');
+  });
+
+  it('preserves every existing doctor JSON field and adds separate native readiness evidence', async () => {
+    await runCommand(['doctor', '--json']);
+    const report = JSON.parse(logs.join('\n'));
+    for (const key of ['radioCliVersion', 'nodeVersion', 'platform', 'architecture']) expect(report[key]).toEqual(expect.any(String));
+    expect(report.host).toEqual(expect.objectContaining({id: expect.any(String), arch: expect.any(String), endianness: expect.any(String), release: expect.any(String), libc: expect.any(String), isWsl: expect.any(Boolean)}));
+    expect(report.host.armVersion === null || typeof report.host.armVersion === 'number').toBe(true);
+    expect(report.support.scope).toBe('current-installation');
+    for (const key of ['playback', 'playbackControls', 'packageInstallation', 'storage', 'filePermissions', 'atomicWrites', 'externalUrl', 'clipboard', 'terminalReopening', 'backgroundScheduling', 'catchUp', 'wakeRequests', 'sleepInhibition', 'systemVolume', 'unicode', 'color', 'screenReader', 'airPlay']) {
+      expect(report.capabilities[key]).toEqual(expect.objectContaining({status: expect.stringMatching(/^(?:available|unavailable|unverified)$/), message: expect.any(String)}));
+    }
+    expect(report.terminal).toEqual(expect.objectContaining({interactive: expect.any(Boolean), unicode: expect.any(Boolean), colorLevel: expect.any(Number), screenReader: expect.any(Boolean)}));
+    expect(report.network).toEqual(expect.objectContaining({status: expect.any(String), message: expect.any(String)}));
+    expect(report.backends).toEqual(expect.any(Array));
+    for (const key of ['mpv', 'ffplay', 'vlc', 'cvlc', 'ffmpeg', 'dns-sd']) expect(report.commands[key] === null || typeof report.commands[key] === 'string').toBe(true);
+    expect(report.mpv).toEqual(expect.objectContaining({discovery: expect.any(String), launchable: expect.any(Boolean)}));
+    expect(report.mpv.path === null || typeof report.mpv.path === 'string').toBe(true);
+    expect(report.airPlay).toEqual(expect.objectContaining({available: expect.any(Boolean), safe: expect.any(Boolean), package: expect.any(String), vulnerablePackages: expect.any(Array), warningPackages: expect.any(Array),
+      eligible: expect.any(Boolean), ready: expect.any(Boolean), discoveryExecutable: expect.any(Boolean), discoveryService: expect.any(String), senderLoaded: expect.any(Boolean), ffmpeg: expect.any(Boolean)}));
+    expect(report.airPlay.version === null || typeof report.airPlay.version === 'string').toBe(true);
+    expect(report.guidance).toEqual(expect.any(Array));
+    expect(report.omarchy).toHaveProperty('kind');
+    expect(report.desktopMedia).toEqual(expect.objectContaining({preference: expect.any(Object), policy: expect.any(Object), sessionBus: expect.any(Object), owner: expect.any(Object)}));
+    expect(report.terminalLauncher.launch).toBe('unverified');
+    expect(report.audio).toEqual(expect.objectContaining({status: expect.any(String), wpctl: expect.any(Object), pactl: expect.any(Object)}));
+    logs.length = 0;
+    await runCommand(['doctor']);
+    for (const line of ['omarchy=', 'desktop_media_preference=', 'desktop_media_policy=', 'desktop_media_bus=', 'desktop_media_owner=', 'terminal_launcher=', 'audio_session=', 'airplay_readiness=']) expect(logs.join('\n')).toContain(line);
+  });
+
+  it.each(['{"settings":{"desktopMediaControls":"off"},"private":"https://secret.test/token"}', '{corrupt library'])('never repairs or rewrites existing library state during doctor', async contents => {
+    const path = join(radioCliHome, 'radiocli.json');
+    writeFileSync(path, contents, {mode: 0o400});
+    const before = statSync(path);
+    await runCommand(['doctor', '--json']);
+    const report = JSON.parse(logs.join('\n'));
+    expect(report.desktopMedia.preference).toMatchObject(contents.startsWith('{corrupt') ? {value: 'auto', status: 'unverified'} : {value: 'off', source: 'library', status: 'available'});
+    expect(readFileSync(path, 'utf8')).toBe(contents);
+    expect(statSync(path).mtimeMs).toBe(before.mtimeMs);
+    expect(readdirSync(radioCliHome)).toEqual(['radiocli.json']);
+    expect(JSON.stringify(report)).not.toContain('secret.test');
+  });
+
+  it('contains an optional AirPlay probe failure without losing other doctor fields', async () => {
+    const probe = vi.spyOn(airPlayReadiness, 'probeAirPlayReadiness').mockRejectedValue(new Error('https://secret.test/token /private/account'));
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.airPlay).toMatchObject({ready: false, discoveryService: 'unverified'});
+      expect(report.capabilities.airPlay.status).toBe('unavailable');
+      expect(report.capabilities.storage.status).toBe('available');
+      expect(report.support.scope).toBe('current-installation');
+      expect(JSON.stringify(report)).not.toMatch(/secret\.test|\/private\/account/);
+    } finally { probe.mockRestore(); }
+  });
+
+  it('keeps native health probes out of ordinary help and version commands', async () => {
+    const probe = vi.spyOn(nativeDiagnostics, 'probeNativeIntegrations');
+    try {
+      await runCommand(['help']);
+      await runCommand(['version']);
+      await runCommand(['setup', '--help']);
+      expect(probe).not.toHaveBeenCalled();
+    } finally { probe.mockRestore(); }
+  });
+
+  it('keeps mpv version and error diagnostics useful without printing raw executable output', async () => {
+    const probe = vi.spyOn(commandDiagnostics, 'diagnoseCommand').mockReturnValue({path: null, discovery: 'configured-path', launchable: false,
+      version: 'mpv 0.40.0 private-build=/private/account https://secret.test/token', error: 'spawn unixexec:path=/private/account https://secret.test/token'});
+    try {
+      await runCommand(['doctor', '--json']);
+      const report = JSON.parse(logs.join('\n'));
+      expect(report.mpv).toEqual({path: null, discovery: 'configured-path', launchable: false, version: 'mpv 0.40.0', error: 'The configured mpv executable could not be run. Check RADIOCLI_MPV_PATH.'});
+      expect(logs.join('\n')).not.toMatch(/private-build|\/private\/account|secret\.test|unixexec/);
+      logs.length = 0;
+      await runCommand(['doctor']);
+      expect(logs.join('\n')).toContain('mpv_version=mpv 0.40.0');
+      expect(logs.join('\n')).toContain('Check RADIOCLI_MPV_PATH.');
+      expect(logs.join('\n')).not.toMatch(/private-build|\/private\/account|secret\.test|unixexec/);
+    } finally { probe.mockRestore(); }
   });
 
   it('checks the selected legacy library location without migrating data during doctor', async () => {
@@ -178,6 +283,23 @@ describe('CLI command dispatch', () => {
       await runCommand(['doctor', '--json']);
       expect(JSON.parse(logs.join('\n')).capabilities.backgroundScheduling.status).toBe('unavailable');
     } finally { spy.mockRestore(); }
+  });
+
+  it.skipIf(process.platform !== 'linux')('rejects executable or remote scheduler bus transports in default Doctor', async () => {
+    const previous = process.env.DBUS_SESSION_BUS_ADDRESS;
+    const create = vi.spyOn(schedulers, 'createSchedulerAdapter');
+    try {
+      for (const address of ['unixexec:path=/probe-only', 'tcp:host=secret.test,port=1234', 'autolaunch:']) {
+        process.env.DBUS_SESSION_BUS_ADDRESS = address;
+        logs.length = 0;
+        await runCommand(['doctor', '--json']);
+        const report = JSON.parse(logs.join('\n'));
+        expect(report.capabilities.backgroundScheduling).toMatchObject({status: 'unavailable', message: expect.stringContaining('local Unix session-bus')});
+        expect(report.capabilities.storage.status).toBe('available');
+        expect(logs.join('\n')).not.toMatch(/probe-only|secret\.test|unixexec|autolaunch/);
+      }
+      expect(create).not.toHaveBeenCalled();
+    } finally { create.mockRestore(); restoreEnv('DBUS_SESSION_BUS_ADDRESS', previous); }
   });
 
   it.each(['first-class', 'supported', 'experimental', 'unsupported'] as const)('preserves the %s support assessment in JSON and text doctor output', async tier => {

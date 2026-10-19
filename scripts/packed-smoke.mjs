@@ -6,6 +6,7 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import {arch, endianness, release, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const script = fileURLToPath(import.meta.url);
@@ -47,9 +48,10 @@ export function smokeEnvironment(home) {
 }
 
 /** Imports only the installed tarball; never the checkout's dist or node_modules. */
-export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv = false, executionMethod = 'local process', evidencePath} = {}) {
+export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv = false, executionMethod = 'local process', evidencePath, source = null} = {}) {
   tarball = resolve(tarball);
   assert.ok(existsSync(tarball), `Packed tarball is missing: ${tarball}`);
+  const tarballSha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex');
   assert.ok(Number(process.versions.node.split('.')[0]) >= 22, 'Packed runtime checks require Node.js 22 or newer.');
   if (process.env.RADIOCLI_EXPECTED_ARCH) assert.equal(process.arch, process.env.RADIOCLI_EXPECTED_ARCH, 'The packed runtime must match the requested native runner architecture.');
   const temporary = mkdtempSync(join(tmpdir(), 'radiocli packed & # % 日本 '));
@@ -84,6 +86,13 @@ export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv 
     assert.equal(doctor.platform, process.platform);
     assert.equal(doctor.architecture, process.arch);
     assert.ok(doctor.capabilities && doctor.host, 'doctor must report host facts and capabilities.');
+    assert.equal(doctor.airPlay.available, !omitOptional, 'Optional sender availability must match the actual fresh installation mode.');
+    assert.equal(doctor.airPlay.safe, !omitOptional, 'The fixed sender must pass safety checks only when its runtime dependencies are present.');
+    assert.deepEqual(doctor.airPlay.warningPackages, []);
+    assert.deepEqual(doctor.airPlay.vulnerablePackages, []);
+    const edges = runCommand(process.execPath, ['--import', guard, script, '--exercise-edge-cases', packageRoot, home], {cwd: project, env, timeout: 45_000});
+    assert.match(edges.stdout, /packed_edge_cases=ok/);
+    process.stdout.write(edges.stdout);
 
     // A missing offline cache must fail promptly; stale persisted data must work.
     // The preload makes accidental live-directory access an explicit failure.
@@ -135,13 +144,15 @@ export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv 
       playback = 'mpv: local WAV, IPC readiness/volume/pause/resume/stop, ao=null; no audio hardware assertion';
     } else if (requireMpv) throw new Error('This job requires real mpv playback, but the installed CLI did not detect mpv.');
     assert.equal(existsSync(networkLog), false, 'A packed runtime fixture attempted a live network request.');
+    assert.equal(createHash('sha256').update(readFileSync(tarball)).digest('hex'), tarballSha256, 'The candidate tarball changed while it was being tested.');
     const evidence = {
+      schemaVersion: 1, checkedAt: new Date().toISOString(), source,
       executionMethod, platform: process.platform, architecture: arch(), endianness: endianness(), kernel: release(),
       node: process.version, npm: runCommand(npm.command, [...npm.args, '--version'], {cwd: project, env}).stdout.trim(),
       package: `${metadata.name}@${metadata.version}`, install: omitOptional ? 'omit-optional' : 'normal',
-      tarballSha256: createHash('sha256').update(readFileSync(tarball)).digest('hex'),
+      tarballSha256,
       host: doctor.host, binWrapper, offlineCache: 'passed', mcpTools, playback,
-      checks: ['help', 'version', 'doctor-json', 'offline-cache-hit-and-miss', 'stream-import', 'playlist-import', 'export', 'MCP-stdio'], result: 'passed'
+      checks: ['help', 'version', 'doctor-json', 'sender-optional-runtime', 'airplay-legacy-crypto', 'alarm-id-isolation', 'portable-library-restore', 'unicode-display-width', 'cache-clock-correction', 'offline-cache-hit-and-miss', 'stream-import', 'playlist-import', 'export', 'MCP-stdio'], result: 'passed'
     };
     if (evidencePath) {
       mkdirSync(dirname(resolve(evidencePath)), {recursive: true});
@@ -149,9 +160,113 @@ export async function runPackedSmoke(tarball, {omitOptional = false, requireMpv 
     }
     console.log(`packed_smoke=${JSON.stringify(evidence)}`);
     return evidence;
+  } catch (error) {
+    if (evidencePath) {
+      mkdirSync(dirname(resolve(evidencePath)), {recursive: true});
+      writeFileSync(evidencePath, `${JSON.stringify({schemaVersion: 1, checkedAt: new Date().toISOString(), source, tarballSha256,
+        platform: process.platform, architecture: arch(), node: process.version, install: omitOptional ? 'omit-optional' : 'normal', result: 'failed',
+        failure: 'The packed smoke did not complete. Review the command log.'}, null, 2)}\n`);
+    }
+    throw error;
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+async function exerciseEdgeCases(packageRoot, home) {
+  await exercisePortableLibrary(packageRoot, home);
+  const require = createRequire(import.meta.url);
+  const crypto = require(join(packageRoot, 'vendor', 'node-airtunes2', 'lib', 'ed25519.js'));
+  const seed = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
+  assert.equal(crypto.publicKey(seed), 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a');
+  assert.equal(crypto.sign(seed, ''), ('e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555f' +
+    'b8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b').toUpperCase());
+  const {acquireOccurrenceLock} = await import(pathToFileURL(join(packageRoot, 'dist', 'alarms', 'runner.js')).href);
+  const {ProviderCache} = await import(pathToFileURL(join(packageRoot, 'dist', 'providers', 'cache.js')).href);
+  const {displayWidth, padDisplayEnd, truncate, sliceDisplay} = await import(pathToFileURL(join(packageRoot, 'dist', 'ui', 'format.js')).href);
+  const scheduledAt = '2030-01-01T08:00:00.000Z';
+  for (const [index, ids] of [['wake/a', 'wake?a'], ['wake', 'WAKE'], ['é', 'e\u0301'], ['\ud800', '\ud801']].entries()) {
+    const directory = join(home, `edge-locks-${index}`);
+    const claims = ids.map(id => acquireOccurrenceLock(id, scheduledAt, directory));
+    assert.ok(claims.every(Boolean), 'Distinct restored alarm IDs must claim independently on this filesystem.');
+    for (const claim of claims) claim();
+    for (const id of ids) assert.equal(acquireOccurrenceLock(id, scheduledAt, directory), null, 'Completed occurrences must remain deduplicated.');
+  }
+  for (const [text, width] of [['🇯🇵', 2], ['1️⃣', 2], ['©', 1], ['♥︎', 1], ['©️', 2]]) {
+    assert.equal(displayWidth(text), width);
+    assert.equal(displayWidth(padDisplayEnd(text, 8)), 8);
+    assert.ok(displayWidth(truncate(`${text} Station`, 4)) <= 4);
+  }
+  assert.equal(sliceDisplay('🇯🇵1️⃣ Radio', 3, 4), '1️⃣ R');
+  const originalNow = Date.now;
+  let now = originalNow() + 86_400_000;
+  Date.now = () => now;
+  try {
+    const path = join(home, 'edge-cache.json');
+    const memory = new ProviderCache(path);
+    await memory.setAsync('atlas', ['future']);
+    now -= 86_400_000;
+    const legacy = join(home, 'edge-cache-legacy.json');
+    writeFileSync(legacy, JSON.stringify({version: 1, entries: {atlas: {createdAt: now + 86_400_000, value: ['future']}}}));
+    for (const cache of [memory, new ProviderCache(path), new ProviderCache(legacy)]) {
+      assert.equal(cache.get('atlas', 1000), null);
+      assert.equal(await cache.getAsync('atlas', 1000), null);
+      assert.equal(cache.getStale('atlas'), null);
+      assert.equal(await cache.getStaleAsync('atlas'), null);
+    }
+    await memory.setAsync('atlas', ['refreshed']);
+    assert.deepEqual(await memory.getAsync('atlas', 1000), ['refreshed']);
+    now += 1001;
+    assert.equal(memory.get('atlas', 1000), null);
+  } finally { Date.now = originalNow; }
+  console.log('packed_edge_cases=ok alarm-ids=isolated unicode-width=bounded cache-clock-correction=expired');
+}
+
+async function exercisePortableLibrary(packageRoot, home) {
+  const {JsonLibraryStore} = await import(pathToFileURL(join(packageRoot, 'dist', 'storage', 'store.js')).href);
+  const {computeListeningStats} = await import(pathToFileURL(join(packageRoot, 'dist', 'activity', 'stats.js')).href);
+  const {parsePlaylistFile, stationFromUrl, writeM3u} = await import(pathToFileURL(join(packageRoot, 'dist', 'playlists', 'playlist.js')).href);
+  const directory = join(home, 'portable library café 日本');
+  mkdirSync(directory, {recursive: true});
+  const source = new JsonLibraryStore(join(directory, 'source.json'));
+  const station = stationFromUrl('https://example.invalid/live?a=1&b=2', 'Café 日本 FM');
+  source.addImported([station]);
+  source.toggleFavorite(station);
+  source.addRecent(station);
+  source.savePreset('portable', station);
+  source.recordTrack(station, 'Artist – 日本');
+  source.addSearch('jazz 日本');
+  source.startListeningSession(station, new Date('2026-01-01T08:00:00Z'));
+  source.finishActiveListeningSession(new Date('2026-01-01T08:02:00Z'));
+  source.updateSettings({theme: 'ruby', receiverStyle: 'mesh', volume: 42, enableNearbyLocation: false});
+  source.addAlarm({label: 'Portable alarm', enabled: false, station,
+    schedule: {type: 'recurring', time: '08:00', weekdays: [1, 3, 5], timezone: 'Asia/Tokyo'},
+    playback: {volume: 60, fadeSeconds: 5, stopAfterMinutes: 30},
+    reliability: {missedRunGraceMinutes: 10, wakeIfSupported: false}});
+  const backup = source.exportBackup(join(directory, 'profile backup.json'));
+  const target = new JsonLibraryStore(join(directory, 'destination.json'));
+  target.updateSettings({theme: 'amber'});
+  const restored = target.importBackup(backup);
+  // JSON backups omit optional undefined properties by design. Compare their
+  // portable values rather than incidental in-memory property presence.
+  const portable = state => JSON.parse(JSON.stringify(state));
+  assert.deepEqual(portable(restored.state), portable(source.snapshot()), 'Portable restore must retain all library collections and preferences.');
+  assert.equal(new JsonLibraryStore(restored.safetyBackupPath).settings().theme, 'amber');
+  const reopened = new JsonLibraryStore(target.filePath);
+  assert.deepEqual(portable(reopened.snapshot()), portable(source.snapshot()), 'The restored library must survive a new process owner.');
+  assert.equal(computeListeningStats(reopened.snapshot().activity.sessions).totalSeconds, 120);
+  assert.equal(reopened.listAlarms()[0].enabled, false, 'Restoring definitions must not activate a disabled alarm.');
+  const playlist = join(directory, 'export.m3u');
+  writeM3u(playlist, reopened.snapshot().imported);
+  assert.deepEqual(parsePlaylistFile(playlist).map(item => [item.name, item.streamUrl]), [[station.name, station.streamUrl]]);
+  const xspf = join(directory, 'stations.xspf');
+  writeFileSync(xspf, `<playlist><trackList><track><title>Caf&#233; &#x65E5;&#x672C; FM</title><location><![CDATA[${station.streamUrl}]]></location></track></trackList></playlist>`);
+  assert.deepEqual(parsePlaylistFile(xspf).map(item => [item.name, item.streamUrl]), [[station.name, station.streamUrl]]);
+  const invalid = join(directory, 'invalid.json');
+  writeFileSync(invalid, '{"not":"a RadioCLI backup"}');
+  assert.throws(() => reopened.importBackup(invalid));
+  assert.deepEqual(portable(new JsonLibraryStore(target.filePath).snapshot()), portable(source.snapshot()), 'Invalid backups must leave saved data intact.');
+  console.log('packed_portable_library=ok favorites recents imports presets tracks search stats settings alarms invalid-restore XSPF');
 }
 
 function seedProviderCache(home) {
@@ -285,6 +400,7 @@ function silentWav() {
 
 async function main(args) {
   if (args[0] === '--exercise-playback') return exercisePlayback(args[1], args[2]);
+  if (args[0] === '--exercise-edge-cases') return exerciseEdgeCases(args[1], args[2]);
   const options = {};
   let tarball;
   for (let index = 0; index < args.length; index++) {

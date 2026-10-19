@@ -7,10 +7,15 @@ import type {Readable, Writable} from 'node:stream';
 import {clearCommandCache, commandExists, resolveCommand} from './platform/executables.js';
 import {detectPlaybackBackends, playbackBackendStatusLines} from './player/backend-install.js';
 import {configureMcpIntegrations} from './agent/mcp-install.js';
-import {JsonLibraryStore} from './storage/store.js';
+import {defaultLibraryPath, JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
 import {resolveTerminalCapabilities} from './platform/terminal.js';
+import {isAirPlayPlatformSupported} from './player/airplay-policy.js';
+import {probeAirPlayReadiness, type AirPlayReadiness} from './player/airplay-readiness.js';
+import {airPlaySetupVerification, hasSystemdSystemManager, linuxAirPlaySetupPlan} from './player/airplay-setup.js';
+import {readSettingsWithoutMigration} from './storage/read-settings.js';
 import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './platform/runtime.js';
+import {verifyLocalPlayback} from './setup-playback.js';
 
 export type SetupPlan = {
   platform: NodeJS.Platform;
@@ -31,6 +36,12 @@ type SetupOptions = {
   hasCommand?: (command: string) => boolean;
   runCommand?: (command: SetupCommand, output: Writable) => Promise<void>;
   getUid?: () => number | undefined;
+  libraryPath?: string;
+  isSystemd?: () => boolean;
+  probeAirPlay?: (loadSender: boolean) => Promise<AirPlayReadiness>;
+  saveLinuxAirPlayEnabled?: (enabled: boolean) => void;
+  prompt?: (question: string, defaultValue: boolean) => Promise<boolean>;
+  verifyPlayback?: typeof verifyLocalPlayback;
 };
 
 type ParsedSetupArgs = {
@@ -41,6 +52,7 @@ type ParsedSetupArgs = {
   packageManager: SetupPackageManager | null;
   mcp: boolean | null;
   agentUi: boolean | null;
+  airplay: boolean | null;
 };
 
 const components: SetupComponent[] = ['mpv', 'ffmpeg', 'vlc'];
@@ -54,6 +66,11 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const output = options.output ?? process.stdout;
   const hasCommand = options.hasCommand ?? commandExists;
   const parsed = parseSetupArgs(options.args ?? []);
+  const linuxAirPlayEligible = platform === 'linux' && isAirPlayPlatformSupported(platform, env, host.release);
+  if (parsed.airplay !== null && !linuxAirPlayEligible) throw new Error('--airplay and --no-airplay configure experimental native Linux AirPlay only. macOS keeps its existing AirPlay setup; this environment has no Linux opt-in.');
+  const prompt = options.prompt ?? ((question: string, defaultValue: boolean) => promptYesNo(input, output, question, defaultValue));
+  const libraryPath = () => options.libraryPath ?? defaultLibraryPath({platform, env, home: env.HOME ?? env.USERPROFILE});
+  const probe = options.probeAirPlay ?? ((loadSender: boolean) => probeAirPlayReadiness({platform, env, release: host.release, hasCommand, ...(loadSender ? {} : {sender: async () => ({loaded: false, message: 'Not probed before approval.'})})}));
   if (parsed.packageManager) validateNativePackageManager(parsed.packageManager, host);
   const installed = detectInstalledComponents(hasCommand);
   const packageManager = parsed.packageManager ?? detectPackageManager(platform, osRelease, hasCommand, env);
@@ -64,39 +81,60 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   let selected = parsed.only ?? defaultComponents(platform, parsed.all);
   if (!parsed.yes && !parsed.only && isInteractive(input, output)) {
-    selected = await promptForComponents({platform, installed, input, output});
+    selected = await promptForComponents({platform, installed, output, prompt});
+  }
+  let airplay = parsed.airplay;
+  if (linuxAirPlayEligible && airplay === null && !parsed.yes && !parsed.only && isInteractive(input, output)) {
+    const enabled = readSettingsWithoutMigration(libraryPath())?.linuxAirPlayEnabled === true;
+    const choice = await prompt('  AirPlay — experimental (FFmpeg, shared Avahi network discovery)', enabled);
+    // Declining the default on a new install leaves the library untouched.
+    if (choice || enabled) airplay = choice;
   }
   let mcp = parsed.mcp;
   if (mcp === null && !parsed.yes && isInteractive(input, output)) {
-    mcp = await promptYesNo(input, output, '  Agent control via MCP (detected coding agents)', true);
+    mcp = await prompt('  Agent control via MCP (detected coding agents)', true);
   }
   let agentUi = parsed.agentUi;
   if (mcp === true && agentUi === null && !parsed.yes && isInteractive(input, output)) {
     const note = platform === 'darwin'
       ? ' (macOS will ask the agent app to control Terminal on first use)'
       : ' (opens a separate terminal window)';
-    agentUi = await promptYesNo(input, output, `  Open the RadioCLI TUI for agent playback${note}`, true);
+    agentUi = await prompt(`  Open the RadioCLI TUI for agent playback${note}`, true);
   }
 
   const isRoot = (options.getUid ?? process.getuid)?.() === 0;
   const elevation = packageManagerElevation(hasCommand, isRoot);
   const plan = createSetupPlan({platform, osRelease, env, packageManager, installed, selected, elevation});
+  const airPlayPlan = airplay === true ? linuxAirPlaySetupPlan({manager: packageManager, elevation, hasCommand,
+    systemd: (options.isSystemd ?? hasSystemdSystemManager)(),
+    serviceReady: parsed.dryRun ? false : (await probe(false).catch(() => null))?.discoveryService === 'ready', existingCommands: plan.commands}) : null;
+  if (airPlayPlan) plan.commands.push(...airPlayPlan.commands);
   printPlan(plan, output);
+  if (airplay !== null) output.write(`  Linux AirPlay: ${airplay ? 'enable for this library after accepted setup; verify sender and discovery' : 'disable for this library; keep installed packages and shared services'}\n`);
+  for (const note of airPlayPlan?.notes ?? []) output.write(`  Note: ${note}\n`);
   if (packageManager && packageManagerNeedsRoot(packageManager) && !isRoot && !elevation) {
     output.write('  Note: Run package commands as root; sudo/doas unavailable.\n');
   }
   for (const note of packageManagerNotes(packageManager, host)) output.write(`  Note: ${note}\n`);
 
+  const verify = async () => {
+    let linuxAirPlayEnabled = airplay === true;
+    if (platform === 'linux' && airplay === null) {
+      try { linuxAirPlayEnabled = readSettingsWithoutMigration(libraryPath())?.linuxAirPlayEnabled === true; } catch { /* Unreadable consent stays disabled. */ }
+    }
+    await printVerification(output, {platform, osRelease, env, release: host.release, hasCommand, getUid: options.getUid, linuxAirPlayEnabled, verifyPlayback: options.verifyPlayback});
+  };
+
   const missing = plan.selected.filter(component => !plan.installed[component]);
 
-  if (missing.length === 0) {
+  if (missing.length === 0 && airplay === null) {
     output.write(plan.selected.length === 0 ? '\nNo components selected.\n' : '\nEverything selected is already installed.\n');
     await finishMcpSetup(mcp, agentUi, parsed.dryRun, output);
-    printVerification(output);
+    if (!parsed.dryRun) await verify();
     return;
   }
 
-  if (!plan.packageManager) {
+  if (!plan.packageManager && missing.length > 0) {
     if (parsed.dryRun) {
       output.write('\nDry run complete. Install the missing components manually; no system packages were changed.\n');
       await finishMcpSetup(mcp, agentUi, true, output);
@@ -114,17 +152,17 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   const manual = missing.filter(component => !plan.commands.some(command => command.component === component));
   if (manual.length) throw new Error(`No verified automatic installation command for ${manual.join(', ')} with ${plan.packageManager}. Install these components manually or select --only=mpv.`);
   if (plan.packageManager === 'termux-pkg' && isRoot) throw new Error('Run setup as the normal Termux app user. Termux pkg refuses root execution.');
-  if (packageManagerNeedsRoot(plan.packageManager) && !isRoot && !elevation) {
+  if ((plan.packageManager && packageManagerNeedsRoot(plan.packageManager) || airPlayPlan?.commands.length) && plan.commands.length > 0 && !isRoot && !elevation) {
     throw new Error('System package installation requires root, sudo, or doas. Review the dry-run plan and install prerequisites with your administrator.');
   }
 
-  if (parsed.packageManager && !hasCommand(packageManagerProgram(parsed.packageManager))) {
+  if (plan.commands.length > 0 && parsed.packageManager && !hasCommand(packageManagerProgram(parsed.packageManager))) {
     const program = packageManagerProgram(parsed.packageManager);
     throw new Error(`Requested package manager is not available: ${parsed.packageManager}${program !== parsed.packageManager ? ` (${program})` : ''}.`);
   }
 
   if (!parsed.yes && isInteractive(input, output)) {
-    const confirmed = await promptYesNo(input, output, '\nInstall these components?', true);
+    const confirmed = await prompt(airplay === null ? '\nInstall these components?' : '\nApply this setup plan and Linux AirPlay preference?', true);
     if (!confirmed) {
       output.write('Setup cancelled. No system packages were changed.\n');
       return;
@@ -133,21 +171,30 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     throw new Error('Setup needs an interactive terminal. Use --yes to approve the displayed commands or --dry-run to inspect them.');
   }
 
-  if (plan.commands.some(command => command.program === 'sudo')) {
+  if (!options.runCommand && plan.commands.some(command => command.program === 'sudo')) {
     output.write('\nRadioCLI needs administrator approval for the system package manager.\n');
     await runVisibleCommand(resolveCommand('sudo') ?? 'sudo', ['-v']);
   }
 
   const execute = options.runCommand ?? ((command, destination) => runInstallCommand(command, destination, platform));
-  output.write('\nInstalling\n');
+  if (plan.commands.length) output.write('\nInstalling\n');
   for (const command of plan.commands) {
     await execute(command, output);
   }
 
   clearCommandCache();
+  if (airplay !== null) {
+    if (options.saveLinuxAirPlayEnabled) options.saveLinuxAirPlayEnabled(airplay);
+    else new JsonLibraryStore(libraryPath()).updateSettings({linuxAirPlayEnabled: airplay});
+    output.write(`\nLinux AirPlay ${airplay ? 'enabled' : 'disabled'} for this library. Restart active RadioCLI sessions to apply this preference.\n`);
+    if (airplay) {
+      const readiness = await probe(true).catch((): AirPlayReadiness => ({eligible: true, discoveryExecutable: false, discoveryService: 'unverified', senderLoaded: false, ffmpeg: false, ready: false, message: 'Readiness could not be verified. Run radiocli doctor.'}));
+      for (const line of airPlaySetupVerification(readiness)) output.write(`  ${line}\n`);
+    }
+  }
   output.write('\nSetup complete.\n');
   await finishMcpSetup(mcp, agentUi, false, output);
-  printVerification(output);
+  await verify();
 }
 
 export function createSetupPlan({
@@ -202,12 +249,18 @@ export function parseSetupArgs(args: string[]): ParsedSetupArgs {
   let packageManager: SetupPackageManager | null = null;
   let mcp: boolean | null = null;
   let agentUi: boolean | null = null;
+  let airplay: boolean | null = null;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === '--all') all = true;
     else if (arg === '--dry-run') dryRun = true;
     else if (arg === '--yes' || arg === '-y') yes = true;
+    else if (arg === '--airplay' || arg === '--no-airplay') {
+      const enabled = arg === '--airplay';
+      if (airplay !== null && airplay !== enabled) throw new Error('Use either --airplay or --no-airplay, not both.');
+      airplay = enabled;
+    }
     else if (arg === '--mcp') {
       if (mcp === false) throw new Error('Use either --mcp or --no-mcp, not both.');
       mcp = true;
@@ -230,7 +283,7 @@ export function parseSetupArgs(args: string[]): ParsedSetupArgs {
 
   if (all && only) throw new Error('Use either --all or --only, not both.');
   if (agentUi !== null && mcp !== true) throw new Error('--agent-ui and --headless-agent require --mcp.');
-  return {all, dryRun, yes, only, packageManager, mcp, agentUi};
+  return {all, dryRun, yes, only, packageManager, mcp, agentUi, airplay};
 }
 
 async function finishMcpSetup(enabled: boolean | null, agentUi: boolean | null, dryRun: boolean, output: Writable): Promise<void> {
@@ -290,19 +343,19 @@ function detectInstalledComponents(hasCommand: (command: string) => boolean): Re
 async function promptForComponents({
   platform,
   installed,
-  input,
-  output
+  output,
+  prompt
 }: {
   platform: NodeJS.Platform;
   installed: Record<SetupComponent, boolean>;
-  input: Readable;
   output: Writable;
+  prompt(question: string, defaultValue: boolean): Promise<boolean>;
 }): Promise<SetupComponent[]> {
   output.write('Choose components (installed items will be skipped):\n');
   const selected: SetupComponent[] = [];
-  if (await promptYesNo(input, output, `  mpv      Full playback controls${installed.mpv ? ` ${separator(output)} installed` : ''}`, true)) selected.push('mpv');
-  if (await promptYesNo(input, output, `  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ` ${separator(output)} installed` : ''}`, platform === 'darwin')) selected.push('ffmpeg');
-  if (await promptYesNo(input, output, `  VLC      Additional playback fallback${installed.vlc ? ` ${separator(output)} installed` : ''}`, false)) selected.push('vlc');
+  if (await prompt(`  mpv      Full playback controls${installed.mpv ? ` ${separator(output)} installed` : ''}`, true)) selected.push('mpv');
+  if (await prompt(`  FFmpeg   ${platform === 'darwin' ? 'AirPlay + ' : ''}ffplay fallback${installed.ffmpeg ? ` ${separator(output)} installed` : ''}`, platform === 'darwin')) selected.push('ffmpeg');
+  if (await prompt(`  VLC      Additional playback fallback${installed.vlc ? ` ${separator(output)} installed` : ''}`, false)) selected.push('vlc');
   return selected;
 }
 
@@ -380,12 +433,26 @@ function progressFrame(label: string, frame: number, elapsedMs: number, output: 
   return `  ${accent(output, unicode ? '◒' : '*')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
 }
 
-function printVerification(output: Writable): void {
+async function printVerification(output: Writable, {platform, osRelease, env, release, hasCommand, getUid, linuxAirPlayEnabled, verifyPlayback = verifyLocalPlayback}: {
+  platform: NodeJS.Platform;
+  osRelease: string;
+  env: NodeJS.ProcessEnv;
+  release: string;
+  hasCommand(command: string): boolean;
+  getUid?: () => number | undefined;
+  linuxAirPlayEnabled: boolean;
+  verifyPlayback?: typeof verifyLocalPlayback;
+}): Promise<void> {
   clearCommandCache();
-  const backends = detectPlaybackBackends();
+  const backends = detectPlaybackBackends({platform, env, release, hasCommand, settings: {linuxAirPlayEnabled}});
   output.write('\nVerification\n');
   output.write(`  Playback backends: ${backends.join(', ') || 'none'}\n`);
-  for (const line of playbackBackendStatusLines(backends).slice(0, 3)) output.write(`  ${line}\n`);
+  for (const line of playbackBackendStatusLines(backends, platform, osRelease, {hasCommand, getUid}).slice(0, 3)) output.write(`  ${line}\n`);
+  const rehearsals = await verifyPlayback(backends, {platform, env});
+  for (const rehearsal of rehearsals) output.write(`  decoder_${rehearsal.backend}=${rehearsal.status} ${rehearsal.message}\n`);
+  if (rehearsals.length === 0) output.write('  decoder=unverified No local playback backend is available for a rehearsal.\n');
+  output.write('  physical_output=unverified Play a station on your intended speakers, headphones, or AirPlay receiver to verify that path.\n');
+  if (rehearsals.some(item => item.status !== 'passed')) output.write('  Playback needs attention. Run radiocli doctor --playback for a repeatable local check.\n');
   output.write('\nRun radiocli to start listening.\n');
 }
 

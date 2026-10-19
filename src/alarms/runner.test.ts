@@ -1,5 +1,5 @@
 import {describe,expect,it,vi} from 'vitest';
-import {mkdtempSync,readdirSync,rmSync,utimesSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,readdirSync,rmSync,utimesSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Alarm,Station} from '../types.js';
@@ -15,13 +15,37 @@ const scheduledAt='2030-01-01T08:00:00Z';
 
 function deps(overrides:Partial<AlarmRunnerDeps>={}):AlarmRunnerDeps{
   const current={...alarm};
-  return {now:()=>new Date('2030-01-01T08:01:00Z'),store:{getAlarm:vi.fn(()=>current),recordAlarmOutcome:vi.fn(),toggleAlarm:vi.fn(),snoozeAlarm:vi.fn(),addRecent:vi.fn(),startListeningSession:vi.fn(),checkpointActiveListeningSession:vi.fn(),finishActiveListeningSession:vi.fn()},providers:{resolve:vi.fn(async(s:Station)=>({url:`https://${s.id}`}))},player:{play:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),setVolume:vi.fn(async()=>({ok:true})),getState:vi.fn(()=>({backend:'mpv'}))},scheduler:{sync:vi.fn(async()=>null)},inhibitor:{status:vi.fn(()=>({supported:true,active:false,message:'ok'})),acquire:vi.fn(async()=>({release:vi.fn(async()=>{})}))},acquireLock:vi.fn(()=>()=>{}),createSession:vi.fn(async(_s,h)=>{queueMicrotask(()=>h.onDismiss());return{update:vi.fn(),close:vi.fn(async()=>{})};}),wait:vi.fn(async()=>{}),...overrides};
+  return {now:()=>new Date('2030-01-01T08:01:00Z'),store:{getAlarm:vi.fn(()=>current),recordAlarmOutcome:vi.fn(),toggleAlarm:vi.fn(),snoozeAlarm:vi.fn(),addRecent:vi.fn(),startListeningSession:vi.fn(),checkpointActiveListeningSession:vi.fn(),finishActiveListeningSession:vi.fn()},providers:{resolve:vi.fn(async(s:Station)=>({url:`https://${s.id}`}))},player:{play:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),setVolume:vi.fn(async()=>({ok:true})),getState:vi.fn(()=>({backend:'mpv'}))},scheduler:{sync:vi.fn(async()=>null)},inhibitor:{status:vi.fn(()=>({supported:true,active:false,message:'ok'})),acquire:vi.fn(async()=>({release:vi.fn(async()=>{})}))},acquireLock:vi.fn(()=>()=>{}),createSession:vi.fn(async(_s,h)=>{return{update:vi.fn(status=>{if(status.state==='playing')queueMicrotask(()=>h.onDismiss());}),close:vi.fn(async()=>{})};}),wait:vi.fn(async()=>{}),...overrides};
 }
 
 describe('alarm runner',()=>{
+  it('ends history at backend EOF and fails the occurrence instead of waiting out its deadline', async () => {
+    let change: ((state: import('../types.js').PlaybackState) => void) | undefined;
+    let current = new Date('2030-01-01T08:01:00Z'); const base = deps();
+    const ended = new Date('2030-01-01T08:01:02Z');
+    const d = deps({now: () => current, player: {...base.player, onChange: handler => { change = handler; return vi.fn(); }},
+      createSession: vi.fn(async () => ({update: vi.fn(), close: vi.fn(async () => {})})),
+      wait: vi.fn(() => { current = ended; change!({backend: 'mpv', state: 'stopped', ready: false, volume: 40, muted: false, message: 'EOF'}); return new Promise<never>(() => {}); })});
+    expect(await runAlarm('a', scheduledAt, d)).toMatchObject({status: 'failed', message: 'EOF'});
+    expect(d.store.finishActiveListeningSession).toHaveBeenCalledWith(ended);
+  });
+
+  it('releases a late sleep inhibitor after manual dismissal during acquisition', async () => {
+    let finish!: (lease: InhibitorLease) => void;
+    let handlers!: Parameters<AlarmRunnerDeps['createSession']>[1]; const release = vi.fn(async () => {});
+    const d = deps({createSession: vi.fn(async (_status, value) => { handlers = value; return {update: vi.fn(), close: vi.fn(async () => {})}; }),
+      inhibitor: {status: vi.fn(() => ({supported: true, active: false, message: 'ok'})), acquire: vi.fn(() => {
+        queueMicrotask(() => handlers.onDismiss()); return new Promise<InhibitorLease>(resolve => { finish = resolve; });
+      })}});
+    expect((await runAlarm('a', scheduledAt, d)).status).toBe('dismissed');
+    finish({release}); await Promise.resolve(); await Promise.resolve();
+    expect(release).toHaveBeenCalledOnce();
+    expect(d.store.startListeningSession).not.toHaveBeenCalled();
+  });
+
   it('plays headlessly, inhibits sleep, records activity, and cleans up',async()=>{
     const d=deps();const result=await runAlarm('a',scheduledAt,d);
-    expect(d.player.play).toHaveBeenCalledWith(station,'https://main');
+    expect(d.player.play).toHaveBeenCalledWith(station,'https://main',{signal:expect.any(AbortSignal)});
     expect(d.inhibitor.acquire).toHaveBeenCalled();
     expect(d.store.addRecent).toHaveBeenCalledWith(station);
     expect(d.store.recordAlarmOutcome).toHaveBeenCalledWith('a',expect.objectContaining({status:'dismissed'}),{clearNextOverride:true});
@@ -211,6 +235,73 @@ describe('alarm runner',()=>{
   it('closes a control server that finishes starting after cancellation',async()=>{let finish:(server:ActiveAlarmServer)=>void=()=>{};const close=vi.fn(async()=>{});const createSession:AlarmRunnerDeps['createSession']=vi.fn(()=>new Promise<ActiveAlarmServer>(resolve=>{finish=resolve;}));const d=deps({createSession,subscribeSignals:handler=>{setTimeout(handler,0);return vi.fn();}});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('dismissed');finish({update:vi.fn(),close});await Promise.resolve();await Promise.resolve();expect(close).toHaveBeenCalled();});
 
   it('releases an inhibitor that finishes acquiring after cancellation',async()=>{let finish:(lease:InhibitorLease)=>void=()=>{};let signal=()=>{};const release=vi.fn(async()=>{});const acquire=vi.fn(()=>{setTimeout(signal,0);return new Promise<InhibitorLease>(resolve=>{finish=resolve;});});const d=deps({inhibitor:{status:vi.fn(()=>({supported:true,active:false,message:'ok'})),acquire},createSession:vi.fn(async()=>({update:vi.fn(),close:vi.fn(async()=>{})})),subscribeSignals:handler=>{signal=handler;return vi.fn();}});const result=await runAlarm('a',scheduledAt,d);expect(result.status).toBe('dismissed');finish({release});await Promise.resolve();await Promise.resolve();expect(release).toHaveBeenCalled();});
+
+  it.each([
+    ['wake/a', 'wake?a'], ['wake', 'WAKE'], ['é', 'e\u0301'],
+    ['x'.repeat(80) + 'a', 'x'.repeat(80) + 'b'], ['CON', 'con'],
+    ['\ud800', '\ud801'], ['wake\0up', 'wake_up'],
+    ['abcde123-1234-1234-1234-123456789abc', 'ABCDE123-1234-1234-1234-123456789ABC']
+  ])('keeps distinct imported alarm IDs independent: %s and %s', (firstId, secondId) => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-occurrence-ids-'));
+    try {
+      const first = acquireOccurrenceLock(firstId, scheduledAt, root);
+      expect(first).not.toBeNull();
+      const second = acquireOccurrenceLock(secondId, scheduledAt, root);
+      expect(second).not.toBeNull();
+      expect(acquireOccurrenceLock(firstId, scheduledAt, root)).toBeNull();
+      expect(acquireOccurrenceLock(secondId, scheduledAt, root)).toBeNull();
+      first!();
+      second!();
+      expect(acquireOccurrenceLock(firstId, scheduledAt, root)).toBeNull();
+      expect(acquireOccurrenceLock(secondId, scheduledAt, root)).toBeNull();
+      const names = readdirSync(join(root, 'locks')).map(name => name.normalize('NFD').toLowerCase());
+      expect(new Set(names).size).toBe(2);
+      expect(names.every(name => Buffer.byteLength(name) < 200)).toBe(true);
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
+
+  it.each(['abcde123-1234-1234-1234-123456789abc', 'wake/a'])('honors pre-upgrade running and completed claims for %s', id => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-old-occurrence-'));
+    try {
+      const oldPath = join(root, 'locks', `${id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80)}-${Buffer.from(scheduledAt).toString('base64url')}`);
+      mkdirSync(oldPath, {recursive: true});
+      writeFileSync(join(oldPath, 'running'), String(process.pid));
+      expect(acquireOccurrenceLock(id, scheduledAt, root)).toBeNull();
+      rmSync(join(oldPath, 'running'));
+      writeFileSync(join(oldPath, 'completed'), new Date().toISOString());
+      expect(acquireOccurrenceLock(id, scheduledAt, root)).toBeNull();
+      expect(readdirSync(join(root, 'locks'))).toHaveLength(1);
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
+
+  it('retains the existing UUID lock path and allows an abandoned custom-ID claim to recover', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-old-abandoned-'));
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('gone'), {code: 'ESRCH'}); });
+    try {
+      const occurrence = Buffer.from(scheduledAt).toString('base64url');
+      const id = 'abcde123-1234-1234-1234-123456789abc';
+      const uuid = acquireOccurrenceLock(id, scheduledAt, root)!;
+      expect(existsSync(join(root, 'locks', `${id}-${occurrence}`, 'running'))).toBe(true);
+      uuid();
+      const oldPath = join(root, 'locks', `wake_a-${occurrence}`);
+      mkdirSync(oldPath); writeFileSync(join(oldPath, 'running'), '123456');
+      const recovered = acquireOccurrenceLock('wake/a', scheduledAt, root);
+      expect(recovered).not.toBeNull(); recovered!();
+    } finally { kill.mockRestore(); rmSync(root, {recursive: true, force: true}); }
+  });
+
+  it('does not steal legacy claims whose owner cannot be inspected', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-unknown-owner-'));
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('denied'), {code: 'EPERM'}); });
+    try {
+      const oldPath = join(root, 'locks', `wake_a-${Buffer.from(scheduledAt).toString('base64url')}`);
+      mkdirSync(oldPath, {recursive: true});
+      writeFileSync(join(oldPath, 'running'), '123456');
+      expect(acquireOccurrenceLock('wake/a', scheduledAt, root)).toBeNull();
+      rmSync(join(oldPath, 'running'));
+      expect(acquireOccurrenceLock('wake/a', scheduledAt, root)).toBeNull();
+    } finally { kill.mockRestore(); rmSync(root, {recursive: true, force: true}); }
+  });
 
   it('prunes old completed idempotency markers',()=>{const root=mkdtempSync(join(tmpdir(),'radio-lock-'));try{const release=acquireOccurrenceLock('a',scheduledAt,root)!;release();const locks=join(root,'locks');const name=readdirSync(locks)[0]!;const completed=join(locks,name,'completed');utimesSync(completed,new Date(0),new Date(0));expect(pruneCompletedOccurrenceLocks(root,1000,Date.now())).toBe(1);}finally{rmSync(root,{recursive:true,force:true});}});
 });

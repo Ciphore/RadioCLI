@@ -41,24 +41,8 @@ const tapes = [
       'Sleep 5s',
       'Left',
       'Sleep 1s',
-      'Show',
-      'Sleep 1s',
-      'Type "v"',
-      'Sleep 1100ms',
-      'Type "v"',
-      'Sleep 1100ms',
-      'Type "v"',
-      'Sleep 1100ms',
-      'Type "v"',
-      'Sleep 1100ms',
-      'Type "t"',
-      'Sleep 1s',
-      'Type "t"',
-      'Sleep 1s',
-      'Type "v"',
-      'Sleep 1100ms',
-      'Type "t"',
-      'Sleep 1s',
+      // The style tour is inserted after loading the built receiver registry.
+      'Hide',
       'Ctrl+C'
     ]
   },
@@ -184,6 +168,10 @@ async function main() {
     run('npm', ['run', 'build', '--silent']);
   }
 
+  const {receiverStyleNames} = await import('../dist/ui/visualizers/receiver-style-registry.js');
+  const heroTape = tapes.find(tape => tape.name === 'radiocli-now-playing');
+  heroTape.steps.splice(-2, 0, ...receiverTour(receiverStyleNames));
+
   rmSync(demoRoot, {force: true, recursive: true});
   mkdirSync(demoHome, {recursive: true});
   mkdirSync(tapeDir, {recursive: true});
@@ -276,7 +264,7 @@ function writeSeedStore() {
     activity: {sessions},
     settings: {
       theme: 'green',
-      receiverStyle: 'pulse-grid',
+      receiverStyle: 'ultracode',
       receiverStyleVersion: 2,
       volume: 0,
       enableRadioGarden: false,
@@ -295,6 +283,31 @@ function writeSeedStore() {
   const storePath = join(demoHome, 'radiocli.json');
   mkdirSync(dirname(storePath), {recursive: true});
   writeFileSync(storePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+function receiverTour(receiverStyleNames) {
+  const styles = [
+    'ultracode', 'moire', 'gallop-fine', 'braille-wave', 'cube',
+    'spinning-donut', 'fire', 'sumi-ocean', 'manhattan', 'crossfade'
+  ];
+  const steps = [];
+  let currentIndex = 0;
+
+  for (const [index, style] of styles.entries()) {
+    const nextIndex = receiverStyleNames.indexOf(style);
+    if (nextIndex < 0) throw new Error(`Unknown demo receiver style: ${style}`);
+    // Omit the intervening styles while navigating with the real TUI shortcut.
+    steps.push('Hide');
+    const presses = (nextIndex - currentIndex + receiverStyleNames.length) % receiverStyleNames.length;
+    for (let press = 0; press < presses; press += 1) {
+      steps.push('Type "v"', 'Sleep 150ms');
+    }
+    if (index > 0 && index % 3 === 0) steps.push('Type "t"', 'Sleep 150ms');
+    steps.push('Show', 'Sleep 1900ms');
+    currentIndex = nextIndex;
+  }
+
+  return steps;
 }
 
 function buildDemoListeningSessions(now, stations) {

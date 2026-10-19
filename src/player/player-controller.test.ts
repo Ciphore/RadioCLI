@@ -6,6 +6,8 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import {commandExists} from '../platform/executables.js';
 import {discoverAirPlayDevices} from './airplay-discovery.js';
 import {extractMpvTitle, isPlaybackOutputError, PlayerController} from './player-controller.js';
+import * as desktopMedia from '../platform/desktop-media.js';
+import {ffmpegInputArguments} from './ffmpeg-input.js';
 import type {AirPlayDevice, AppSettings, Station} from '../types.js';
 
 vi.mock('node:child_process', () => ({
@@ -65,6 +67,268 @@ describe('extractMpvTitle', () => {
 });
 
 describe('PlayerController lifecycle', () => {
+  it.each(['https://streams.example.com/live', 'http://streams.example.com/redirect', 'file:///radio/streams.m3u'])('enforces certificate checks for %s', async url => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    spawnMock.mockImplementation((_command, args) => { mpv = fakeMpvIpc(mpvIpcPath(args)); return fakeChildProcess() as never; });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try { await controller.play(station(), url); expect(spawnMock.mock.calls[0]?.[1]).toContain('--tls-verify=yes'); }
+    finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it.each([{provider: 'radio-browser' as const}, {provider: 'radio-garden' as const, duration: 180}, {provider: 'playlist' as const, seekable: false}])('diagnoses live EOF as recoverable (%j)', async media => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    spawnMock.mockImplementation((_command, args) => { mpv = fakeMpvIpc(mpvIpcPath(args), media); return fakeChildProcess() as never; });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try {
+      await controller.play(station({provider: media.provider}), 'https://streams.example.com/live');
+      mpv.emitEvent({event: 'end-file', reason: 'eof'});
+      await waitUntil(() => controller.getState().state === 'error');
+      expect(controller.getState().ready).toBe(false);
+      expect(controller.recoverableFailure()).toBe(true);
+    } finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it('does not confuse local unknown-duration audio with interrupted live radio', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    spawnMock.mockImplementation((_command, args) => { mpv = fakeMpvIpc(mpvIpcPath(args)); return fakeChildProcess() as never; });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try {
+      await controller.play(station(), 'file:///radio/recording.mp3');
+      mpv.emitEvent({event: 'end-file', reason: 'eof'});
+      await waitUntil(() => !controller.getState().ready);
+      expect(controller.getState().state).toBe('stopped'); expect(controller.recoverableFailure()).toBe(false);
+    } finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it('does not treat a living ffplay process, headers or a nan clock as audio readiness', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay', tuneTimeoutSeconds: 3}));
+    const playing = controller.play(station(), 'https://streams.example.com/silent');
+    const rejected = expect(playing).rejects.toThrow('Timed out');
+    await vi.advanceTimersByTimeAsync(500);
+    child.stderr.emit('data', 'Audio: mp3, 44100 Hz\n    nan M-A:    nan fd= 0 aq=0\r');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(controller.getState()).toMatchObject({state: 'loading', ready: false});
+    await vi.advanceTimersByTimeAsync(2000); await rejected;
+    expect(child.kill).toHaveBeenCalled(); expect(controller.getState().ready).toBe(false);
+    await controller.stop();
+  });
+
+  it('accepts a split ffplay audio-clock record only after the complete record arrives', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay'}));
+    const playing = controller.play(station(), 'https://streams.example.com/live');
+    await vi.advanceTimersByTimeAsync(500); child.stderr.emit('data', '   0.12 M-');
+    await vi.advanceTimersByTimeAsync(200); expect(controller.getState().ready).toBe(false);
+    child.stderr.emit('data', 'A:  0.000 fd=0 aq=16KB\r'); await vi.advanceTimersByTimeAsync(200); await playing;
+    expect(controller.getState().ready).toBe(true); await controller.stop();
+  });
+
+  it('preserves an explicit Stop while startup timeout is retiring the player', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = Object.assign(fakeChildProcess(false), {exitCode: null as number | null});
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay', tuneTimeoutSeconds: 3}));
+    const rejected = expect(controller.play(station(), 'https://streams.example.com/silent')).rejects.toMatchObject({name: 'AbortError'});
+    await vi.advanceTimersByTimeAsync(3100);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    const stopped = controller.stop();
+    child.exitCode = 0; child.emit('exit', 0, null);
+    await stopped; await rejected;
+    expect(controller.getState()).toMatchObject({state: 'stopped', ready: false});
+  });
+
+  it('retries unused TLS options once on HTTP, after draining stderr, with HTTPS blocked', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    spawnMock.mockImplementation(() => {
+      const first = spawnMock.mock.calls.length === 1;
+      const child = fakeChildProcess(!first);
+      if (first) setTimeout(() => {
+        child.emit('exit', 0, null);
+        setTimeout(() => { child.stderr.emit('data', 'Option tls_verify not found.\n'); child.emit('close', 0, null); }, 50);
+      }, 300);
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay'}));
+    const playing = controller.play(station(), 'http://streams.example.com/live');
+    await vi.advanceTimersByTimeAsync(1000); await playing;
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(spawnMock.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(['-protocol_blacklist', 'https,tls']));
+    expect(spawnMock.mock.calls[1]?.[1]).not.toContain('-tls_verify');
+    expect(controller.getState().ready).toBe(true); await controller.stop();
+  });
+
+  it('does not restart an HTTP compatibility attempt after Stop', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay'}));
+    const rejected = expect(controller.play(station(), 'http://streams.example.com/live')).rejects.toMatchObject({name: 'AbortError'});
+    await vi.advanceTimersByTimeAsync(200); child.emit('exit', 0, null);
+    await vi.advanceTimersByTimeAsync(150); await controller.stop();
+    child.stderr.emit('data', 'Option tls_verify not found.\n'); child.emit('close', 0, null);
+    await vi.advanceTimersByTimeAsync(300); await rejected;
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({state: 'stopped', ready: false});
+  });
+
+  it('classifies a late FFmpeg format restriction as a backend limitation', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'ffplay');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'ffplay'}));
+    const playing = controller.play(station(), 'https://streams.example.com/live.m3u8');
+    const rejected = expect(playing).rejects.toSatisfy(error => isPlaybackOutputError(error) && /select mpv/.test(error.message));
+    await vi.advanceTimersByTimeAsync(200); child.emit('exit', 1, null);
+    await vi.advanceTimersByTimeAsync(150);
+    child.stderr.emit('data', 'Format not on whitelist\n'); child.emit('close', 1, null);
+    await vi.advanceTimersByTimeAsync(300); await rejected;
+    expect(spawnMock).toHaveBeenCalledTimes(1); await controller.stop();
+  });
+
+  it('waits for both VLC audio output initialization and released decoder buffering', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'vlc');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'vlc'}));
+    const playing = controller.play(station(), 'https://streams.example.com/live');
+    await vi.advanceTimersByTimeAsync(500);
+    child.stderr.emit('data', "main audio output debug: output 'f32l' 48000 Hz Stereo\n");
+    await vi.advanceTimersByTimeAsync(500); expect(controller.getState().ready).toBe(false);
+    child.stderr.emit('data', '[000001] main input debug: Decoder wait ');
+    await vi.advanceTimersByTimeAsync(500); expect(controller.getState().ready).toBe(false);
+    child.stderr.emit('data', 'done in 1 ms\n');
+    await vi.advanceTimersByTimeAsync(200); await playing;
+    expect(controller.getState().ready).toBe(true); await controller.stop();
+  });
+
+  it('rejects a VLC process that never initializes an audio output', async () => {
+    vi.useFakeTimers(); commandExistsMock.mockImplementation(command => command === 'vlc');
+    const child = fakeChildProcess(false); spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'vlc', tuneTimeoutSeconds: 3}));
+    const rejected = expect(controller.play(station(), 'https://streams.example.com/silent')).rejects.toThrow('Timed out');
+    await vi.advanceTimersByTimeAsync(500);
+    child.stderr.emit('data', 'main input debug: Decoder wait done in 1 ms\n');
+    await vi.advanceTimersByTimeAsync(3000); await rejected;
+    expect(controller.getState().ready).toBe(false); await controller.stop();
+  });
+
+  it('tracks an advancing audio clock when mpv has no time-pos property', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    let progress = 12;
+    spawnMock.mockImplementation((_command, args) => {
+      mpv = fakeMpvIpc(mpvIpcPath(args), {timePosUnavailable: true, audioProgress: () => progress});
+      return fakeChildProcess() as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try {
+      await controller.play(station(), 'https://streams.example.com/live');
+      await waitUntil(() => controller.getState().elapsedSeconds === 12);
+      progress = 15;
+      await new Promise(resolve => setTimeout(resolve, 2600));
+      expect(controller.getState()).toMatchObject({state: 'playing', ready: true, elapsedSeconds: 15});
+    } finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it('keeps a live-edge reload non-audible until the new stream decodes audio', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    spawnMock.mockImplementation((_command, args) => {
+      mpv = fakeMpvIpc(mpvIpcPath(args)); mpv.setPaused(true); return fakeChildProcess() as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    const states: string[] = []; const unsubscribe = controller.onChange(state => states.push(state.state));
+    try {
+      await controller.play(station(), 'https://streams.example.com/live.mp3', {startPaused: true});
+      mpv.setAudioStarted(false); states.length = 0;
+      const resume = controller.resume();
+      await waitUntil(() => mpv.loadedUrls().length === 1 && !mpv.paused());
+      mpv.setPaused(false);
+      await new Promise(resolve => setTimeout(resolve, 40));
+      expect(controller.getState()).toMatchObject({state: 'paused'});
+      expect(states).not.toContain('playing');
+      mpv.setAudioStarted(true);
+      await expect(resume).resolves.toMatchObject({ok: true});
+      expect(controller.getState()).toMatchObject({state: 'playing', ready: true});
+    } finally { unsubscribe(); await controller.stop(); await mpv.close(); }
+  });
+
+  it('does not report a failed live-edge reload as resumed playback', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv'); let mpv!: FakeMpvIpc;
+    spawnMock.mockImplementation((_command, args) => {
+      mpv = fakeMpvIpc(mpvIpcPath(args), {reloadError: 'loading failed'}); mpv.setPaused(true); return fakeChildProcess() as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try {
+      await controller.play(station(), 'https://streams.example.com/live.mp3', {startPaused: true});
+      await expect(controller.resume()).resolves.toMatchObject({ok: false});
+      expect(controller.getState()).toMatchObject({ready: false});
+    } finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it('closes a finite recording when idle mpv reports EOF without exiting', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    let mpv!: FakeMpvIpc; const child = fakeChildProcess();
+    spawnMock.mockImplementation((_command, args) => { mpv = fakeMpvIpc(mpvIpcPath(args), {duration: 60}); return child as never; });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    try {
+      await controller.play(station({provider: 'playlist'}), 'https://streams.example.com/live.mp3');
+      mpv.emitEvent({event: 'end-file', reason: 'eof'});
+      await waitUntil(() => !controller.getState().ready);
+      expect(controller.getState()).toMatchObject({state: 'stopped', ready: false, buffering: false});
+      expect(controller.recoverableFailure()).toBe(false);
+    } finally { await controller.stop(); await mpv.close(); }
+  });
+
+  it('starts a paused queue selection silently and resumes it at the live edge', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock.mockImplementation((_command, args) => {
+      mpv.current = fakeMpvIpc(mpvIpcPath(args));
+      mpv.current.setPaused(args?.includes('--pause=yes') ?? false);
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}));
+    const url = 'https://streams.example.com/live.mp3';
+    await controller.play(station(), url, {startPaused: true});
+    const server = expectFakeMpv(mpv.current);
+    try {
+      expect(spawnMock.mock.calls[0]?.[1]).toContain('--pause=yes');
+      expect(server.paused()).toBe(true);
+      expect(controller.getState()).toMatchObject({state: 'paused', ready: true});
+      await expect(controller.resume()).resolves.toMatchObject({ok: true});
+      expect(server.loadedUrls()).toEqual([url]);
+      expect(server.paused()).toBe(false);
+    } finally { await controller.stop(); await server.close(); }
+  });
+
+  it('applies desktop filtering to only its owned mpv process and disables the bridge before an incompatible process starts', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const policy = vi.spyOn(desktopMedia, 'desktopMediaPolicy').mockReturnValue({enabled: true, preference: 'on', reason: 'compatible', mpvArgs: ['--load-scripts=no', '--script=/tmp/retained.lua']});
+    const servers: FakeMpvIpc[] = [];
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv'}), {platform: 'linux', arch: 'x64', env: {}});
+    spawnMock.mockImplementation((_command, args) => {
+      servers.push(fakeMpvIpc(mpvIpcPath(args)));
+      return fakeChildProcess() as never;
+    });
+    try {
+      await controller.play(station(), 'https://streams.example.com/live.mp3');
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(['--load-scripts=no', '--script=/tmp/retained.lua']));
+      policy.mockReturnValue({enabled: false, preference: 'on', reason: 'custom scripts', mpvArgs: []});
+      const events: boolean[] = [];
+      const remove = controller.onChange(() => events.push(controller.desktopMediaCompatible()));
+      await controller.play(station(), 'https://streams.example.com/second.mp3');
+      expect(events).toContain(false);
+      expect(spawnMock.mock.calls[1]?.[1]).not.toContain('--load-scripts=no');
+      remove();
+    } finally { await controller.stop(); for (const server of servers) await server.close(); policy.mockRestore(); }
+  });
+
+  it.each(['ffplay', 'vlc', 'airplay'])('rejects an impossible paused startup on %s before spawning', async backend => {
+    const controller = new PlayerController(() => settings({preferredBackend: backend as AppSettings['preferredBackend']}));
+    setDetectedBackends(controller, [backend]);
+    await expect(controller.play(station(), 'https://streams.example.com/live.mp3', {startPaused: true})).rejects.toThrow('cannot start a station paused');
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
   it('throws before spawning when no playback backend is available', async () => {
     commandExistsMock.mockReturnValue(false);
     const controller = new PlayerController(() => settings());
@@ -89,8 +353,8 @@ describe('PlayerController lifecycle', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it.each(['win32', 'linux', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const)(
-    'explains that AirPlay is macOS-only on %s',
+  it.each(['win32', 'freebsd', 'openbsd', 'netbsd', 'android', 'haiku', 'sunos', 'aix'] as const)(
+    'explains unsupported AirPlay environments on %s',
     async platform => {
       const controller = new PlayerController(
         () => settings({preferredBackend: 'airplay'}),
@@ -98,7 +362,7 @@ describe('PlayerController lifecycle', () => {
       );
 
       await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
-        'AirPlay output is available only on macOS and is not supported on this operating system.'
+        'AirPlay output is experimental on macOS and native Linux and is not supported in this environment.'
       );
       expect(spawnMock).not.toHaveBeenCalled();
     }
@@ -131,7 +395,7 @@ describe('PlayerController lifecycle', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       'ffplay',
-      ['-nodisp', '-hide_banner', '-loglevel', 'error', '-volume', '35', '-autoexit', 'https://streams.example.com/live.mp3'],
+      ['-nodisp', '-hide_banner', '-loglevel', 'error', '-stats', ...ffmpegInputArguments('https://streams.example.com/live.mp3'), '-volume', '35', '-autoexit', 'https://streams.example.com/live.mp3'],
       {stdio: ['pipe', 'pipe', 'pipe']}
     );
     expect(controller.getState()).toMatchObject({
@@ -177,7 +441,7 @@ describe('PlayerController lifecycle', () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       'cvlc',
-      ['--intf', 'dummy', '--no-video', '--quiet', '--play-and-exit', '--gain=0.80', 'https://streams.example.com/live.mp3'],
+      ['--intf', 'dummy', '--no-video', '--no-quiet', '--verbose=2', '--no-color', '--play-and-exit', '--gain=0.80', 'https://streams.example.com/live.mp3'],
       {stdio: ['pipe', 'pipe', 'pipe']}
     );
     expect(controller.getState()).toMatchObject({backend: 'vlc', state: 'playing', ready: true});
@@ -210,12 +474,25 @@ describe('PlayerController lifecycle', () => {
     expect(controller.getState()).toMatchObject({state: 'stopped', ready: false});
   });
 
+  it('cannot resurrect AirPlay playback when Stop interrupts receiver discovery', async () => {
+    let finish!: (devices: AirPlayDevice[]) => void;
+    discoverAirPlayDevicesMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
+    setDetectedBackends(controller, ['airplay']);
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => Boolean(finish));
+    await controller.stop(); finish([airPlayDevice()]);
+    await expect(playing).rejects.toMatchObject({name: 'AbortError'});
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({state: 'stopped', ready: false});
+  });
+
   it('starts the AirPlay worker and forwards passcodes', async () => {
     commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -236,7 +513,7 @@ describe('PlayerController lifecycle', () => {
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -280,13 +557,51 @@ describe('PlayerController lifecycle', () => {
     });
   });
 
+  it.each([
+    'The receiver rejected the AirPlay code or password.',
+    'The AirPlay receiver disconnected. Select the receiver again to retry.'
+  ])('retains an actionable worker failure after its cleanup exit: %s', async message => {
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id}), {platform: 'darwin', arch: 'arm64', env: {}});
+    setDetectedBackends(controller, ['airplay']);
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stdout.emit('data', '{"type":"ready"}\n');
+    await playing;
+
+    child.stdout.emit('data', `${JSON.stringify({type: 'error', message})}\n`);
+    expect(controller.getState()).toMatchObject({state: 'error', message, ready: false});
+    child.emit('exit', 1, null);
+
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'error', message, ready: false});
+    expect(controller.diagnostics().active).toBe(false);
+    expect((await controller.submitAirPlayPasscode('1234')).ok).toBe(false);
+  });
+
+  it('reports an unexpected AirPlay exit when no worker error was provided', async () => {
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id}), {platform: 'darwin', arch: 'arm64', env: {}});
+    setDetectedBackends(controller, ['airplay']);
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stdout.emit('data', '{"type":"ready"}\n');
+    await playing;
+    child.emit('exit', 7, null);
+
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'error', message: 'player exited with code 7', ready: false});
+  });
+
   it('reuses a successful AirPlay passcode for later sessions in memory', async () => {
     commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const firstChild = fakeChildProcess();
     const secondChild = fakeChildProcess();
     spawnMock.mockReturnValueOnce(firstChild as never).mockReturnValueOnce(secondChild as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     const firstPlay = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -310,8 +625,8 @@ describe('PlayerController lifecycle', () => {
     expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'playing', ready: true});
   });
 
-  it('reports when an AirPlay passcode is submitted without active AirPlay playback', () => {
-    const controller = new PlayerController(() => settings());
+  it.each(['darwin', 'linux'] as const)('reports an inactive code prompt on enabled %s AirPlay', platform => {
+    const controller = new PlayerController(() => settings({linuxAirPlayEnabled: platform === 'linux'}), {platform, arch: 'x64', env: {}});
 
     expect(controller.submitAirPlayPasscode('1234')).toMatchObject({
       ok: false,
@@ -322,7 +637,7 @@ describe('PlayerController lifecycle', () => {
   it('requires an explicit AirPlay receiver before spawning the worker', async () => {
     commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     await controller.play(station(), 'https://streams.example.com/live.mp3').then(
@@ -341,7 +656,7 @@ describe('PlayerController lifecycle', () => {
   it('fails clearly when the saved AirPlay receiver is not visible', async () => {
     commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: 'missing'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: 'missing'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     await controller.play(station(), 'https://streams.example.com/live.mp3').then(
@@ -360,7 +675,7 @@ describe('PlayerController lifecycle', () => {
   it('does not try to AirPlay to the same Mac', async () => {
     commandExistsMock.mockImplementation(command => ['ffmpeg', 'dns-sd'].includes(command));
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice({local: true, name: 'Neal’s MacBook Pro'})]);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow(
@@ -375,7 +690,7 @@ describe('PlayerController lifecycle', () => {
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office'}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -402,7 +717,7 @@ describe('PlayerController lifecycle', () => {
     discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
     const child = fakeChildProcess();
     spawnMock.mockReturnValue(child as never);
-    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office', tuneTimeoutSeconds: 0.01}));
+    const controller = new PlayerController(() => settings({preferredBackend: 'airplay', preferredAirPlayDevice: '5CAAFD0046D4@Office', tuneTimeoutSeconds: 0.01}), {platform: 'darwin', arch: 'arm64', env: {}});
     setDetectedBackends(controller, ['airplay']);
 
     const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
@@ -772,6 +1087,7 @@ type FakeMpvIpc = {
   volume: () => number;
   muted: () => boolean;
   volumeCommands: () => number[];
+  emitEvent: (event: object) => void;
 };
 
 function expectFakeMpv(mpv: FakeMpvIpc | null): FakeMpvIpc {
@@ -809,7 +1125,7 @@ function setDetectedBackends(controller: PlayerController, backends: string[]): 
   (controller as unknown as {availableBackends: string[]}).availableBackends = backends;
 }
 
-function fakeChildProcess(): EventEmitter & {
+function fakeChildProcess(audioStarted = true): EventEmitter & {
   stdin: {write: ReturnType<typeof vi.fn>};
   stdout: EventEmitter;
   stderr: EventEmitter;
@@ -826,6 +1142,7 @@ function fakeChildProcess(): EventEmitter & {
   child.stdin = {write: vi.fn()};
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
+  if (audioStarted) setTimeout(() => child.stderr.emit('data', Buffer.from("   0.01 M-A:  0.000 fd=   0 aq=   16KB vq=    0KB sq=    0B\r\nmain audio output debug: output 's16l' 44100 Hz Stereo\nmain input debug: Decoder wait done in 0 ms\n")), 0);
   child.killed = false;
   child.kill = vi.fn(() => {
     child.killed = true;
@@ -849,7 +1166,7 @@ function mpvIpcPath(args: unknown): string {
 
 function fakeMpvIpc(
   path: string,
-  options: {audioStarted?: boolean; volumeError?: string; volumeResponseDelayMs?: number; muted?: boolean} = {}
+  options: {audioStarted?: boolean; timePosUnavailable?: boolean; audioProgress?: () => number; duration?: number; seekable?: boolean; volumeError?: string; volumeResponseDelayMs?: number; muted?: boolean; reloadError?: string} = {}
 ): FakeMpvIpc {
   if (existsSync(path)) {
     unlinkSync(path);
@@ -862,8 +1179,15 @@ function fakeMpvIpc(
   let connectionCount = 0;
   const volumeCommands: number[] = [];
   const loadedUrls: string[] = [];
+  const observed = new Map<import('node:net').Socket, Map<number, string>>();
+  const publishPause = () => {
+    for (const [socket, properties] of observed) for (const [id, name] of properties) if (name === 'pause' && !socket.destroyed) socket.write(`${JSON.stringify({event: 'property-change', id, name, data: paused})}\n`);
+  };
   const server = createServer(socket => {
     connectionCount += 1;
+    const properties = new Map<number, string>();
+    observed.set(socket, properties);
+    socket.once('close', () => observed.delete(socket));
     let buffer = '';
     socket.on('error', () => undefined);
     socket.on('data', chunk => {
@@ -882,20 +1206,28 @@ function fakeMpvIpc(
         let data: unknown = null;
         let error = 'success';
         let responseDelayMs = 0;
-        if (command[0] === 'get_property' && command[1] === 'path') {
+        if (command[0] === 'observe_property') {
+          properties.set(Number(command[1]), String(command[2]));
+          socket.write(`${JSON.stringify({event: 'property-change', id: command[1], name: command[2], data: command[2] === 'pause' ? paused : command[2] === 'metadata' ? {} : false})}\n`);
+        } else if (command[0] === 'get_property' && command[1] === 'path') {
           data = 'https://streams.example.com/live.mp3';
         } else if (command[0] === 'get_property' && command[1] === 'pause') {
           data = paused;
         } else if (command[0] === 'get_property' && command[1] === 'metadata') {
           data = {};
+        } else if (command[0] === 'get_property' && command[1] === 'duration') {
+          data = options.duration ?? null;
+        } else if (command[0] === 'get_property' && command[1] === 'seekable') {
+          data = options.seekable ?? null;
         } else if (command[0] === 'get_property' && command[1] === 'time-pos') {
-          data = audioStarted ? 12 : null;
+          data = audioStarted && !options.timePosUnavailable ? options.audioProgress?.() ?? 12 : null;
         } else if (command[0] === 'get_property' && command[1] === 'audio-pts') {
-          data = audioStarted ? 12 : null;
+          data = audioStarted ? options.audioProgress?.() ?? 12 : null;
         } else if (command[0] === 'cycle' && command[1] === 'pause') {
           paused = !paused;
         } else if (command[0] === 'loadfile' && typeof command[1] === 'string') {
           loadedUrls.push(command[1]);
+          if (options.reloadError) { audioStarted = false; socket.write(`${JSON.stringify({event: 'end-file', reason: 'error', error: options.reloadError})}\n`); }
         } else if (command[0] === 'set_property' && command[1] === 'pause') {
           paused = Boolean(command[2]);
         } else if (command[0] === 'set_property' && command[1] === 'volume') {
@@ -932,6 +1264,7 @@ function fakeMpvIpc(
     paused: () => paused,
     setPaused: next => {
       paused = next;
+      publishPause();
     },
     setAudioStarted: next => {
       audioStarted = next;
@@ -939,7 +1272,8 @@ function fakeMpvIpc(
     loadedUrls: () => [...loadedUrls],
     volume: () => volume,
     muted: () => muted,
-    volumeCommands: () => [...volumeCommands]
+    volumeCommands: () => [...volumeCommands],
+    emitEvent: event => { for (const socket of observed.keys()) if (!socket.destroyed) socket.write(`${JSON.stringify(event)}\n`); }
   };
 }
 
@@ -967,3 +1301,83 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
   throw new Error('Timed out waiting for condition.');
 }
+
+describe('Linux AirPlay per-session output consent', () => {
+  it('keeps persisted AirPlay output local until a receiver is explicitly selected', async () => {
+    vi.useFakeTimers();
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({linuxAirPlayEnabled: true, preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id}), {platform: 'linux', arch: 'x64', env: {}});
+    setDetectedBackends(controller, ['ffplay', 'airplay']);
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await vi.advanceTimersByTimeAsync(1000);
+    await playing;
+    expect(controller.getState()).toMatchObject({backend: 'ffplay', state: 'playing'});
+    expect(controller.diagnostics().preferredBackend).toBe('auto');
+    expect(discoverAirPlayDevicesMock).not.toHaveBeenCalled();
+    expect(spawnMock.mock.calls[0]?.[1]).toContain('-nodisp');
+    await controller.stop();
+  });
+
+  it('requires explicit discovered identity and supports passcodes, retuning, and local output', async () => {
+    const saved = settings({linuxAirPlayEnabled: true, preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id});
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    discoverAirPlayDevicesMock.mockResolvedValue([airPlayDevice()]);
+    const controller = new PlayerController(() => saved, {platform: 'linux', arch: 'x64', env: {}});
+    setDetectedBackends(controller, ['airplay']);
+    expect(controller.selectAirPlayDevice(airPlayDevice().id)).toBe(false);
+    await controller.refreshAirPlayDevices();
+    expect(controller.airPlaySelectionRequired()).toBe(true);
+    expect(controller.selectAirPlayDevice(airPlayDevice().id)).toBe(true);
+    expect(controller.airPlaySelectionRequired()).toBe(false);
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await waitUntil(() => spawnMock.mock.calls.length === 1);
+    child.stdout.emit('data', '{"type":"password-required"}\n');
+    await playing;
+    expect(controller.submitAirPlayPasscode('1234')).toMatchObject({ok: true});
+    child.stdout.emit('data', '{"type":"ready"}\n');
+    const retuned = controller.play({...station(), name: 'Next'}, 'https://streams.example.com/next.mp3');
+    await waitUntil(() => child.stdin.write.mock.calls.some(call => String(call[0]).includes('"retune"')));
+    child.stdout.emit('data', '{"type":"retuned"}\n');
+    await retuned;
+    expect(controller.getState()).toMatchObject({backend: 'airplay', state: 'playing', stationName: 'Next'});
+    expect(saved).not.toHaveProperty('passcode');
+    await controller.stop();
+    controller.selectAirPlayDevice(null);
+    expect(controller.airPlaySelectionRequired()).toBe(true);
+    expect(controller.diagnostics().preferredBackend).toBe('auto');
+    const nextProcess = new PlayerController(() => saved, {platform: 'linux', arch: 'x64', env: {}});
+    expect(nextProcess.airPlaySelectionRequired()).toBe(true);
+  });
+
+  it('rejects Linux discovery failure without starting a worker', async () => {
+    const controller = new PlayerController(() => settings({linuxAirPlayEnabled: true, preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id}), {platform: 'linux', arch: 'x64', env: {}});
+    discoverAirPlayDevicesMock.mockResolvedValueOnce([airPlayDevice()]).mockRejectedValueOnce(new Error('The Avahi service is not ready.'));
+    setDetectedBackends(controller, ['airplay']);
+    await controller.refreshAirPlayDevices();
+    controller.selectAirPlayDevice(airPlayDevice().id);
+    await expect(controller.play(station(), 'https://streams.example.com/live.mp3')).rejects.toThrow('Avahi service is not ready');
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Linux AirPlay install consent', () => {
+  it.each([undefined, false])('blocks discovery, cached selection and codes before opt-in=%s, preserving local output', async linuxAirPlayEnabled => {
+    vi.useFakeTimers();
+    const child = fakeChildProcess();
+    spawnMock.mockReturnValue(child as never);
+    const controller = new PlayerController(() => settings({linuxAirPlayEnabled, preferredBackend: 'airplay', preferredAirPlayDevice: airPlayDevice().id}), {platform: 'linux', arch: 'x64', env: {}});
+    setDetectedBackends(controller, ['ffplay', 'airplay']);
+    expect(controller.detectedBackends()).toEqual(['ffplay']);
+    await expect(controller.refreshAirPlayDevices()).rejects.toThrow('setup --airplay');
+    expect(controller.selectAirPlayDevice(airPlayDevice().id)).toBe(false);
+    expect(controller.submitAirPlayPasscode('1234')).toMatchObject({ok: false, message: expect.stringContaining('disabled')});
+    const playing = controller.play(station(), 'https://streams.example.com/live.mp3');
+    await vi.advanceTimersByTimeAsync(1000); await playing;
+    expect(controller.getState().backend).toBe('ffplay');
+    expect(discoverAirPlayDevicesMock).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledOnce();
+    await controller.stop();
+  });
+});

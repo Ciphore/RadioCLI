@@ -1,8 +1,11 @@
 import type {SrvRecord} from 'node:dns';
 import {resolveSrv} from 'node:dns/promises';
+import {randomUUID} from 'node:crypto';
+import {setImmediate as yieldToEventLoop} from 'node:timers/promises';
 import {z} from 'zod';
-import type {Country, LocationGuess, ResolvedStream, SearchOptions, Station} from '../types.js';
+import type {Country, DiscoveryPage, DiscoveryPageOptions, DiscoverySourceStatus, LocationGuess, ResolvedStream, SearchOptions, Station} from '../types.js';
 import {ProviderCache} from './cache.js';
+import {abortable, DiscoverySessions} from './discovery-session.js';
 import {userAgent} from '../version.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {
@@ -60,6 +63,7 @@ const locationSchema = z
   .passthrough();
 
 const geoAtlasLimit = 100_000;
+const geoAtlasMaxBytes = 32 * 1024 * 1024;
 const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
 // The atlas is much larger than ordinary directory responses. Give each live,
 // discovered server enough time to connect, download, and parse up to 100k rows
@@ -70,6 +74,22 @@ const mirrorDiscoveryTimeoutMs = 750;
 const radioBrowserService = '_api._tcp.radio-browser.info';
 const radioBrowserApiSuffix = '.api.radio-browser.info';
 const nameResolutionErrorCodes = new Set(['EAI_AGAIN', 'ENOTFOUND', 'ESERVFAIL', 'ETIMEOUT', 'EREFUSED']);
+const maxDiscoveryRoundsPerPage = 4;
+
+type SearchSource = DiscoverySourceStatus & {params: Record<string, string>};
+type BrowserDiscoveryState = {
+  query: string;
+  tokens: string[];
+  filters: Pick<SearchOptions, 'codec' | 'language' | 'countryCode' | 'minBitrate'>;
+  sources: SearchSource[];
+  buffer: Station[];
+  seen: Set<string>;
+  initialized: boolean;
+  country: boolean;
+  bytes: number;
+};
+type RequestOptions = {maxAgeMs?: number; timeoutMs?: number; attemptTimeoutMs?: number; cacheOnly?: boolean; signal?: AbortSignal};
+type PendingRequest = {controller: AbortController; subscribers: number; promise: Promise<unknown>};
 
 type RadioBrowserRuntime = {
   resolveSrv?: (hostname: string) => Promise<SrvRecord[]>;
@@ -96,9 +116,12 @@ export class RadioBrowserProvider {
   private readonly baseUrls: string[];
   private readonly discoverMirrors: boolean;
   private activeBaseUrl: string;
-  private geoAtlasPromise: Promise<Station[]> | null = null;
+  private geoAtlas: Station[] | null = null;
+  private geoAtlasLoad: {promise: Promise<Station[]>; controller: AbortController; subscribers: number; settled: boolean} | null = null;
   private geoAtlasLoadedAt = 0;
   private mirrorDiscoveryPromise: Promise<string[]> | null = null;
+  private readonly discovery = new DiscoverySessions<BrowserDiscoveryState>(state => state.bytes + state.seen.size * 128 + 1024);
+  private readonly pendingRequests = new Map<string, PendingRequest>();
 
   constructor(
     baseUrls: string[] | undefined = undefined,
@@ -132,7 +155,7 @@ export class RadioBrowserProvider {
       .slice(0, limit);
   }
 
-  async popular(limit = 80): Promise<Station[]> {
+  async popular(limit = 80, options: {signal?: AbortSignal} = {}): Promise<Station[]> {
     const rows = await this.request<unknown[]>(
       '/json/stations/search',
       {
@@ -141,13 +164,13 @@ export class RadioBrowserProvider {
         order: 'clickcount',
         reverse: 'true'
       },
-      {maxAgeMs: 15 * 60 * 1000}
+      {maxAgeMs: 15 * 60 * 1000, signal: options.signal}
     );
 
     return this.normalizeStations(rows);
   }
 
-  async byCountry(countryCode: string, limit = 100, offset = 0): Promise<Station[]> {
+  async byCountry(countryCode: string, limit = 100, offset = 0, options: {signal?: AbortSignal} = {}): Promise<Station[]> {
     const rows = await this.request<unknown[]>(
       '/json/stations/search',
       {
@@ -158,10 +181,107 @@ export class RadioBrowserProvider {
         order: 'clickcount',
         reverse: 'true'
       },
-      {maxAgeMs: 30 * 60 * 1000}
+      {maxAgeMs: 30 * 60 * 1000, signal: options.signal}
     );
 
     return this.normalizeStations(rows);
+  }
+
+  byCountryPage(countryCode: string, options: Pick<DiscoveryPageOptions, 'limit' | 'cursor' | 'signal'> = {}): Promise<DiscoveryPage> {
+    const limit = pageLimit(options.limit, 100);
+    const country = countryCode.trim().toUpperCase();
+    return this.discovery.page(JSON.stringify(['country', country, limit]), options.cursor, () => ({
+      query: country, tokens: [], filters: {}, sources: [discoverySource('country', {countrycode: country})],
+      buffer: [], seen: new Set(), initialized: true, country: true, bytes: 0
+    }), state => this.discoveryPage(state, limit, options.signal), options.signal);
+  }
+
+  searchPage(query: string, options: DiscoveryPageOptions = {}): Promise<DiscoveryPage> {
+    const trimmed = query.trim();
+    const limit = pageLimit(options.limit, trimmed ? 60 : 80);
+    const filters = searchFilters(options);
+    return this.discovery.page(JSON.stringify(['search', trimmed, filters, limit]), options.cursor, () => ({
+      query: trimmed, tokens: trimmed.split(/\s+/).filter(token => token.length > 2).slice(0, 4), filters,
+      sources: trimmed ? [discoverySource('name', {name: trimmed}), discoverySource('tag', {tag: trimmed})] : [discoverySource('popular', {})],
+      buffer: [], seen: new Set(), initialized: !trimmed, country: false, bytes: 0
+    }), state => this.discoveryPage(state, limit, options.signal), options.signal);
+  }
+
+  private async discoveryPage(state: BrowserDiscoveryState, limit: number, signal?: AbortSignal): Promise<DiscoveryPage> {
+    signal?.throwIfAborted();
+    let successfulRequests = 0;
+    let requestError: unknown;
+    const load = async (sources: SearchSource[]): Promise<number> => {
+      const results = await Promise.allSettled(sources.map(source => this.request<unknown[]>(
+        '/json/stations/search', {
+          hidebroken: 'true', limit: String(limit), offset: String(source.consumed), order: 'clickcount', reverse: 'true',
+          ...searchFilterParams(state.filters), ...source.params
+        }, {maxAgeMs: state.country ? 30 * 60 * 1000 : 10 * 60 * 1000, signal}
+      )));
+      signal?.throwIfAborted();
+      let rawCount = 0;
+      for (const [index, result] of results.entries()) {
+        const source = sources[index]!;
+        if (result.status === 'rejected' || !Array.isArray(result.value)) {
+          requestError = result.status === 'rejected' ? result.reason : new Error('Radio Browser returned an invalid station list.');
+          source.status = 'unavailable';
+          source.message = requestError instanceof Error ? requestError.message : String(requestError);
+          continue;
+        }
+        successfulRequests += 1;
+        const rows = result.value;
+        source.status = 'available';
+        source.message = undefined;
+        source.consumed += rows.length;
+        source.exhausted = rows.length < limit;
+        rawCount += rows.length;
+        for (const station of this.normalizeStations(rows)) {
+          const key = `${station.provider}:${station.id}`;
+          if (state.seen.has(key)) continue;
+          state.seen.add(key);
+          state.bytes += key.length * 2;
+          if (filterStations([station], state.filters).length === 0) continue;
+          state.buffer.push(station);
+          state.bytes += JSON.stringify(station).length * 2;
+        }
+      }
+      return rawCount;
+    };
+
+    for (let round = 0; state.buffer.length < limit && round < maxDiscoveryRoundsPerPage; round += 1) {
+      const pending = state.sources.filter(source => !source.exhausted);
+      if (!pending.length) break;
+      let rawCount = await load(pending);
+      if (!state.initialized) {
+        // Preserve the first-page broadening policy and relevance score. Each
+        // activated source subsequently keeps its own raw offset.
+        if (rawCount < Math.min(12, limit)) {
+          const secondary = [discoverySource('country', {country: state.query}), discoverySource('language', {language: state.query})];
+          state.sources.push(...secondary);
+          rawCount += await load(secondary);
+        }
+        if (rawCount === 0 && state.tokens.length > 1) {
+          const tokenSources = state.tokens.slice(0, 3).flatMap((token, index) => [
+            discoverySource(`token-${index}-name`, {name: token}), discoverySource(`token-${index}-tag`, {tag: token})
+          ]);
+          state.sources.push(...tokenSources);
+          await load(tokenSources);
+        }
+        state.initialized = true;
+      }
+      if (!state.country) state.buffer.sort((left, right) => scoreStation(right, state.query, state.tokens) - scoreStation(left, state.query, state.tokens));
+      // Failures remain retryable on the next cursor; do not spend four full
+      // network deadlines retrying an unavailable source in a single call.
+      if (state.sources.some(source => source.status === 'unavailable')) break;
+    }
+    if (!state.buffer.length && !successfulRequests && requestError) throw requestError;
+    const items = state.buffer.splice(0, limit);
+    state.bytes -= items.reduce((sum, station) => sum + JSON.stringify(station).length * 2, 0);
+    return {
+      items,
+      exhausted: state.buffer.length === 0 && state.sources.every(source => source.exhausted),
+      sources: state.sources.map(({params: _params, ...source}) => source)
+    };
   }
 
   async byId(id: string): Promise<Station | null> {
@@ -170,9 +290,10 @@ export class RadioBrowserProvider {
   }
 
   async search(query: string, options: SearchOptions = {}): Promise<Station[]> {
+    options.signal?.throwIfAborted();
     const trimmed = query.trim();
     if (!trimmed) {
-      return this.popular(options.limit ?? 80);
+      return this.popular(options.limit ?? 80, {signal: options.signal});
     }
 
     const limit = options.limit ?? 60;
@@ -187,21 +308,24 @@ export class RadioBrowserProvider {
       reverse: 'true',
       ...(options.codec ? {codec: options.codec} : {}),
       ...(options.language ? {language: options.language} : {}),
-      ...(options.countryCode ? {countrycode: options.countryCode.toUpperCase()} : {})
+      ...(options.countryCode ? {countrycode: options.countryCode.toUpperCase()} : {}),
+      ...(options.minBitrate ? {bitrateMin: String(options.minBitrate)} : {})
     };
 
     const primary = await Promise.allSettled([
-      this.request<unknown[]>('/json/stations/search', {...baseParams, name: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
-      this.request<unknown[]>('/json/stations/search', {...baseParams, tag: trimmed}, {maxAgeMs: 10 * 60 * 1000})
+      this.request<unknown[]>('/json/stations/search', {...baseParams, name: trimmed}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal}),
+      this.request<unknown[]>('/json/stations/search', {...baseParams, tag: trimmed}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal})
     ]);
+    options.signal?.throwIfAborted();
 
     let attempts = [...primary];
     let rows = fulfilledRows(primary);
     if (rows.length < Math.min(12, limit + offset)) {
       const secondary = await Promise.allSettled([
-        this.request<unknown[]>('/json/stations/search', {...baseParams, country: trimmed}, {maxAgeMs: 10 * 60 * 1000}),
-        this.request<unknown[]>('/json/stations/search', {...baseParams, language: trimmed}, {maxAgeMs: 10 * 60 * 1000})
+        this.request<unknown[]>('/json/stations/search', {...baseParams, country: trimmed}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal}),
+        this.request<unknown[]>('/json/stations/search', {...baseParams, language: trimmed}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal})
       ]);
+      options.signal?.throwIfAborted();
       attempts = [...attempts, ...secondary];
       rows.push(...fulfilledRows(secondary));
     }
@@ -210,10 +334,11 @@ export class RadioBrowserProvider {
     if (rows.length === 0 && tokens.length > 1) {
       const tokenResults = await Promise.allSettled(
         tokens.slice(0, 3).flatMap(token => [
-          this.request<unknown[]>('/json/stations/search', {...baseParams, name: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000}),
-          this.request<unknown[]>('/json/stations/search', {...baseParams, tag: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000})
+          this.request<unknown[]>('/json/stations/search', {...baseParams, name: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal}),
+          this.request<unknown[]>('/json/stations/search', {...baseParams, tag: token, limit: '25'}, {maxAgeMs: 10 * 60 * 1000, signal: options.signal})
         ])
       );
+      options.signal?.throwIfAborted();
       attempts.push(...tokenResults);
       rows = fulfilledRows(tokenResults);
     }
@@ -229,12 +354,14 @@ export class RadioBrowserProvider {
       .slice(offset, offset + limit);
   }
 
-  async nearby(location: LocationGuess, limit = 80): Promise<Station[]> {
-    const stations = await this.geotaggedAtlas();
-    return nearestStations(stations, location, limit);
+  async nearby(location: LocationGuess, limit = 80, options: {signal?: AbortSignal} = {}): Promise<Station[]> {
+    options.signal?.throwIfAborted();
+    const stations = await this.geotaggedAtlas(options.signal);
+    return nearestStations(stations, location, limit, options.signal);
   }
 
-  async resolve(station: Station): Promise<ResolvedStream> {
+  async resolve(station: Station, options: {signal?: AbortSignal} = {}): Promise<ResolvedStream> {
+    options.signal?.throwIfAborted();
     if (station.provider !== this.id) {
       const streamUrl = station.streamUrl ? safeMediaTarget(station.streamUrl) : null;
       if (!streamUrl) {
@@ -248,13 +375,14 @@ export class RadioBrowserProvider {
       // Click URLs can rotate and the endpoint records directory engagement, so
       // do not reuse a day-old resolution from the general provider cache.
       const result = clickResolveSchema.parse(
-        await this.request<unknown>(`/json/url/${encodeURIComponent(station.id)}`, {}, {timeoutMs: 6000})
+        await this.request<unknown>(`/json/url/${encodeURIComponent(station.id)}`, {}, {timeoutMs: 6000, signal: options.signal})
       );
       const resolvedUrl = result.url ? safeMediaTarget(result.url) : null;
       if (result.ok && resolvedUrl) {
         return {url: resolvedUrl, name: sanitizeTerminalText(result.name) ?? station.name};
       }
     } catch {
+      options.signal?.throwIfAborted();
       // A directory outage should not discard a validated URL already supplied
       // with the station row.
     }
@@ -285,11 +413,12 @@ export class RadioBrowserProvider {
     }
   }
 
-  async detectLocation(): Promise<LocationGuess | null> {
+  async detectLocation(options: {signal?: AbortSignal} = {}): Promise<LocationGuess | null> {
+    options.signal?.throwIfAborted();
     try {
       return await withExternalResponse('https://ipapi.co/json/', {
         timeoutMs: 5000,
-        init: {headers: {'User-Agent': userAgent()}}
+        init: {headers: {'User-Agent': userAgent()}, signal: options.signal}
       }, async response => {
         if (!response.ok) return null;
         const parsed = locationSchema.parse(await response.json());
@@ -305,6 +434,7 @@ export class RadioBrowserProvider {
         };
       });
     } catch {
+      options.signal?.throwIfAborted();
       return null;
     }
   }
@@ -339,24 +469,39 @@ export class RadioBrowserProvider {
       }));
   }
 
-  private async geotaggedAtlas(): Promise<Station[]> {
+  private async geotaggedAtlas(signal?: AbortSignal): Promise<Station[]> {
+    signal?.throwIfAborted();
     const atlasExpired = this.geoAtlasLoadedAt > 0 && Date.now() - this.geoAtlasLoadedAt > geoAtlasMaxAgeMs;
-    if (!this.geoAtlasPromise || atlasExpired) {
-      this.geoAtlasPromise = this.loadGeotaggedAtlas()
-        .then(stations => {
+    if (this.geoAtlas && !atlasExpired) return this.geoAtlas;
+    let load = this.geoAtlasLoad;
+    if (!load) {
+      const controller = new AbortController();
+      load = {controller, subscribers: 0, settled: false, promise: Promise.resolve([])};
+      const created = load;
+      this.geoAtlasLoad = created;
+      created.promise = this.loadGeotaggedAtlas(controller.signal).then(stations => {
+          controller.signal.throwIfAborted();
+          this.geoAtlas = stations;
           this.geoAtlasLoadedAt = Date.now();
           return stations;
         })
-        .catch(error => {
-          this.geoAtlasPromise = null;
-          throw error;
+        .finally(() => {
+          created.settled = true;
+          if (this.geoAtlasLoad === created) this.geoAtlasLoad = null;
         });
     }
-
-    return this.geoAtlasPromise;
+    load.subscribers += 1;
+    try { return await abortable(load.promise, signal); }
+    finally {
+      load.subscribers -= 1;
+      if (load.subscribers === 0 && !load.settled) {
+        if (this.geoAtlasLoad === load) this.geoAtlasLoad = null;
+        load.controller.abort();
+      }
+    }
   }
 
-  private async loadGeotaggedAtlas(): Promise<Station[]> {
+  private async loadGeotaggedAtlas(signal?: AbortSignal): Promise<Station[]> {
     const rows = await this.request<unknown[]>(
       '/json/stations/search',
       {
@@ -369,21 +514,79 @@ export class RadioBrowserProvider {
         maxAgeMs: geoAtlasMaxAgeMs,
         timeoutMs: geoAtlasTotalTimeoutMs,
         attemptTimeoutMs: geoAtlasAttemptTimeoutMs,
-        cacheOnly: networkPolicy().lowBandwidth
+        cacheOnly: networkPolicy().lowBandwidth,
+        signal
       }
     );
+    signal?.throwIfAborted();
+    if (!Array.isArray(rows) || rows.length > geoAtlasLimit) throw new Error('Radio Browser atlas exceeded the supported row limit or returned an invalid response.');
 
-    return dedupeStations(this.normalizeStations(rows)).filter(hasValidCoordinates);
+    // Normalize the full atlas in bounded chunks so keyboard and playback
+    // events can run between batches. Preserve the original row/dedup order.
+    const stations: Station[] = [];
+    const seen = new Set<string>();
+    let retainedBytes = 0;
+    const chunkSize = 250;
+    for (let offset = 0; offset < rows.length; offset += chunkSize) {
+      signal?.throwIfAborted();
+      for (const station of this.normalizeStations(rows.slice(offset, offset + chunkSize))) {
+        const key = `${station.provider}:${station.id}`;
+        // Dedupe before validating coordinates, matching ordinary normalization.
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (hasValidCoordinates(station)) {
+          retainedBytes += JSON.stringify(station).length * 2 + 128;
+          if (retainedBytes > geoAtlasMaxBytes) throw new Error('Radio Browser atlas exceeded the local memory budget. Use country or search discovery.');
+          stations.push(station);
+        }
+      }
+      if (offset + chunkSize < rows.length) await yieldToEventLoop();
+    }
+    return stations;
   }
 
   private async request<T>(
     path: string,
     params: Record<string, string> = {},
-    options: {maxAgeMs?: number; timeoutMs?: number; attemptTimeoutMs?: number; cacheOnly?: boolean} = {}
+    options: RequestOptions = {}
   ): Promise<T> {
+    options.signal?.throwIfAborted();
+    // Cacheable reads share work, but click/vote endpoints keep their effects.
+    // Cancellation belongs to each subscriber, never to cache identity.
+    const key = JSON.stringify([buildCacheKey(path, params), options.maxAgeMs, options.timeoutMs, options.attemptTimeoutMs, options.cacheOnly,
+      options.maxAgeMs ? undefined : randomUUID()]);
+    let pending = this.pendingRequests.get(key);
+    if (!pending) {
+      if (this.pendingRequests.size >= 64) throw new ProviderUnavailableError('Radio Browser is busy. Retry after the current directory requests finish.');
+      const controller = new AbortController();
+      const operation: PendingRequest = {controller, subscribers: 0, promise: Promise.resolve(undefined)};
+      operation.promise = this.performRequest<T>(path, params, {...options, signal: controller.signal}).finally(() => {
+        if (this.pendingRequests.get(key) === operation) this.pendingRequests.delete(key);
+      });
+      pending = operation;
+      this.pendingRequests.set(key, pending);
+    }
+    pending.subscribers += 1;
+    try { return await abortable(pending.promise as Promise<T>, options.signal); }
+    finally {
+      pending.subscribers -= 1;
+      if (pending.subscribers === 0 && this.pendingRequests.get(key) === pending) {
+        this.pendingRequests.delete(key);
+        pending.controller.abort(new DOMException('Directory request has no active callers.', 'AbortError'));
+      }
+    }
+  }
+
+  private async performRequest<T>(
+    path: string,
+    params: Record<string, string>,
+    options: RequestOptions
+  ): Promise<T> {
+    options.signal?.throwIfAborted();
     const cacheKey = buildCacheKey(path, params);
     if (options.maxAgeMs) {
-      const cached = this.cache.get<T>(cacheKey, options.maxAgeMs);
+      const cached = await abortable(this.cache.getAsync<T>(cacheKey, options.maxAgeMs), options.signal);
+      options.signal?.throwIfAborted();
       if (cached) {
         return cached;
       }
@@ -391,7 +594,8 @@ export class RadioBrowserProvider {
 
     const policy = networkPolicy();
     if (policy.offline || options.cacheOnly) {
-      const stale = options.maxAgeMs ? this.cache.getStale<T>(cacheKey) : null;
+      const stale = options.maxAgeMs ? await abortable(this.cache.getStaleAsync<T>(cacheKey), options.signal) : null;
+      options.signal?.throwIfAborted();
       if (stale !== null) return stale;
       throw new ProviderUnavailableError(policy.offline
         ? `${this.label} is offline: no cached response is available.`
@@ -404,6 +608,7 @@ export class RadioBrowserProvider {
     const mirrors = preferActiveMirror(this.baseUrls, this.activeBaseUrl);
     let discoveryAttempted = !this.discoverMirrors;
     for (let mirrorIndex = 0; mirrorIndex < mirrors.length; mirrorIndex += 1) {
+      options.signal?.throwIfAborted();
       const baseUrl = mirrors[mirrorIndex]!;
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
@@ -421,32 +626,36 @@ export class RadioBrowserProvider {
           1,
           Math.min(remainingMs, options.attemptTimeoutMs ?? fairShareTimeoutMs)
         );
-        const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs, this.runtime);
+        const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs, this.runtime, options.signal);
+        options.signal?.throwIfAborted();
         this.activeBaseUrl = baseUrl;
         if (options.maxAgeMs) {
           try {
-            this.cache.set(cacheKey, value);
+            await abortable(this.cache.setAsync(cacheKey, value), options.signal);
           } catch {
+            options.signal?.throwIfAborted();
             // A read-only or full cache directory must not turn live data into
             // an apparent provider outage.
           }
         }
         return value;
       } catch (error) {
+        options.signal?.throwIfAborted();
         lastError = error instanceof Error ? error : new Error(String(error));
       }
 
       if (!discoveryAttempted && mirrorIndex === mirrors.length - 1) {
         discoveryAttempted = true;
         const discoveryBudgetMs = Math.min(mirrorDiscoveryTimeoutMs, Math.max(1, deadline - Date.now()));
-        const discovered = await this.loadDiscoveredMirrors(discoveryBudgetMs);
+        const discovered = await abortable(this.loadDiscoveredMirrors(discoveryBudgetMs), options.signal);
         for (const baseUrl of discovered) {
           if (!mirrors.includes(baseUrl)) mirrors.push(baseUrl);
         }
       }
     }
 
-    const stale = this.cache.getStale<T>(cacheKey);
+    const stale = await abortable(this.cache.getStaleAsync<T>(cacheKey), options.signal);
+    options.signal?.throwIfAborted();
     if (stale) {
       return stale;
     }
@@ -498,9 +707,10 @@ function buildCacheKey(path: string, params: Record<string, string>): string {
   return `${path}?${new URLSearchParams(pairs).toString()}`;
 }
 
-async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number, runtime: RadioBrowserRuntime): Promise<T> {
+async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number, runtime: RadioBrowserRuntime, signal?: AbortSignal): Promise<T> {
   const startedAt = Date.now();
   const init = {
+    signal,
     headers: {
       'User-Agent': userAgent(' (+https://radio-browser.info)'),
       Accept: 'application/json'
@@ -516,6 +726,7 @@ async function fetchJsonWithTimeout<T>(url: URL, timeoutMs: number, runtime: Rad
   try {
     return await withExternalResponse(url, {timeoutMs, init}, consume);
   } catch (error) {
+    signal?.throwIfAborted();
     const remainingMs = timeoutMs - (Date.now() - startedAt);
     if (
       remainingMs <= 0 ||
@@ -590,7 +801,7 @@ function settleWithin<T>(promise: Promise<T>, timeoutMs: number, fallback: T): P
   });
 }
 
-export function dedupeStations(stations: Station[]): Station[] {
+function dedupeStations(stations: Station[]): Station[] {
   const seen = new Set<string>();
   const deduped: Station[] = [];
 
@@ -657,12 +868,15 @@ function compareNearbyStations(a: Station, b: Station): number {
   return a.name.localeCompare(b.name);
 }
 
-function nearestStations(stations: Station[], location: LocationGuess, limit: number): Station[] {
+async function nearestStations(stations: Station[], location: LocationGuess, limit: number, signal?: AbortSignal): Promise<Station[]> {
   const nearest: Station[] = [];
   const boundedLimit = Math.max(0, Math.floor(limit));
   if (boundedLimit === 0) return nearest;
 
-  for (const station of stations) {
+  for (let index = 0; index < stations.length; index += 1) {
+    if (index > 0 && index % 500 === 0) await yieldToEventLoop();
+    if (index % 500 === 0) signal?.throwIfAborted();
+    const station = stations[index]!;
     if (!hasValidCoordinates(station)) continue;
     const candidate: Station = {
       ...station,
@@ -726,6 +940,29 @@ function scoreStation(station: Station, query: string, tokens: string[]): number
   const tokenScore = tokens.reduce((score, token) => score + (searchable.includes(token.toLowerCase()) ? 4 : 0), 0);
   const exactScore = searchable.includes(loweredQuery) ? 12 : 0;
   return exactScore + tokenScore + Math.log10((station.clickCount ?? 0) + 1);
+}
+
+function discoverySource(source: string, params: Record<string, string>): SearchSource {
+  return {provider: 'radio-browser', source, consumed: 0, exhausted: false, status: 'available', params};
+}
+
+function pageLimit(value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 1 || value > 1000) throw new Error('Discovery page size must be between 1 and 1000.');
+  return value;
+}
+
+function searchFilters(options: SearchOptions): BrowserDiscoveryState['filters'] {
+  return {codec: options.codec, language: options.language, countryCode: options.countryCode?.toUpperCase(), minBitrate: options.minBitrate};
+}
+
+function searchFilterParams(options: SearchOptions): Record<string, string> {
+  return {
+    ...(options.codec ? {codec: options.codec} : {}),
+    ...(options.language ? {language: options.language} : {}),
+    ...(options.countryCode ? {countrycode: options.countryCode.toUpperCase()} : {}),
+    ...(options.minBitrate ? {bitrateMin: String(options.minBitrate)} : {})
+  };
 }
 
 function filterStations(stations: Station[], options: SearchOptions): Station[] {

@@ -1,7 +1,7 @@
-import React from 'react';
+import React, {act} from 'react';
 import {Box, Text} from 'ink';
-import {render} from 'ink-testing-library';
-import {afterEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, render} from 'ink-testing-library';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {PlaybackState} from '../types.js';
 import {ReceiverAnimationProvider, useReceiverPulse} from './receiver-animation.js';
 
@@ -14,7 +14,12 @@ const playing: PlaybackState = {
 };
 
 describe('ReceiverAnimationProvider', () => {
-  afterEach(() => vi.useRealTimers());
+  beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
+  afterEach(() => {
+    act(() => cleanup());
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('updates only pulse consumers instead of rerendering static application siblings', async () => {
     vi.useFakeTimers();
@@ -44,7 +49,8 @@ describe('ReceiverAnimationProvider', () => {
 
     expect(staticRenders).toBe(1);
     expect(receiverRenders).toBe(1);
-    await vi.advanceTimersByTimeAsync(240);
+    // Flush React's scheduled work before inspecting the committed Ink frame.
+    await act(async () => { await vi.advanceTimersByTimeAsync(240); });
     expect(staticRenders).toBe(1);
     expect(receiverRenders).toBeGreaterThan(1);
     expect(view.lastFrame()).toContain('3');
@@ -64,7 +70,7 @@ describe('ReceiverAnimationProvider', () => {
       </ReceiverAnimationProvider>
     );
 
-    await vi.advanceTimersByTimeAsync(500);
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(view.frames).toHaveLength(1);
     view.unmount();
   });

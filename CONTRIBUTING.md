@@ -51,6 +51,16 @@ a local WAV file; mpv uses null audio in deterministic package
 checks. These checks exercise the player process and controls, and do not prove
 speaker output. `npm run smoke:data` intentionally contacts public providers.
 
+Also run `npm run smoke:network` for playback or transport changes. It uses
+loopback HTTP/TLS fixtures with null/dummy audio to verify certificate rejection,
+live EOF and stall recovery, finite-media EOF, Stop ownership, and installed
+fallback readiness. Set `RADIOCLI_REQUIRE_FALLBACKS=1` when the test host should
+have FFmpeg, ffplay and VLC; missing tools then fail instead of being skipped.
+
+Run `npm run build && npm run smoke:cli` when changing shell playback or session
+control. It uses an isolated library and silent local WAV with mpv's null audio
+output to check background startup, separate CLI controls, presets, and shutdown.
+
 Live provider checks are useful before releases, but ordinary pull requests
 should stay deterministic. Run `npm run verify:release` for a full maintainer
 pre-release pass that includes live data, playback, packaging, and fresh-install

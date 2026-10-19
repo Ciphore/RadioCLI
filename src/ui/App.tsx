@@ -2,10 +2,13 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {fileURLToPath} from 'node:url';
 import {Box, Text, useApp, useIsScreenReaderEnabled, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
-import {PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
-import {airPlayMacOSOnlyMessage, isAirPlayPlatformSupported, playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
+import {PlaybackOutputError, PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
+import {airPlayLocalDeviceLabel, playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
-import {defaultAgentControlSettings, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type Screen, type Station} from '../types.js';
+import {LibraryRepository} from '../storage/repository.js';
+import {RadioEngine} from '../player/radio-engine.js';
+import {TuiPlayer, TuiRadioEngine, type TuiSession} from '../agent/tui-session.js';
+import {defaultAgentControlSettings, type AirPlayDevice, type AppSettings, type Country, type IcyNowPlaying, type LibraryState, type LocationGuess, type PlaybackState, type DiscoveryPage, type Screen, type Station} from '../types.js';
 import {nextReceiverStyle, nextTheme, textDim, textMuted, themeAccent} from './theme.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {homeItems, settingsItemsForPage, type SettingsPage} from './screen-items.js';
@@ -17,7 +20,7 @@ import {playbackFooterText, playbackStateForPendingStation} from './playback-foo
 import {balancedFooterLegendRows, fullFooterRowCount, fullStatusFooterRows, microPlaybackControlsText, microShortcutFooterText, pageFooterText} from './page-footer.js';
 import {disableMouseReporting, enableMouseReporting, exploreCursorForMouseCell, shouldEnableMouseReporting} from './terminal-mouse.js';
 import {useAppInput} from './use-app-input.js';
-import {useCommandExecutor} from './use-command-executor.js';
+import {useCommandExecutor, type SettingsUpdate} from './use-command-executor.js';
 import {isAirPlayCodePromptActive} from './screens/AirPlayCodeScreen.js';
 import {isAirPlayBackendAvailable} from './airplay-settings.js';
 import {networkPolicy} from '../platform/network.js';
@@ -26,14 +29,16 @@ import {copyToClipboard, openExternal} from './system-actions.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {appVersion} from '../version.js';
 import {automaticUpdateChecksAllowed, checkForUpdate, installUpdate, shouldCheckForUpdate, updateAvailableForVersion, updateCommandForInstall} from '../update-check.js';
-import {helpItemCount} from './help-content.js';
+import {airPlayPolicy, airPlaySetupRequiredMessage} from '../player/airplay-policy.js';
+import {helpItemCountForAirPlay} from './help-content.js';
 import {EXIT_CONFIRMATION_MS, ctrlCExitDecision} from './exit-confirmation.js';
 import {createAlarmTuiService, serializeAlarmTuiService, type AlarmTuiService} from './alarm-tui-service.js';
 import {useAlarmTui} from './use-alarm-tui.js';
 import {toAsciiSafe} from './ascii.js';
 import {registerTuiPresence} from '../alarms/tui-presence.js';
 import {configureMcpIntegrations, type McpInstallResult} from '../agent/mcp-install.js';
-import {startRadioSession, type RadioSessionCommand, type RadioSessionResult, type RadioSessionStatus} from '../agent/session.js';
+import {allowedRadioSessionSettings, resolveDesktopTransport, serializeRadioCommands, startRadioSession, type RadioSessionCommand, type RadioSessionResult, type RadioSessionStatus} from '../agent/session.js';
+import {desktopMediaPolicy, startDesktopMediaControls} from '../platform/desktop-media.js';
 import {
   activeTabForScreen,
   addMediaKeyBinding,
@@ -48,8 +53,6 @@ import {
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
   nextSleepTimerMinutes,
-  normalizeMediaKeyBindings,
-  shouldSkipAfterTuneError,
   stationApproximateTime,
   stationContextKeyForScreen,
   topTabs,
@@ -75,16 +78,16 @@ type AppProps = {
   mcpConfigurator?: typeof configureMcpIntegrations;
   updateChecker?: typeof checkForUpdate;
   platform?: NodeJS.Platform;
+  playbackSession?: TuiSession;
+  playbackRecoveryWarning?: string;
 };
 
 const LOADING_SPINNER_MS = 120;
 const TRANSIENT_NOTICE_MS = 4500;
-const LISTENING_HEARTBEAT_MS = 30_000;
 const COUNTRY_STATIONS_PAGE_SIZE = 120;
 const COUNTRY_STATIONS_LOAD_AHEAD = 12;
 const SEARCH_RESULTS_PAGE_SIZE = 90;
 const SEARCH_RESULTS_LOAD_AHEAD = 12;
-const BROKEN_STREAM_AUTO_SKIP_DELAY_MS = 1000;
 
 type BooleanSetting = 'resumeOnLaunch' | 'transparentBackground' | 'asciiMode' | 'reduceMotion' | 'mouseSupport' | 'automaticUpdateChecks';
 
@@ -97,39 +100,42 @@ const settingToggleLabel: Record<BooleanSetting, string> = {
   automaticUpdateChecks: 'Automatic update checks'
 };
 
-export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate, platform = process.platform}: AppProps): React.ReactElement {
+export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate, platform = process.platform, playbackSession, playbackRecoveryWarning}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
   const {stdout} = useStdout();
   const {columns, rows} = useWindowSize();
   const screenReader = useIsScreenReaderEnabled();
-  const store = useMemo(() => providedStore ?? new JsonLibraryStore(), [providedStore]);
+  const store = useMemo(() => new LibraryRepository(providedStore ?? new JsonLibraryStore(), {worker: !providedStore}), [providedStore]);
   const providers = useMemo(() => providedProviders ?? new ProviderManager(), [providedProviders]);
   const alarmService = useMemo(() => providedAlarmService ? serializeAlarmTuiService(providedAlarmService) : createAlarmTuiService(), [providedAlarmService]);
   const installedVersion = useMemo(() => appVersion(), []);
-  const airPlaySupported = isAirPlayPlatformSupported(platform);
 
-  const [library, setLibrary] = useState<LibraryState>(() => store.snapshot());
+  const [library, setLibrary] = useState<LibraryState>(() => localSessionLibrary(store.snapshot(), platform, playbackSession?.status.tui?.selectionRequired));
   const settingsRef = useRef(library.settings);
-  settingsRef.current = library.settings;
+  const settingsQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
-  const player = useMemo(() => new PlayerController(() => settingsRef.current), []);
+  const player = useMemo(() => playbackSession ? new TuiPlayer(playbackSession, () => settingsRef.current)
+    : new PlayerController(() => settingsRef.current, {platform, arch: process.arch, env: platform === process.platform ? process.env : {}}), [platform, playbackSession]);
   const [playback, setPlayback] = useState<PlaybackState>(() => player.getState());
   const [availableBackends, setAvailableBackends] = useState<string[]>(() => player.detectedBackends());
+  const airPlay = airPlayPolicy(library.settings, {platform});
+  const airPlaySupported = airPlay.enabled;
+  const airPlayUnavailableMessage = airPlay.enabled ? (platform === 'linux' ? airPlaySetupRequiredMessage : 'AirPlay is not ready on this install. Run radiocli doctor.') : airPlay.message;
   const [availableAirPlayDevices, setAvailableAirPlayDevices] = useState<AirPlayDevice[]>(() => player.detectedAirPlayDevices());
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(playbackSession?.status.station ? 'now-playing' : 'home');
   const [selected, setSelected] = useState(0);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('root');
   const [message, setMessage] = useState<string | null>(null);
   const [persistenceWarning, setPersistenceWarning] = useState<string | null>(null);
-  const [presenceWarning, setPresenceWarning] = useState<string | null>(null);
+  const [presenceWarning, setPresenceWarning] = useState<string | null>(playbackRecoveryWarning ?? null);
   const [footerMessage, setFooterMessage] = useState<string | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
   const [countryFilter, setCountryFilter] = useState('');
   const [editingCountryFilter, setEditingCountryFilter] = useState(false);
   const [loadingCountries, setLoadingCountries] = useState(false);
   const [stationContexts, setStationContexts] = useState<Record<StationContextKey, StationContext>>(initialStationContexts);
-  const [loadingStations, setLoadingStations] = useState(false);
+  const [loadingStationContexts, setLoadingStationContexts] = useState<Partial<Record<StationContextKey, boolean>>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSearch, setEditingSearch] = useState(true);
   const [playingStation, setPlayingStation] = useState<Station | null>(null);
@@ -143,7 +149,11 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const [commandText, setCommandText] = useState('');
   const [airPlayCode, setAirPlayCode] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({codec: null, language: null, minBitrate: null});
-  const [sleepUntil, setSleepUntil] = useState<number | null>(null);
+  const [sleepUntil, setSleepUntilState] = useState<number | null>(playbackSession?.status.tui?.sleepUntil ?? null);
+  const setSleepUntil = useCallback((until: number | null) => {
+    if (playbackSession) void playbackSession.call({type: 'tui-sleep', until}).catch(error => setMessage(sanitizeTerminalText(error instanceof Error ? error.message : String(error)) ?? 'Could not update the sleep timer.'));
+    else setSleepUntilState(until);
+  }, [playbackSession]);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [capturingTransportAction, setCapturingTransportAction] = useState<MediaTransportAction | null>(null);
   const reportActionError = useCallback((error: unknown) => {
@@ -151,9 +161,9 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, []);
   // Optional history cannot change the result of playback or navigation. Keep
   // its warning until an explicit save succeeds; a no-op checkpoint proves nothing.
-  const persistLibrary = useCallback((write: () => LibraryState): LibraryState | undefined => {
+  const persistLibrary = useCallback(async (write: () => LibraryState | Promise<LibraryState>): Promise<LibraryState | undefined> => {
     try {
-      const nextLibrary = write();
+      const nextLibrary = localSessionLibrary(await write(), platform, player.airPlaySelectionRequired());
       setLibrary(nextLibrary);
       return nextLibrary;
     } catch (error) {
@@ -161,18 +171,25 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       setPersistenceWarning(`Library not saved. Set RADIOCLI_HOME to a writable directory.${detail ? ` ${detail}` : ''}`);
       return undefined;
     }
-  }, []);
+  }, [platform, player]);
+  const engine = useMemo(() => playbackSession ? new TuiRadioEngine(playbackSession) : new RadioEngine(player, providers, store, () => settingsRef.current, saved => {
+    setLibrary(localSessionLibrary(saved, platform, player.airPlaySelectionRequired()));
+  }), [player, providers, store, platform, playbackSession]);
   const announcedUpdateRef = useRef(false);
   const automaticUpdateCheckStartedRef = useRef(false);
   const installingUpdateRef = useRef(false);
   const configuringMcpRef = useRef(false);
   const displayStationsRef = useRef<Station[]>([]);
-  const playbackQueueRef = useRef<PlaybackQueue | null>(null);
+  const playbackQueueRef = useRef<PlaybackQueue | null>(playbackSession?.status.queue.length
+    ? {title: 'Recovered station list', sourceScreen: 'now-playing', sourceContextKey: null, stations: playbackSession.status.queue} : null);
+  const focusNowPlayingRef = useRef(playbackSession?.status.tui?.focusNowPlaying ?? 0);
   const lastRawTransportAtRef = useRef(0);
-  const loadingStationsRef = useRef(false);
+  const loadingStationContextsRef = useRef<Partial<Record<StationContextKey, boolean>>>({});
   const countryPageRequestRef = useRef<string | null>(null);
   const searchPageRequestRef = useRef<string | null>(null);
-  const playStationRef = useRef<(station: Station, options?: PlayStationOptions) => void>(() => undefined);
+  const activeSearchRef = useRef<{query: string; fingerprint: string} | null>(null);
+  const searchContextFingerprintRef = useRef<string | null>(null);
+  const searchFingerprint = JSON.stringify([filters.codec, filters.language, filters.minBitrate, Boolean(library.settings.enableRadioGarden)]);
   const screenRef = useRef<Screen>(screen);
   const selectedRef = useRef(selected);
   const settingsPageRef = useRef<SettingsPage>(settingsPage);
@@ -191,14 +208,31 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const helpReturnScreenRef = useRef<Screen>('home');
   const countriesLoadAttemptedRef = useRef(false);
   const tuneRequestRef = useRef(0);
+  const outputCancellationRef = useRef(0);
+  const pendingOutputChangesRef = useRef(0);
   const searchRequestRef = useRef(0);
   const countryRequestRef = useRef(0);
   const nearbyRequestRef = useRef(0);
-  const skipBrokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discoveryAbortRef = useRef<Partial<Record<StationContextKey, AbortController>>>({});
+  const beginDiscovery = useCallback((key: StationContextKey) => {
+    discoveryAbortRef.current[key]?.abort();
+    const controller = new AbortController(); discoveryAbortRef.current[key] = controller; return controller.signal;
+  }, []);
+  const cancelPendingTune = useCallback(() => {
+    tuneRequestRef.current += 1;
+    outputCancellationRef.current += 1;
+    engine.cancel();
+  }, [engine]);
   const volumeRequestRef = useRef(0);
-  const agentHandlerRef = useRef<(command: RadioSessionCommand) => Promise<RadioSessionResult>>(async () => {
+  const agentHandlerRef = useRef<(command: RadioSessionCommand, signal?: AbortSignal) => Promise<RadioSessionResult>>(async () => {
     throw new Error('RadioCLI is still starting.');
   });
+  const dispatchOwnerCommand = useMemo(() => serializeRadioCommands((command, signal) => agentHandlerRef.current(command, signal), {responsive: true}), []);
+  const desktopPolicy = useMemo(() => desktopMediaPolicy(library.settings, {platform}), [library.settings.desktopMediaControls, platform]);
+  const desktopSuspendedRef = useRef(false);
+  const desktopMediaRef = useRef<ReturnType<typeof startDesktopMediaControls> | null>(null);
+  const activeAlarmRef = useRef(false);
+  const [controlSessionReady, setControlSessionReady] = useState(Boolean(playbackSession));
 
   const showTransientMessage = useCallback((nextMessage: string) => {
     if (transientMessageTimerRef.current) {
@@ -244,11 +278,11 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   screenRef.current = screen;
   selectedRef.current = selected;
   settingsPageRef.current = settingsPage;
-  loadingStationsRef.current = loadingStations;
   stationContextsRef.current = activeStationContexts;
   exploreCursorRef.current = exploreCursor;
 
   const renderedStationContextKey = stationContextKeyForScreen(screen);
+  const loadingStations = renderedStationContextKey ? Boolean(loadingStationContexts[renderedStationContextKey]) : false;
   const activeStationContextKey = renderedStationContextKey ?? lastStationContextKeyRef.current;
   const stationContext = activeStationContexts[activeStationContextKey];
   const stationCounts = useMemo<Record<StationContextKey, number>>(
@@ -278,8 +312,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     'alarm-ringing': 0,
     'airplay-settings': 0,
     'airplay-code': 1,
-    settings: settingsItemsForPage(settingsPage).length,
-    help: helpItemCount
+    settings: settingsItemsForPage(settingsPage, airPlaySupported).length,
+    help: helpItemCountForAirPlay(airPlaySupported)
   });
   itemCountsRef.current = {
     home: homeItems.length,
@@ -298,8 +332,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     'alarm-ringing': 0,
     'airplay-settings': availableAirPlayDevices.length,
     'airplay-code': 1,
-    settings: settingsItemsForPage(settingsPage).length,
-    help: helpItemCount
+    settings: settingsItemsForPage(settingsPage, airPlaySupported).length,
+    help: helpItemCountForAirPlay(airPlaySupported)
   };
 
   const displayStations = useMemo(() => applyStationFilters(stationContext.stations, filters), [filters, stationContext.stations]);
@@ -332,7 +366,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       library.settings.mouseSupport !== false
     );
 
-  useEffect(() => player.onChange(setPlayback), [player]);
+
   useEffect(() => {
     if (!stdin.isTTY) return;
     try {
@@ -342,57 +376,46 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         catch {console.error('RadioCLI could not remove its alarm-control presence marker. Stale markers are checked on the next launch.');}
       };
     } catch {
-      setPresenceWarning('Alarm controls cannot register this terminal in the runtime directory. Browsing and playback remain available.');
+      setPresenceWarning([playbackRecoveryWarning, 'Alarm controls cannot register this terminal in the runtime directory. Browsing and playback remain available.'].filter(Boolean).join(' '));
     }
-  }, [stdin]);
+  }, [stdin, playbackRecoveryWarning]);
 
   const playingStationRef = useRef<Station | null>(null);
   playingStationRef.current = playingStation;
-  const activeListeningStationRef = useRef<string | null>(null);
-  const lastRecordedTrackRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const station = playingStationRef.current;
-    const isAudible = playback.state === 'playing' && playback.ready && station;
-    if (isAudible) {
-      const key = stationKey(station);
-      if (activeListeningStationRef.current !== key) {
-        activeListeningStationRef.current = key;
-        persistLibrary(() => store.startListeningSession(station));
+  useEffect(() => engine.onChange(current => {
+    setPlayback(current.playback);
+    playingStationRef.current = current.station;
+    setPlayingStation(current.station);
+    setTuningStation(current.tuningStation);
+    setNowPlaying(current.nowPlaying);
+    if (playbackSession) {
+      setSleepUntilState(playbackSession.status.tui?.sleepUntil ?? null);
+      const previous = playbackQueueRef.current;
+      playbackQueueRef.current = current.queue.length ? {...(previous ?? {title: 'Current station list', sourceScreen: 'now-playing', sourceContextKey: null}), stations: current.queue} : null;
+      const focus = playbackSession.status.tui?.focusNowPlaying ?? 0;
+      if (focus !== focusNowPlayingRef.current) {
+        focusNowPlayingRef.current = focus;
+        screenRef.current = 'now-playing';
+        setScreen('now-playing');
       }
-      return;
     }
-
-    if (activeListeningStationRef.current) {
-      activeListeningStationRef.current = null;
-      persistLibrary(() => store.finishActiveListeningSession());
-    }
-  }, [persistLibrary, playback.ready, playback.state, playingStation, store]);
-
+    if (current.warning) setPersistenceWarning(current.warning.replace('Listening history was not saved', 'Library not saved'));
+    if (current.message) setMessage(current.message);
+  }), [engine, playbackSession]);
   useEffect(() => {
-    if (playback.state !== 'playing' || !playback.ready || !playingStation) {
-      return;
-    }
-    const timer = setInterval(() => {
-      persistLibrary(() => store.checkpointActiveListeningSession());
-    }, LISTENING_HEARTBEAT_MS);
-    return () => clearInterval(timer);
-  }, [persistLibrary, playback.ready, playback.state, playingStation, store]);
-
-  useEffect(
-    () =>
-      player.onMetadata(metadata => {
-        setNowPlaying(metadata);
-        const station = playingStationRef.current;
-        if (station && metadata.title) {
-          const trackKey = `${stationKey(station)}:${metadata.title}`;
-          if (lastRecordedTrackRef.current === trackKey) return;
-          lastRecordedTrackRef.current = trackKey;
-          persistLibrary(() => store.recordTrack(station, metadata.title!));
-        }
-      }),
-    [persistLibrary, player, store]
-  );
+    const off = store.subscribe(saved => {
+      const next = localSessionLibrary(saved, platform, player.airPlaySelectionRequired());
+      settingsRef.current = next.settings;
+      setLibrary(next);
+    });
+    const offError = store.onError(error => setPersistenceWarning(`Library could not refresh: ${error.message}`));
+    return () => {
+      off(); offError();
+      // Normal shutdown closes the owner explicitly. An unexpected render
+      // failure must release this view's storage without stopping its audio.
+      void (playbackSession ? store.close() : engine.close().finally(() => store.close())).catch(() => undefined);
+    };
+  }, [store, engine, platform, player, playbackSession]);
 
   useEffect(() => {
     if (!stdout.isTTY || !mouseReportingActive) {
@@ -447,6 +470,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   useEffect(
     () => () => {
+      exploreRequestRef.current += 1;
+      countryRequestRef.current += 1;
+      searchRequestRef.current += 1;
+      nearbyRequestRef.current += 1;
+      for (const controller of Object.values(discoveryAbortRef.current)) controller.abort();
+      countryPageRequestRef.current = null;
+      searchPageRequestRef.current = null;
       if (exploreMoveTimerRef.current) {
         clearTimeout(exploreMoveTimerRef.current);
       }
@@ -455,9 +485,6 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       }
       if (transientFooterMessageTimerRef.current) {
         clearTimeout(transientFooterMessageTimerRef.current);
-      }
-      if (skipBrokenTimerRef.current) {
-        clearTimeout(skipBrokenTimerRef.current);
       }
     },
     []
@@ -468,39 +495,38 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [availableAirPlayDevices.length, displayStations.length, filteredCountries.length, screen]);
 
   useEffect(() => {
+    if (playbackSession) return;
     if (!sleepUntil) {
       return;
     }
 
     const delayMs = sleepUntil - Date.now();
     if (delayMs <= 0) {
-      tuneRequestRef.current += 1;
-      persistLibrary(() => store.finishActiveListeningSession());
-      void player.stop().catch(reportActionError);
+      cancelPendingTune();
+      void engine.stop({retainSelection: true}).catch(reportActionError);
       setSleepUntil(null);
       return;
     }
 
     const timer = setTimeout(() => {
-      tuneRequestRef.current += 1;
-      persistLibrary(() => store.finishActiveListeningSession());
-      void player.stop().catch(reportActionError);
+      cancelPendingTune();
+      void engine.stop({retainSelection: true}).catch(reportActionError);
       setSleepUntil(null);
     }, delayMs);
     return () => clearTimeout(timer);
-  }, [persistLibrary, player, reportActionError, sleepUntil, store]);
+  }, [cancelPendingTune, engine, reportActionError, sleepUntil, playbackSession, setSleepUntil]);
 
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
     setAvailableBackends(backends);
     const network = networkPolicy();
-    if (airPlaySupported && !network.offline && !network.lowBandwidth) {
+    if (platform === 'darwin' && airPlaySupported && !network.offline && !network.lowBandwidth) {
       void player.refreshAirPlayDevices().then(setAvailableAirPlayDevices).catch(() => setAvailableAirPlayDevices([]));
     }
     if (backends.length === 0) {
       setMessage(`No playback backend found. ${playbackBackendInstallHint()}`);
     }
-  }, [airPlaySupported, player]);
+  }, [airPlaySupported, platform, player]);
 
   const refreshProviderHealth = useCallback(() => {
     providers.health(settingsRef.current).then(setProviderHealth).catch(() => setProviderHealth({}));
@@ -545,7 +571,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [library.settings.automaticUpdateChecks, refreshUpdateCheck, reportActionError]);
 
   const setStationContextFor = useCallback((key: StationContextKey, context: StationContext) => {
+    stationContextsRef.current = {...stationContextsRef.current, [key]: context};
     setStationContexts(current => ({...current, [key]: context}));
+  }, []);
+
+  const setStationLoading = useCallback((key: StationContextKey, loading: boolean) => {
+    if (loadingStationContextsRef.current[key] === loading) return;
+    loadingStationContextsRef.current[key] = loading;
+    setLoadingStationContexts(current => ({...current, [key]: loading}));
   }, []);
 
   const stationMatches = useCallback((left: Station, right: Station) => stationKey(left) === stationKey(right), []);
@@ -555,16 +588,37 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     [stationMatches]
   );
 
-  const updateSettings = useCallback(
-    (settings: Partial<AppSettings>) => {
-      const nextLibrary = store.updateSettings(settings);
+  const updateSettings = useCallback((update: SettingsUpdate): Promise<LibraryState> => {
+    // Evaluate relative inputs after the preceding save has acknowledged. React
+    // may still be rendering that save, so the committed ref is authoritative.
+    const operation = settingsQueueRef.current.then(async () => {
+      const settings = typeof update === 'function' ? update(settingsRef.current) : update;
+      const saved = await store.updateSettings(settings);
+      if (settings.preferredBackend === 'airplay' && settings.preferredAirPlayDevice) {
+        // Receiver consent belongs to this acknowledged selection. Publish its
+        // ID to the player before applying the Linux session output overlay.
+        settingsRef.current = saved.settings;
+        await player.selectAirPlayDevice(settings.preferredAirPlayDevice);
+      }
+      if (settings.preferredBackend && settings.preferredBackend !== 'airplay') await player.selectAirPlayDevice(null);
+      const nextLibrary = localSessionLibrary(saved, platform, player.airPlaySelectionRequired());
+      if (settings.enableNearbyLocation === false) {
+        nearbyRequestRef.current += 1;
+        discoveryAbortRef.current.nearby?.abort();
+        setStationLoading('nearby', false);
+      }
       settingsRef.current = nextLibrary.settings;
       setLibrary(nextLibrary);
       setPersistenceWarning(null);
+      engine.clearWarning();
       return nextLibrary;
-    },
-    [store]
-  );
+    });
+    settingsQueueRef.current = operation.then(() => undefined, () => undefined);
+    // Keyboard callbacks can intentionally fire and forget; awaited callers still
+    // receive the original rejection and never acknowledge an uncommitted save.
+    void operation.catch(reportActionError);
+    return operation;
+  }, [engine, platform, player, reportActionError, setStationLoading, store]);
 
   useEffect(() => {
     if (!selectedAirPlayDevice?.local || settingsRef.current.preferredBackend !== 'airplay') {
@@ -573,24 +627,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
     const preferredBackend = preferredLocalPlaybackBackend(availableBackends);
     if (!preferredBackend) {
-      setMessage(`${selectedAirPlayDevice.name} is this Mac. Install mpv to use local playback instead of AirPlay.`);
+      setMessage(`${selectedAirPlayDevice.name} is ${airPlayLocalDeviceLabel(platform)}. Install mpv to use local playback instead of AirPlay.`);
       return;
     }
 
-    try {
-      updateSettings({preferredBackend});
-      setMessage(`${selectedAirPlayDevice.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
-    } catch (error) {
-      reportActionError(error);
-    }
-  }, [availableBackends, reportActionError, selectedAirPlayDevice, updateSettings]);
-
-  const updateMediaKeys = useCallback(
-    (mediaKeys: AppSettings['mediaKeys']) => {
-      updateSettings({mediaKeys: normalizeMediaKeyBindings(mediaKeys)});
-    },
-    [updateSettings]
-  );
+    let changed = false;
+    void updateSettings(current => {
+      if (current.preferredBackend !== 'airplay' || current.preferredAirPlayDevice !== selectedAirPlayDevice.id) return {};
+      changed = true;
+      return {preferredBackend};
+    }).then(() => {
+      if (changed) setMessage(`${selectedAirPlayDevice.name} is ${airPlayLocalDeviceLabel(platform)}. Audio output: ${audioOutputLabel(preferredBackend)}.`);
+    }).catch(() => undefined);
+  }, [availableBackends, platform, selectedAirPlayDevice, updateSettings]);
 
   const beginLearningTransportKey = useCallback((action: MediaTransportAction) => {
     setCapturingTransportAction(action);
@@ -598,18 +647,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, []);
 
   const resetLearnedTransportKeys = useCallback(() => {
-    updateMediaKeys({previous: [], playPause: [], next: []});
-    setMessage('Learned media keys reset. Built-in fallbacks still work.');
-  }, [updateMediaKeys]);
+    void updateSettings({mediaKeys: {previous: [], playPause: [], next: []}})
+      .then(() => setMessage('Learned media keys reset. Built-in fallbacks still work.'))
+      .catch(() => undefined);
+  }, [updateSettings]);
 
   const saveLearnedTransportKey = useCallback(
     (action: MediaTransportAction, input: string) => {
-      const mediaKeys = addMediaKeyBinding(settingsRef.current.mediaKeys, action, input);
-      updateMediaKeys(mediaKeys);
       setCapturingTransportAction(null);
-      setMessage(`Learned ${mediaActionLabel(action)} key.`);
+      void updateSettings(current => ({mediaKeys: addMediaKeyBinding(current.mediaKeys, action, input)}))
+        .then(() => setMessage(`Learned ${mediaActionLabel(action)} key.`))
+        .catch(() => undefined);
     },
-    [updateMediaKeys]
+    [updateSettings]
   );
 
   const go = useCallback((next: Screen, options: NavigationOptions = {}) => {
@@ -627,19 +677,22 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     ) {
       settingsPageRef.current = 'root';
       setSettingsPage('root');
-      itemCountsRef.current.settings = settingsItemsForPage('root').length;
+      itemCountsRef.current.settings = settingsItemsForPage('root', airPlaySupported).length;
       selectedByScreenRef.current.settings = selectedBySettingsPageRef.current.root ?? 0;
     }
     selectedByScreenRef.current[screenRef.current] = selectedRef.current;
     const remembered = selectedByScreenRef.current[destination] ?? 0;
-    const nextSelection = options.resetSelection ? 0 : remembered;
+    const nextSelection = clamp(options.resetSelection ? 0 : remembered, (itemCountsRef.current[destination] ?? 0) - 1);
 
+    // Input can arrive in one batch before React renders the next screen.
+    screenRef.current = destination;
+    selectedRef.current = nextSelection;
     setScreen(destination);
-    setSelected(clamp(nextSelection, (itemCountsRef.current[destination] ?? 0) - 1));
+    setSelected(nextSelection);
     if (options.clearMessage !== false) {
       setMessage(null);
     }
-  }, []);
+  }, [airPlaySupported]);
 
   const openSettingsPage = useCallback((next: SettingsPage) => {
     selectedBySettingsPageRef.current[settingsPageRef.current] = selectedRef.current;
@@ -647,12 +700,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     setSettingsPage(next);
     const nextSelection = clamp(
       selectedBySettingsPageRef.current[next] ?? 0,
-      settingsItemsForPage(next).length - 1
+      settingsItemsForPage(next, airPlaySupported).length - 1
     );
     selectedRef.current = nextSelection;
     setSelected(nextSelection);
     setMessage(null);
-  }, []);
+  }, [airPlaySupported]);
 
   const closeSettingsPage = useCallback(() => {
     if (settingsPageRef.current === 'root') {
@@ -664,12 +717,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const openAirPlayCode = useCallback(() => {
     if (!airPlaySupported) {
-      showTransientMessage(airPlayMacOSOnlyMessage);
+      showTransientMessage(airPlayUnavailableMessage);
       return;
     }
     setAirPlayCode('');
     go('airplay-code', {resetSelection: true, clearMessage: false});
-  }, [airPlaySupported, go, showTransientMessage]);
+  }, [airPlaySupported, airPlayUnavailableMessage, go, showTransientMessage]);
 
   useEffect(() => {
     if (isAirPlayCodePromptActive(playback) && screenRef.current !== 'airplay-code') {
@@ -679,14 +732,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const shutdown = useCallback(() => {
     tuneRequestRef.current += 1;
-    persistLibrary(() => store.finishActiveListeningSession());
-    void player.stop().catch(reportActionError).finally(exit);
-  }, [exit, persistLibrary, player, reportActionError, store]);
+    desktopSuspendedRef.current = true;
+    desktopMediaRef.current?.close();
+    cancelPendingTune();
+    void engine.close().finally(() => store.close()).catch(reportActionError).finally(exit);
+  }, [cancelPendingTune, engine, exit, reportActionError, store]);
 
   useEffect(() => {
     const finishForSignal = () => {
-      persistLibrary(() => store.finishActiveListeningSession());
-      void player.stop().catch(reportActionError).finally(() => process.exit(0));
+      tuneRequestRef.current += 1;
+      desktopSuspendedRef.current = true;
+      desktopMediaRef.current?.close();
+      cancelPendingTune();
+      void engine.close().finally(() => store.close()).catch(reportActionError).finally(() => process.exit(0));
     };
     process.once('SIGTERM', finishForSignal);
     process.once('SIGHUP', finishForSignal);
@@ -694,24 +752,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       process.off('SIGTERM', finishForSignal);
       process.off('SIGHUP', finishForSignal);
     };
-  }, [persistLibrary, player, reportActionError, store]);
+  }, [cancelPendingTune, engine, reportActionError, store]);
 
-  const showStationContext = useCallback(
-    (context: StationContext, next: Screen = 'stations', options: NavigationOptions = {}) => {
-      setStationContextFor(stationContextKeyForScreen(next) ?? 'stations', context);
-      go(next, {resetSelection: options.resetSelection ?? true, clearMessage: options.clearMessage});
-    },
-    [go, setStationContextFor]
-  );
-
-  const loadExploreAt = useCallback(async (cursor: ExploreCursor, options: NavigationOptions = {}) => {
+  const loadExploreAt = useCallback(async (cursor: ExploreCursor) => {
     const requestId = exploreRequestRef.current + 1;
     exploreRequestRef.current = requestId;
-    setLoadingStations(true);
-    setMessage(null);
-    if (screenRef.current !== 'explore') {
-      go('explore', {resetSelection: options.resetSelection ?? true, clearMessage: options.clearMessage});
-    }
+    const signal = beginDiscovery('explore');
+    setStationLoading('explore', true);
+    if (screenRef.current === 'explore') setMessage(null);
     exploreCursorRef.current = cursor;
     setExploreCursor(cursor);
     const previousExploreStations = stationContextsRef.current.explore.stations;
@@ -722,7 +770,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       error: undefined
     });
     try {
-      const stations = await providers.nearby(exploreCursorLocation(cursor), 90);
+      const stations = await providers.nearby(exploreCursorLocation(cursor), 90, {signal});
       if (requestId !== exploreRequestRef.current) {
         return;
       }
@@ -735,7 +783,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       if (screenRef.current === 'explore') {
         setSelected(0);
       }
-      if (stations.length === 0) {
+      if (stations.length === 0 && screenRef.current === 'explore') {
         setMessage(`No geotagged stations found near ${formatExploreCursor(cursor)}.`);
       }
     } catch (error) {
@@ -748,25 +796,26 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         subtitle: `World station directory unavailable near ${formatExploreCursor(cursor)}`,
         error: loadError
       });
-      setMessage(loadError);
+      if (screenRef.current === 'explore') setMessage(loadError);
     } finally {
       if (requestId === exploreRequestRef.current) {
-        setLoadingStations(false);
+        setStationLoading('explore', false);
       }
     }
-  }, [go, providers, setStationContextFor]);
+  }, [beginDiscovery, providers, setStationContextFor, setStationLoading]);
 
   const loadExplore = useCallback(async () => {
-    await loadExploreAt(exploreCursorRef.current, {resetSelection: true});
+    await loadExploreAt(exploreCursorRef.current);
   }, [loadExploreAt]);
 
   const moveExploreMapCursor = useCallback(
     (direction: ExploreMoveDirection, fast = false) => {
       const next = shiftExploreCursor(exploreCursorRef.current, direction, fast);
+      exploreRequestRef.current += 1;
       exploreCursorRef.current = next;
       setExploreCursor(next);
       setSelected(0);
-      setLoadingStations(true);
+      setStationLoading('explore', true);
       setStationContextFor('explore', {
         title: 'Explore world',
         subtitle: `Move cursor: ${formatExploreCursor(next)}`,
@@ -776,10 +825,11 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         clearTimeout(exploreMoveTimerRef.current);
       }
       exploreMoveTimerRef.current = setTimeout(() => {
-        void loadExploreAt(next, {resetSelection: true, clearMessage: false});
+        exploreMoveTimerRef.current = null;
+        void loadExploreAt(next);
       }, 220);
     },
-    [loadExploreAt, setStationContextFor]
+    [loadExploreAt, setStationContextFor, setStationLoading]
   );
 
   const moveExploreMapCursorToCell = useCallback(
@@ -791,91 +841,114 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
       if (exploreMoveTimerRef.current) {
         clearTimeout(exploreMoveTimerRef.current);
+        exploreMoveTimerRef.current = null;
       }
 
-      void loadExploreAt(next, {resetSelection: true, clearMessage: false});
+      void loadExploreAt(next);
     },
     [frameWidth, layout, loadExploreAt]
   );
 
   const loadCountry = useCallback(
-    async (country: Country) => {
+    async (country: Country, navigate = true) => {
+      const previous = stationContextsRef.current.stations;
+      if (previous.country?.code === country.code && loadingStationContextsRef.current.stations && !countryPageRequestRef.current) {
+        if (navigate) go('stations');
+        return;
+      }
+      const signal = beginDiscovery('stations');
       const requestId = countryRequestRef.current + 1;
       countryRequestRef.current = requestId;
-      setLoadingStations(true);
-      setMessage(null);
+      setStationLoading('stations', true);
       countryPageRequestRef.current = null;
+      const retainedStations = previous.country?.code === country.code ? previous.stations : [];
+      setStationContextFor('stations', {
+        title: country.name,
+        subtitle: formatCountryStationsSubtitle(country, retainedStations.length, false),
+        stations: retainedStations,
+        country
+      });
+      if (navigate) go('stations', {resetSelection: true});
       try {
-        const stations = await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, 0);
+        const page = typeof providers.byCountryPage === 'function'
+          ? await providers.byCountryPage(country.code, {limit: COUNTRY_STATIONS_PAGE_SIZE, signal})
+          : legacyDiscoveryPage(await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, 0), COUNTRY_STATIONS_PAGE_SIZE);
+        const stations = page.items;
         if (requestId !== countryRequestRef.current) return;
-        showStationContext({
+        setStationContextFor('stations', {
           title: country.name,
-          subtitle: formatCountryStationsSubtitle(country, stations.length, stations.length < country.stationCount),
+          subtitle: formatCountryStationsSubtitle(country, stations.length, !page.exhausted),
           stations,
           country,
-          hasMore: stations.length >= COUNTRY_STATIONS_PAGE_SIZE && stations.length < country.stationCount
-        }, 'stations');
+          hasMore: !page.exhausted, nextCursor: page.nextCursor, sources: page.sources,
+          error: discoverySourceWarning(page.sources)
+        });
+        selectedByScreenRef.current.stations = 0;
+        if (screenRef.current === 'stations') setSelected(0);
       } catch (error) {
         if (requestId !== countryRequestRef.current) return;
-        setMessage(error instanceof Error ? error.message : `Could not load ${country.name}.`);
+        const loadError = error instanceof Error ? error.message : `Could not load ${country.name}.`;
+        setStationContextFor('stations', {...stationContextsRef.current.stations, error: loadError});
+        if (screenRef.current === 'stations') setMessage(loadError);
       } finally {
-        if (requestId === countryRequestRef.current) setLoadingStations(false);
+        if (requestId === countryRequestRef.current) setStationLoading('stations', false);
       }
     },
-    [providers, showStationContext]
+    [beginDiscovery, go, providers, setStationContextFor, setStationLoading]
   );
 
   const loadMoreCountryStations = useCallback(async () => {
     const context = stationContextsRef.current.stations;
     const country = context.country;
-    if (!country || !context.hasMore || loadingStationsRef.current) {
+    if (!country || !context.hasMore || loadingStationContextsRef.current.stations) {
       return;
     }
 
     const offset = context.stations.length;
-    const requestKey = `${country.code}:${offset}`;
+    const requestId = countryRequestRef.current;
+    const requestKey = `${requestId}:${country.code}:${context.nextCursor ?? offset}`;
     if (countryPageRequestRef.current === requestKey) {
       return;
     }
 
     countryPageRequestRef.current = requestKey;
-    setLoadingStations(true);
+    setStationLoading('stations', true);
     try {
-      const page = await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, offset);
+      const page = typeof providers.byCountryPage === 'function'
+        ? await providers.byCountryPage(country.code, {limit: COUNTRY_STATIONS_PAGE_SIZE, cursor: context.nextCursor, signal: discoveryAbortRef.current.stations?.signal})
+        : legacyDiscoveryPage(await providers.byCountry(country.code, COUNTRY_STATIONS_PAGE_SIZE, offset), COUNTRY_STATIONS_PAGE_SIZE);
       const latest = stationContextsRef.current.stations;
-      if (latest.country?.code !== country.code || latest.stations.length !== offset) {
+      if (requestId !== countryRequestRef.current || latest.country?.code !== country.code || latest.stations.length !== offset) {
         return;
       }
 
-      const stations = appendUniqueStations(latest.stations, page);
-      const hasMore =
-        page.length >= COUNTRY_STATIONS_PAGE_SIZE &&
-        stations.length > latest.stations.length &&
-        stations.length < country.stationCount;
+      const stations = appendUniqueStations(latest.stations, page.items);
+      const hasMore = !page.exhausted;
       setStationContextFor('stations', {
         ...latest,
         subtitle: formatCountryStationsSubtitle(country, stations.length, hasMore),
         stations,
-        hasMore
+        hasMore, nextCursor: page.nextCursor, sources: page.sources,
+        error: discoverySourceWarning(page.sources)
       });
     } catch (error) {
-      if (stationContextsRef.current.stations.country?.code === country.code) {
+      if (requestId === countryRequestRef.current && screenRef.current === 'stations' && stationContextsRef.current.stations.country?.code === country.code) {
         setMessage(error instanceof Error ? error.message : `Could not load more ${country.name} stations.`);
       }
     } finally {
       if (countryPageRequestRef.current === requestKey) {
         countryPageRequestRef.current = null;
-        setLoadingStations(false);
+        setStationLoading('stations', false);
       }
     }
-  }, [providers, setStationContextFor]);
+  }, [providers, setStationContextFor, setStationLoading]);
 
   useEffect(() => {
     if (
       screen === 'stations' &&
       stationContexts.stations.country &&
       stationContexts.stations.hasMore &&
-      stationContexts.stations.stations.length - selected <= COUNTRY_STATIONS_LOAD_AHEAD
+      stationCounts.stations - selected <= COUNTRY_STATIONS_LOAD_AHEAD
     ) {
       void loadMoreCountryStations();
     }
@@ -885,7 +958,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     selected,
     stationContexts.stations.country,
     stationContexts.stations.hasMore,
-    stationContexts.stations.stations.length
+    stationCounts.stations,
+    stationContexts.stations.nextCursor
   ]);
 
   const runSearch = useCallback(
@@ -895,95 +969,119 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         return;
       }
 
+      const signal = beginDiscovery('search');
       const requestId = searchRequestRef.current + 1;
       searchRequestRef.current = requestId;
-      setLoadingStations(true);
-      setMessage(null);
+      activeSearchRef.current = {query: query.trim(), fingerprint: searchFingerprint};
+      searchPageRequestRef.current = null;
+      setStationLoading('search', true);
+      if (screenRef.current === 'search') setMessage(null);
       try {
-        const stations = await providers.search(query, settingsRef.current, {
+        const pageOptions = {
           limit: SEARCH_RESULTS_PAGE_SIZE,
-          offset: 0,
+          signal,
           codec: filters.codec ?? undefined,
           language: filters.language ?? undefined,
           minBitrate: filters.minBitrate ?? undefined
-        });
+        };
+        const page = typeof providers.searchPage === 'function'
+          ? await providers.searchPage(query, settingsRef.current, pageOptions)
+          : legacyDiscoveryPage(await providers.search(query, settingsRef.current, pageOptions), SEARCH_RESULTS_PAGE_SIZE);
+        const stations = page.items;
         if (requestId !== searchRequestRef.current) return;
+        searchContextFingerprintRef.current = searchFingerprint;
         setStationContextFor('search', {
           title: `Search: ${query}`,
-          subtitle: formatSearchSubtitle(stations.length, stations.length >= SEARCH_RESULTS_PAGE_SIZE),
+          subtitle: formatSearchSubtitle(stations.length, !page.exhausted),
           stations,
           query: query.trim(),
-          hasMore: stations.length >= SEARCH_RESULTS_PAGE_SIZE
+          hasMore: !page.exhausted, nextCursor: page.nextCursor, sources: page.sources,
+          error: discoverySourceWarning(page.sources)
         });
         selectedByScreenRef.current.search = 0;
         lastSubmittedSearchRef.current = query.trim();
         persistLibrary(() => store.addSearch(query));
         searchHistoryRef.current = {cursor: -1, draft: ''};
-        setSelected(0);
-        setEditingSearch(true);
+        if (screenRef.current === 'search') {
+          setSelected(0);
+          setEditingSearch(true);
+        }
       } catch (error) {
         if (requestId !== searchRequestRef.current) return;
-        setMessage(error instanceof Error ? error.message : 'Search failed.');
+        if (screenRef.current === 'search') setMessage(error instanceof Error ? error.message : 'Search failed.');
       } finally {
-        if (requestId === searchRequestRef.current) setLoadingStations(false);
+        if (requestId === searchRequestRef.current) setStationLoading('search', false);
       }
     },
-    [filters, persistLibrary, providers, searchQuery, setStationContextFor, store]
+    [beginDiscovery, filters, persistLibrary, providers, searchFingerprint, searchQuery, setStationContextFor, setStationLoading, store]
   );
+
+  useEffect(() => {
+    const active = activeSearchRef.current;
+    // A cursor belongs to the exact server filters and enabled directories.
+    // Reissue the submitted query, including when a previous request is pending.
+    if (active && active.fingerprint !== searchFingerprint) void runSearch(active.query);
+  }, [runSearch, searchFingerprint]);
 
   const loadMoreSearchResults = useCallback(async () => {
     const context = stationContextsRef.current.search;
     const query = context.query;
-    if (!query || !context.hasMore || loadingStationsRef.current) {
+    if (!query || !context.hasMore || loadingStationContextsRef.current.search || searchContextFingerprintRef.current !== searchFingerprint) {
       return;
     }
 
     const offset = context.stations.length;
-    const requestKey = `${query}:${offset}:${filters.codec ?? ''}:${filters.language ?? ''}:${filters.minBitrate ?? ''}`;
+    const requestId = searchRequestRef.current;
+    const requestKey = `${requestId}:${query}:${context.nextCursor ?? offset}:${filters.codec ?? ''}:${filters.language ?? ''}:${filters.minBitrate ?? ''}`;
     if (searchPageRequestRef.current === requestKey) {
       return;
     }
 
     searchPageRequestRef.current = requestKey;
-    setLoadingStations(true);
+    setStationLoading('search', true);
     try {
-      const page = await providers.search(query, settingsRef.current, {
+      const pageOptions = {
         limit: SEARCH_RESULTS_PAGE_SIZE,
-        offset,
+        cursor: context.nextCursor,
+        signal: discoveryAbortRef.current.search?.signal,
         codec: filters.codec ?? undefined,
         language: filters.language ?? undefined,
         minBitrate: filters.minBitrate ?? undefined
-      });
+      };
+      const page = typeof providers.searchPage === 'function'
+        ? await providers.searchPage(query, settingsRef.current, pageOptions)
+        : legacyDiscoveryPage(await providers.search(query, settingsRef.current, {...pageOptions, offset}), SEARCH_RESULTS_PAGE_SIZE);
       const latest = stationContextsRef.current.search;
-      if (latest.query !== query || latest.stations.length !== offset) {
+      if (requestId !== searchRequestRef.current || latest.query !== query || latest.stations.length !== offset) {
         return;
       }
 
-      const stations = appendUniqueStations(latest.stations, page);
-      const hasMore = page.length >= SEARCH_RESULTS_PAGE_SIZE && stations.length > latest.stations.length;
+      const stations = appendUniqueStations(latest.stations, page.items);
+      const hasMore = !page.exhausted;
       setStationContextFor('search', {
         ...latest,
         subtitle: formatSearchSubtitle(stations.length, hasMore),
         stations,
-        hasMore
+        hasMore, nextCursor: page.nextCursor, sources: page.sources,
+        error: discoverySourceWarning(page.sources)
       });
     } catch (error) {
-      if (stationContextsRef.current.search.query === query) {
+      if (requestId === searchRequestRef.current && screenRef.current === 'search' && stationContextsRef.current.search.query === query) {
         setMessage(error instanceof Error ? error.message : 'Could not load more search results.');
       }
     } finally {
       if (searchPageRequestRef.current === requestKey) {
         searchPageRequestRef.current = null;
-        setLoadingStations(false);
+        setStationLoading('search', false);
       }
     }
-  }, [filters, providers, setStationContextFor]);
+  }, [filters, providers, searchFingerprint, setStationContextFor, setStationLoading]);
 
   useEffect(() => {
     if (
       screen === 'search' &&
       stationContexts.search.hasMore &&
-      stationContexts.search.stations.length - selected <= SEARCH_RESULTS_LOAD_AHEAD
+      stationCounts.search - selected <= SEARCH_RESULTS_LOAD_AHEAD
     ) {
       void loadMoreSearchResults();
     }
@@ -992,7 +1090,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     screen,
     selected,
     stationContexts.search.hasMore,
-    stationContexts.search.stations.length
+    stationCounts.search,
+    stationContexts.search.nextCursor
   ]);
 
   const recallSearchHistory = useCallback(
@@ -1022,19 +1121,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   );
 
   const loadNearby = useCallback(async () => {
+    const signal = beginDiscovery('nearby');
     const requestId = nearbyRequestRef.current + 1;
     nearbyRequestRef.current = requestId;
-    setLoadingStations(true);
-    setMessage(null);
+    setStationLoading('nearby', true);
+    if (screenRef.current === 'nearby') setMessage(null);
     setStationContextFor('nearby', {
       ...stationContextsRef.current.nearby,
       error: undefined
     });
-    go('nearby', {resetSelection: stationContextsRef.current.nearby.stations.length === 0});
     try {
       if (!settingsRef.current.enableNearbyLocation) {
         if (stationContextsRef.current.nearby.stations.length > 0) {
-          setMessage('Nearby location lookup is off. Showing the last nearby station list.');
+          if (screenRef.current === 'nearby') setMessage('Nearby location lookup is off. Showing the last nearby station list.');
           return;
         }
 
@@ -1047,12 +1146,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         return;
       }
 
-      const detected = location ?? (await providers.detectLocation());
+      const detected = location ?? (await providers.detectLocation({signal}));
       if (requestId !== nearbyRequestRef.current) return;
       setLocation(detected);
       if (!detected) {
         if (stationContextsRef.current.nearby.stations.length > 0) {
-          setMessage('Location detection is unavailable. Showing the last nearby station list.');
+          if (screenRef.current === 'nearby') setMessage('Location detection is unavailable. Showing the last nearby station list.');
           return;
         }
 
@@ -1065,7 +1164,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         return;
       }
 
-      const stations = await providers.nearby(detected, 90);
+      const stations = await providers.nearby(detected, 90, {signal});
       if (requestId !== nearbyRequestRef.current) return;
       setStationContextFor('nearby', {
         title: 'Nearby',
@@ -1079,17 +1178,19 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         ...stationContextsRef.current.nearby,
         error: loadError
       });
-      setMessage(loadError);
+      if (screenRef.current === 'nearby') setMessage(loadError);
     } finally {
-      if (requestId === nearbyRequestRef.current) setLoadingStations(false);
+      if (requestId === nearbyRequestRef.current) setStationLoading('nearby', false);
     }
-  }, [go, location, providers, setStationContextFor]);
+  }, [beginDiscovery, location, providers, setStationContextFor, setStationLoading]);
 
   const queueFromCurrentList = useCallback(
     (station: Station): PlaybackQueue => {
       const sourceScreen = screenRef.current;
       const sourceContextKey = stationContextKeyForScreen(sourceScreen);
-      const currentList = displayStationsRef.current;
+      const currentList = sourceContextKey
+        ? applyStationFilters(stationContextsRef.current[sourceContextKey].stations, filters)
+        : displayStationsRef.current;
       if (currentList.some(item => stationMatches(item, station))) {
         return {
           title: sourceContextKey ? stationContextsRef.current[sourceContextKey].title : 'Current station list',
@@ -1110,7 +1211,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         stations: [station]
       };
     },
-    [queueContainsStation, stationMatches]
+    [filters, queueContainsStation, stationMatches]
   );
 
   const rememberQueueSelection = useCallback((queue: PlaybackQueue, index: number) => {
@@ -1124,70 +1225,35 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
   }, []);
 
-  const playStation = useCallback(
-    async (station: Station, options: PlayStationOptions = {}) => {
-      const requestId = tuneRequestRef.current + 1;
-      tuneRequestRef.current = requestId;
-      if (skipBrokenTimerRef.current) {
-        clearTimeout(skipBrokenTimerRef.current);
-        skipBrokenTimerRef.current = null;
+  const playStation = useCallback(async (station: Station, options: PlayStationOptions & {outputChange?: boolean} = {}) => {
+    if (options.signal?.aborted) return;
+    if (!options.outputChange) outputCancellationRef.current += 1;
+    const requestId = ++tuneRequestRef.current;
+    const pendingSettings = settingsQueueRef.current;
+    const queue = options.queue ?? queueFromCurrentList(station);
+    try {
+      await pendingSettings;
+      if (requestId !== tuneRequestRef.current || options.signal?.aborted) return;
+      desktopSuspendedRef.current = false;
+      playbackQueueRef.current = queue;
+      const tuned = await engine.tune(station, {queue: queue.stations, startPaused: options.startPaused, signal: options.signal});
+      if (requestId !== tuneRequestRef.current) return;
+      const index = queue.stations.findIndex(item => stationMatches(item, tuned));
+      if (index >= 0 && !stationMatches(tuned, station)) rememberQueueSelection(queue, index);
+      desktopMediaRef.current?.refresh();
+      if (screenRef.current === 'library') {
+        const nextLibraryStations = applyStationFilters(buildLibraryStations(store.getSnapshot()), filters);
+        const nextIndex = nextLibraryStations.findIndex(item => stationMatches(item, tuned));
+        if (nextIndex >= 0) { selectedByScreenRef.current.library = nextIndex; setSelected(nextIndex); }
       }
-      const queue = options.queue ?? queueFromCurrentList(station);
-      setTuningStation(station);
-      setNowPlaying(null);
-
-      try {
-        // Cancel any in-flight backend startup before resolving the next tune.
-        // This prevents a slower, older request from becoming audible after a
-        // newer station was selected.
-        await player.stop();
-        if (requestId !== tuneRequestRef.current) return;
-        const resolved = await providers.resolve(station);
-        if (requestId !== tuneRequestRef.current) return;
-        await player.play(station, resolved.url);
-        if (requestId !== tuneRequestRef.current) return;
-        playingStationRef.current = station;
-        setPlayingStation(station);
-        setTuningStation(null);
-        playbackQueueRef.current = queue;
-        const nextLibrary = persistLibrary(() => store.addRecent(station));
-        if (nextLibrary && screenRef.current === 'library') {
-          const nextLibraryStations = applyStationFilters(buildLibraryStations(nextLibrary), filters);
-          const nextLibraryIndex = nextLibraryStations.findIndex(item => stationMatches(item, station));
-          if (nextLibraryIndex >= 0) {
-            selectedByScreenRef.current.library = nextLibraryIndex;
-            setSelected(nextLibraryIndex);
-          }
-        }
-
-        if (options.openNowPlaying) {
-          go('now-playing');
-        }
-
-        setMessage(null);
-      } catch (error) {
-        if (requestId !== tuneRequestRef.current) return;
-        const message = error instanceof Error ? error.message : 'Could not tune station.';
-        const currentList = queue.stations;
-        const currentIndex = currentList.findIndex(item => stationKey(item) === stationKey(station));
-        const nextStation = currentIndex >= 0 ? currentList[currentIndex + 1] : undefined;
-        if (shouldSkipAfterTuneError(error, settingsRef.current.skipBrokenStreams, nextStation)) {
-          setMessage(`${message} Skipping to ${nextStation.name}.`);
-          setTuningStation(nextStation);
-          rememberQueueSelection(queue, currentIndex + 1);
-          skipBrokenTimerRef.current = setTimeout(() => {
-            skipBrokenTimerRef.current = null;
-            playStationRef.current(nextStation, {...options, queue});
-          }, BROKEN_STREAM_AUTO_SKIP_DELAY_MS);
-          return;
-        }
-
-        setTuningStation(null);
-        setMessage(message);
-      }
-    },
-    [filters, go, persistLibrary, player, providers, queueFromCurrentList, rememberQueueSelection, stationMatches, store]
-  );
+      if (options.openNowPlaying) go('now-playing');
+      setMessage(null);
+      return tuned;
+    } catch (error) {
+      if (requestId !== tuneRequestRef.current || options.signal?.aborted || (error as Error).name === 'AbortError') return;
+      setMessage(error instanceof Error ? error.message : 'Could not tune station.');
+    }
+  }, [engine, filters, go, queueFromCurrentList, rememberQueueSelection, stationMatches, store]);
 
   // Resume the most recent station on launch when opted in, like a radio
   // powering back on to its last frequency. Runs once and never auto-navigates.
@@ -1198,6 +1264,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
 
     didResumeRef.current = true;
+    if (playbackSession?.status.station || playbackSession?.status.tui?.tuningStation) return;
     if (!settingsRef.current.resumeOnLaunch) {
       return;
     }
@@ -1206,16 +1273,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     if (last) {
       void playStation(last);
     }
-  }, [playStation, store]);
-  playStationRef.current = playStation;
+  }, [playStation, store, playbackSession]);
 
   const cancelPendingAutoSkip = useCallback(() => {
-    if (!skipBrokenTimerRef.current) return;
-    clearTimeout(skipBrokenTimerRef.current);
-    skipBrokenTimerRef.current = null;
-    setTuningStation(null);
+    if (!engine.snapshot().message?.includes('Skipping to')) return;
+    cancelPendingTune();
     setMessage('Auto-skip canceled. Choose a station and press Enter.');
-  }, []);
+  }, [cancelPendingTune, engine]);
 
   const showTransientFooterMessage = useCallback((nextMessage: string, durationMs = TRANSIENT_NOTICE_MS) => {
     if (transientFooterMessageTimerRef.current) {
@@ -1241,15 +1305,17 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [showTransientFooterMessage, shutdown]);
 
   const toggleFavorite = useCallback(
-    (station: Station | null) => {
+    (station: Station | null): Promise<void> => {
+      const operation = (async () => {
       if (!station) {
         setMessage('Select or play a station before pressing f.');
         return;
       }
 
       const wasFavorite = store.isFavorite(station);
-      setLibrary(store.toggleFavorite(station));
+      setLibrary(localSessionLibrary(await store.toggleFavorite(station), platform, player.airPlaySelectionRequired()));
       setPersistenceWarning(null);
+      engine.clearWarning();
       const favoriteMessage = `${wasFavorite ? 'Removed from' : 'Added to'} favorites: ${station.name}`;
       if (screenRef.current === 'library' || screenRef.current === 'search') {
         showTransientFooterMessage(favoriteMessage);
@@ -1260,8 +1326,11 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         // Best-effort upvote back to the directory; never blocks favoriting.
         void providers.vote(station).catch(reportActionError);
       }
+      })();
+      void operation.catch(reportActionError);
+      return operation;
     },
-    [providers, reportActionError, showTransientFooterMessage, showTransientMessage, store]
+    [engine, platform, player, providers, reportActionError, showTransientFooterMessage, showTransientMessage, store]
   );
 
   const showControlResult = useCallback((result: PlaybackControlResult) => {
@@ -1314,18 +1383,21 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   );
 
   const submitAirPlayCode = useCallback(
-    (code: string) => {
-      const result = player.submitAirPlayPasscode(code);
-      if (result.ok) {
-        setAirPlayCode('');
-        setMessage(result.message ?? 'AirPlay code sent.');
-        go('now-playing', {clearMessage: false});
-        return;
+    async (code: string) => {
+      try {
+        const result = await player.submitAirPlayPasscode(code);
+        if (result.ok) {
+          setAirPlayCode('');
+          setMessage(result.message ?? 'AirPlay code sent.');
+          go('now-playing', {clearMessage: false});
+          return;
+        }
+        showControlResult(result);
+      } catch (error) {
+        reportActionError(error);
       }
-
-      showControlResult(result);
     },
-    [go, player, showControlResult]
+    [go, player, showControlResult, reportActionError]
   );
 
   const setVolume = useCallback(
@@ -1366,27 +1438,26 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   }, [player, reportActionError, showControlResult]);
 
   const cycleDisplayColor = useCallback(() => {
-    const theme = nextTheme(settingsRef.current.theme);
-    updateSettings({theme});
-    showTransientMessage(`Display color: ${theme}`);
+    void updateSettings(current => ({theme: nextTheme(current.theme)}))
+      .then(saved => showTransientMessage(`Display color: ${saved.settings.theme}`)).catch(() => undefined);
   }, [showTransientMessage, updateSettings]);
 
   const cycleReceiverStyle = useCallback(() => {
-    const receiverStyle = nextReceiverStyle(settingsRef.current.receiverStyle);
-    updateSettings({receiverStyle});
-    showTransientMessage(`Receiver style: ${receiverStyle}`);
+    void updateSettings(current => ({receiverStyle: nextReceiverStyle(current.receiverStyle)}))
+      .then(saved => showTransientMessage(`Receiver style: ${saved.settings.receiverStyle}`)).catch(() => undefined);
   }, [showTransientMessage, updateSettings]);
 
   const toggleRadioGarden = useCallback(() => {
-    const enableRadioGarden = !settingsRef.current.enableRadioGarden;
-    updateSettings({enableRadioGarden});
+    void (async () => {
+    const {settings: {enableRadioGarden}} = await updateSettings(current => ({enableRadioGarden: !current.enableRadioGarden}));
     setMessage(`Radio Garden ${enableRadioGarden ? 'enabled' : 'disabled'}.`);
     setTimeout(refreshProviderHealth, 0);
-  }, [refreshProviderHealth, updateSettings]);
+    })().catch(reportActionError);
+  }, [refreshProviderHealth, reportActionError, updateSettings]);
 
   const toggleNearbyLocation = useCallback(() => {
-    const enableNearbyLocation = !settingsRef.current.enableNearbyLocation;
-    updateSettings({enableNearbyLocation});
+    void (async () => {
+    const {settings: {enableNearbyLocation}} = await updateSettings(current => ({enableNearbyLocation: !current.enableNearbyLocation}));
     setMessage(`Nearby location lookup ${enableNearbyLocation ? 'enabled' : 'disabled'}.`);
     if (enableNearbyLocation && screenRef.current === 'nearby') {
       setTimeout(() => void loadNearby(), 0);
@@ -1398,18 +1469,24 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         error: undefined
       });
     }
-  }, [loadNearby, setStationContextFor, updateSettings]);
+    })().catch(reportActionError);
+  }, [loadNearby, reportActionError, setStationContextFor, updateSettings]);
 
   const toggleDirectoryVoting = useCallback(() => {
-    const shareDirectoryVotes = !settingsRef.current.shareDirectoryVotes;
-    updateSettings({shareDirectoryVotes});
+    void (async () => {
+    const {settings: {shareDirectoryVotes}} = await updateSettings(current => ({shareDirectoryVotes: !current.shareDirectoryVotes}));
     setMessage(`Radio Browser favorite votes ${shareDirectoryVotes ? 'enabled' : 'disabled'}.`);
-  }, [updateSettings]);
+    })().catch(reportActionError);
+  }, [reportActionError, updateSettings]);
 
   const refreshAirPlayTargets = useCallback(async (announce = true): Promise<AirPlayDevice[]> => {
     if (!airPlaySupported) {
-      if (announce) showTransientMessage(airPlayMacOSOnlyMessage);
+      if (announce) showTransientMessage(airPlayUnavailableMessage);
       return [];
+    }
+    if (platform === 'linux' && !player.refreshDetectedBackends().includes('airplay')) {
+      setMessage(airPlaySetupRequiredMessage);
+      throw new PlaybackOutputError(airPlaySetupRequiredMessage);
     }
     if (networkPolicy().offline) {
       setMessage('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.');
@@ -1431,89 +1508,97 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       }
 
       return devices;
-    } catch {
+    } catch (error) {
       setAvailableAirPlayDevices([]);
-      if (announce) {
-        setMessage('AirPlay receiver refresh failed.');
-      }
-
-      return [];
+      throw error instanceof Error ? error : new Error('AirPlay receiver refresh failed.');
     }
-  }, [airPlaySupported, player, showTransientMessage]);
+  }, [airPlaySupported, airPlayUnavailableMessage, platform, player, showTransientMessage]);
 
   const openAirPlaySettings = useCallback(() => {
     if (!airPlaySupported) {
-      showTransientMessage(airPlayMacOSOnlyMessage);
+      showTransientMessage(airPlayUnavailableMessage);
       return;
     }
     const preferredIndex = availableAirPlayDevices.findIndex(device => device.id === settingsRef.current.preferredAirPlayDevice);
     selectedByScreenRef.current['airplay-settings'] = Math.max(0, preferredIndex);
     go('airplay-settings', {resetSelection: false});
-    void refreshAirPlayTargets(false);
-  }, [airPlaySupported, availableAirPlayDevices, go, refreshAirPlayTargets, showTransientMessage]);
+    void refreshAirPlayTargets(false).catch(reportActionError);
+  }, [airPlaySupported, airPlayUnavailableMessage, availableAirPlayDevices, go, refreshAirPlayTargets, reportActionError, showTransientMessage]);
 
   const selectAirPlayDeviceAt = useCallback(
     (index: number) => {
+      pendingOutputChangesRef.current += 1;
+      void (async () => {
+      const requestId = outputCancellationRef.current;
       const device = availableAirPlayDevices[index];
       if (!device) {
         setMessage('No AirPlay receiver selected.');
         return;
       }
 
-      updateSettings({preferredAirPlayDevice: device.id});
+      const preferredBackend = device.local
+        ? preferredLocalPlaybackBackend(availableBackends)
+        : isAirPlayBackendAvailable(availableBackends) ? 'airplay' : null;
+      await updateSettings({preferredAirPlayDevice: device.id, ...(preferredBackend ? {preferredBackend} : {})});
+      if (requestId !== outputCancellationRef.current) return;
       selectedByScreenRef.current['airplay-settings'] = index;
       if (device.local) {
-        const preferredBackend = preferredLocalPlaybackBackend(availableBackends);
         if (!preferredBackend) {
-          setMessage(`${device.name} is this Mac. Install mpv to use local playback instead of AirPlay.`);
+          setMessage(`${device.name} is ${airPlayLocalDeviceLabel(platform)}. Install mpv to use local playback instead of AirPlay.`);
           return;
         }
 
-        updateSettings({preferredBackend});
         if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
           const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
-          setMessage(`${device.name} is this Mac. Switching audio to ${audioOutputLabel(preferredBackend)}...`);
-          void playStation(playingStation, {queue});
+          setMessage(`${device.name} is ${airPlayLocalDeviceLabel(platform)}. Switching audio to ${audioOutputLabel(preferredBackend)}...`);
+          await playStation(playingStation, {queue, outputChange: true});
           return;
         }
 
-        setMessage(`${device.name} is this Mac. Audio output: ${audioOutputLabel(preferredBackend)}.`);
+        setMessage(`${device.name} is ${airPlayLocalDeviceLabel(platform)}. Audio output: ${audioOutputLabel(preferredBackend)}.`);
         return;
       }
 
-      if (!isAirPlayBackendAvailable(availableBackends)) {
+      if (!preferredBackend) {
         setMessage(`AirPlay receiver: ${device.name}. AirPlay playback is unavailable; run radiocli doctor.`);
         return;
       }
 
-      updateSettings({preferredBackend: 'airplay'});
       if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
         const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
         setMessage(`Switching audio to AirPlay: ${device.name}...`);
-        void playStation(playingStation, {queue});
+        await playStation(playingStation, {queue, outputChange: true});
         return;
       }
 
       setMessage(`AirPlay receiver: ${device.name}. Audio output: AirPlay.`);
+      })().catch(reportActionError).finally(() => {pendingOutputChangesRef.current -= 1;});
     },
-    [availableAirPlayDevices, availableBackends, playback.state, playStation, playingStation, queueFromCurrentList, updateSettings]
+    [availableAirPlayDevices, availableBackends, platform, playback.state, player, playStation, playingStation, queueFromCurrentList, reportActionError, updateSettings]
   );
 
   const cycleAudioOutput = useCallback(() => {
-    const currentOutput = settingsRef.current.preferredBackend;
-    const activeNeedsSelectedOutput = Boolean(
-      playingStation &&
-      shouldRetuneForAudioOutput(playback.state) &&
-      audioOutputCanApply(currentOutput, settingsRef.current) &&
-      audioOutputNeedsActiveSwitch(currentOutput, playback.backend, availableBackends)
-    );
-    const preferredBackend = activeNeedsSelectedOutput
-      ? currentOutput
-      : nextAvailablePlaybackBackend(currentOutput, availableBackends);
+    const precedingOutputChange = pendingOutputChangesRef.current > 0;
+    pendingOutputChangesRef.current += 1;
+    void (async () => {
+    const requestId = outputCancellationRef.current;
+    let preferredBackend!: AppSettings['preferredBackend'];
+    await updateSettings(current => {
+      const currentPlayback = player.getState();
+      const activeNeedsSelectedOutput = Boolean(
+        !precedingOutputChange && playingStation &&
+        shouldRetuneForAudioOutput(currentPlayback.state) &&
+        audioOutputCanApply(current.preferredBackend, current) &&
+        audioOutputNeedsActiveSwitch(current.preferredBackend, currentPlayback.backend, availableBackends)
+      );
+      preferredBackend = activeNeedsSelectedOutput
+        ? current.preferredBackend
+        : nextAvailablePlaybackBackend(current.preferredBackend, platform === 'linux' && airPlaySupported ? [...new Set([...availableBackends, 'airplay'])] : availableBackends);
+      return {preferredBackend};
+    });
+    if (requestId !== outputCancellationRef.current) return;
 
-    updateSettings({preferredBackend});
-
-    if (preferredBackend === 'airplay' && !settingsRef.current.preferredAirPlayDevice) {
+    if (preferredBackend === 'airplay' && (!settingsRef.current.preferredAirPlayDevice || player.airPlaySelectionRequired())) {
       setMessage('Choose an AirPlay receiver first. Your current station will keep playing until you pick one.');
       openAirPlaySettings();
       return;
@@ -1522,37 +1607,36 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     if (playingStation && shouldRetuneForAudioOutput(playback.state)) {
       const queue = playbackQueueRef.current ?? queueFromCurrentList(playingStation);
       setMessage(`Switching audio to ${audioOutputSwitchLabel(preferredBackend, availableBackends)}...`);
-      void playStation(playingStation, {queue});
+      await playStation(playingStation, {queue, outputChange: true});
       return;
     }
 
     setMessage(`Audio output: ${audioOutputSwitchLabel(preferredBackend, availableBackends)}.`);
-  }, [availableBackends, openAirPlaySettings, playback.backend, playback.state, playStation, playingStation, queueFromCurrentList, updateSettings]);
+    })().catch(reportActionError).finally(() => {pendingOutputChangesRef.current -= 1;});
+  }, [airPlaySupported, availableBackends, openAirPlaySettings, platform, playback.state, player, playStation, playingStation, queueFromCurrentList, reportActionError, updateSettings]);
 
   const toggleSkipBrokenStreams = useCallback(() => {
-    const skipBrokenStreams = !settingsRef.current.skipBrokenStreams;
-    updateSettings({skipBrokenStreams});
-    setMessage(`Skip broken streams ${skipBrokenStreams ? 'enabled' : 'disabled'}.`);
+    void updateSettings(current => ({skipBrokenStreams: !current.skipBrokenStreams}))
+      .then(saved => setMessage(`Skip broken streams ${saved.settings.skipBrokenStreams ? 'enabled' : 'disabled'}.`))
+      .catch(() => undefined);
   }, [updateSettings]);
 
   const toggleSetting = useCallback(
     (key: BooleanSetting) => {
-      const current = key === 'mouseSupport'
-        ? settingsRef.current.mouseSupport !== false
-        : Boolean(settingsRef.current[key]);
-      const next = !current;
-      updateSettings({[key]: next});
-      setMessage(`${settingToggleLabel[key]} ${next ? 'on' : 'off'}.`);
+      void updateSettings(current => ({[key]: key === 'mouseSupport' ? current.mouseSupport === false : !current[key]}))
+        .then(saved => setMessage(`${settingToggleLabel[key]} ${saved.settings[key] ? 'on' : 'off'}.`))
+        .catch(() => undefined);
     },
     [updateSettings]
   );
 
   const toggleAgentSetting = useCallback(
     (key: 'openUiOnPlay' | 'focusNowPlaying') => {
-      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
-      const next = !agentControl[key];
-      updateSettings({agentControl: {...agentControl, [key]: next}});
-      setMessage(`Agent ${key === 'openUiOnPlay' ? 'TUI launch' : 'Now Playing focus'} ${next ? 'on' : 'off'}.`);
+      void updateSettings(current => {
+        const agentControl = current.agentControl ?? defaultAgentControlSettings;
+        return {agentControl: {...agentControl, [key]: !agentControl[key]}};
+      }).then(saved => setMessage(`Agent ${key === 'openUiOnPlay' ? 'TUI launch' : 'Now Playing focus'} ${saved.settings.agentControl?.[key] ? 'on' : 'off'}.`))
+        .catch(() => undefined);
     },
     [updateSettings]
   );
@@ -1563,18 +1647,17 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return;
     }
     configuringMcpRef.current = true;
+    await settingsQueueRef.current;
     const enabled = !(settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled;
     setMessage(enabled ? 'Setting up agent and Codex Voice control...' : 'Disabling agent and voice control...');
     try {
       const results = await mcpConfigurator(enabled, mcpRuntime(), null);
       const failed = results.filter(item => item.status === 'failed');
-      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
-      updateSettings({agentControl: {...agentControl, enabled}});
+      await updateSettings(current => ({agentControl: {...(current.agentControl ?? defaultAgentControlSettings), enabled}}));
       setMessage(integrationResultMessage(enabled, results, failed));
     } catch (error) {
       if (!enabled) {
-        const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
-        updateSettings({agentControl: {...agentControl, enabled: false}});
+        await updateSettings(current => ({agentControl: {...(current.agentControl ?? defaultAgentControlSettings), enabled: false}}));
       }
       setMessage(`Agent integration ${enabled ? 'setup' : 'removal'} failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -1592,8 +1675,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     try {
       const results = await mcpConfigurator(true, mcpRuntime(), null);
       const failed = results.filter(item => item.status === 'failed');
-      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
-      updateSettings({agentControl: {...agentControl, enabled: true}});
+      await updateSettings(current => ({agentControl: {...(current.agentControl ?? defaultAgentControlSettings), enabled: true}}));
       setMessage(integrationResultMessage(true, results, failed));
     } catch (error) {
       setMessage(`MCP repair failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1606,7 +1688,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const currentMinutes = sleepUntil ? Math.round((sleepUntil - Date.now()) / 60000) : null;
     const next = nextSleepTimerMinutes(currentMinutes);
     setSleepUntil(next ? Date.now() + next * 60_000 : null);
-  }, [sleepUntil]);
+  }, [sleepUntil, setSleepUntil]);
 
   const openLibrary = useCallback(() => {
     go('library', {resetSelection: false});
@@ -1614,8 +1696,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const selectedStation = displayStations[selected] ?? null;
   const selectedStationForInput = useCallback(
-    () => displayStationsRef.current[selectedRef.current] ?? null,
-    []
+    () => {
+      const key = stationContextKeyForScreen(screenRef.current);
+      const stations = key ? applyStationFilters(stationContextsRef.current[key].stations, filters) : displayStationsRef.current;
+      return stations[selectedRef.current] ?? null;
+    },
+    [filters]
   );
 
   const alarmTui = useAlarmTui({
@@ -1624,12 +1710,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     library,
     setLibrary,
     screen,
+    screenRef,
     selected,
+    selectedRef,
     setSelected,
     go,
     setMessage,
     playingStation,
-    previewStation: alarmPreview ?? (station => playStation(station))
+    previewStation: alarmPreview ?? (async station => { await playStation(station); })
   });
   for (const alarmScreen of ['alarms', 'alarm-editor', 'alarm-picker', 'alarm-ringing'] as const) {
     itemCountsRef.current[alarmScreen] = alarmTui.itemCount(alarmScreen) ?? 0;
@@ -1638,15 +1726,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const openScreen = useCallback(
     (target: Screen) => {
       if (target === 'explore') {
-        if (stationContextsRef.current.explore.stations.length > 0) {
-          go('explore');
-        } else {
+        go('explore');
+        if (stationContextsRef.current.explore.stations.length === 0 && !loadingStationContextsRef.current.explore) {
           void loadExplore();
         }
       } else if (target === 'nearby') {
-        if (stationContextsRef.current.nearby.stations.length > 0) {
-          go('nearby');
-        } else {
+        go('nearby');
+        if (stationContextsRef.current.nearby.stations.length === 0 && !loadingStationContextsRef.current.nearby) {
           void loadNearby();
         }
       } else if (target === 'search') {
@@ -1665,7 +1751,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const openAdjacentTab = useCallback(
     (direction: 1 | -1) => {
-      const active = activeTabForScreen(screen);
+      const active = activeTabForScreen(screenRef.current);
       const currentIndex = topTabs.findIndex(tab => tab.screen === active);
       const nextIndex = (currentIndex + direction + topTabs.length) % topTabs.length;
       const next = topTabs[nextIndex];
@@ -1673,7 +1759,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         openScreen(next.screen);
       }
     },
-    [openScreen, screen]
+    [openScreen]
   );
 
   const handleUpdateCommand = useCallback(async () => {
@@ -1730,12 +1816,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         try {
           const repaired = await mcpConfigurator(true, mcpRuntime(), null);
           const suffix = repaired.some(item => item.status === 'failed') ? ' Some MCP clients need manual repair.' : ' MCP integrations repaired.';
-          setMessage(`Update installed.${suffix} Restart RadioCLI and open agent clients.`);
+          setMessage(`Update installed.${suffix} Quit and reopen RadioCLI; restart MCP clients to load updated tools.`);
         } catch {
-          setMessage('Update installed. MCP repair failed; run radiocli mcp repair, then restart RadioCLI and open agent clients.');
+          setMessage('Update installed. MCP repair failed; run radiocli mcp repair, then quit and reopen RadioCLI and restart MCP clients.');
         }
       } else {
-        setMessage('Update installed. Restart RadioCLI to use the new version.');
+        setMessage('Update installed. Quit and reopen RadioCLI to use the new version.');
       }
       return;
     }
@@ -1746,10 +1832,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
 
   const executeCommand = useCommandExecutor({
     beginLearningTransportKey,
+    cancelPendingTune,
     countries,
     go,
     loadCountry,
     openAirPlaySettings,
+    openAirPlayCode,
     openLibrary,
     persistLibrary,
     player,
@@ -1758,6 +1846,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     resetLearnedTransportKeys,
     runSearch,
     screen,
+    screenRef,
     selectedStation,
     setCountries,
     setFilters,
@@ -1804,11 +1893,13 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     [playStation, playingStation, queueContainsStation, queueFromCurrentList, rememberQueueSelection]
   );
 
-  agentHandlerRef.current = async (command: RadioSessionCommand): Promise<RadioSessionResult> => {
+  agentHandlerRef.current = async (command: RadioSessionCommand, signal?: AbortSignal): Promise<RadioSessionResult> => {
     const sessionStatus = (): RadioSessionStatus => ({
       owner: 'tui',
       playback: player.getState(),
       station: playingStationRef.current,
+      nowPlaying: engine.snapshot().nowPlaying,
+      persistenceWarning: persistenceWarning ?? engine.snapshot().warning,
       queue: playbackQueueRef.current?.stations ?? [],
       output: {
         preferredBackend: settingsRef.current.preferredBackend,
@@ -1816,8 +1907,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       }
     });
     const respond = (message: string, ok = true, data?: RadioSessionResult['data']): RadioSessionResult => ({ok, message, status: sessionStatus(), ...(data ? {data} : {})});
+    if (command.type === 'desktop-transport') {
+      const resolved = resolveDesktopTransport(command.action, sessionStatus());
+      return resolved ? agentHandlerRef.current(resolved, signal) : respond('Playback state unchanged.');
+    }
     if (['airplay-list', 'airplay-select', 'airplay-passcode'].includes(command.type) && !airPlaySupported) {
-      return respond(airPlayMacOSOnlyMessage, false, command.type === 'airplay-list' ? [] : undefined);
+      return respond(airPlayUnavailableMessage, false, command.type === 'airplay-list' ? [] : undefined);
     }
     if (command.type === 'status') return respond(playingStationRef.current ? `${player.getState().state}: ${playingStationRef.current.name}` : 'RadioCLI is idle.');
     if (command.type === 'play') {
@@ -1825,22 +1920,29 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
         return respond(`Kept current station ${playingStationRef.current?.name ?? ''}.`);
       }
       const queue: PlaybackQueue = {title: 'Agent selection', sourceScreen: 'now-playing', sourceContextKey: null, stations: command.queue?.length ? command.queue : [command.station]};
-      await playStation(command.station, {queue, openNowPlaying: command.openNowPlaying});
+      const tuned = await playStation(command.station, {queue, openNowPlaying: command.openNowPlaying, signal});
       const state = player.getState();
-      const playingRequestedStation = playingStationRef.current
-        && stationKey(playingStationRef.current) === stationKey(command.station)
+      const playingRequestedStation = tuned && playingStationRef.current
+        && stationKey(playingStationRef.current) === stationKey(tuned)
         && state.state === 'playing'
         && state.ready;
       return playingRequestedStation
-        ? respond(`Playing ${command.station.name}.`)
+        ? respond(`Playing ${tuned.name}.`)
         : respond(state.state === 'error' ? state.message ?? `Could not play ${command.station.name}.` : `Could not play ${command.station.name}.`, false);
     }
-    if (command.type === 'pause') { const control = await player.pause(); return respond(control.message ?? 'Paused.', control.ok); }
-    if (command.type === 'resume') { const control = await player.resume(); return respond(control.message ?? 'Resumed.', control.ok); }
+    if (command.type === 'pause') { const control = await engine.pause(); return respond(control.message ?? 'Paused.', control.ok); }
+    if (command.type === 'resume') {
+      const station = playingStationRef.current;
+      if (command.restartStopped && station && ['idle', 'stopped'].includes(player.getState().state)) {
+        await playStation(station, {queue: playbackQueueRef.current ?? queueFromCurrentList(station), signal});
+        return respond(`Playing ${station.name}.`, player.getState().ready && player.getState().state === 'playing');
+      }
+      const control = await engine.resume(); return respond(control.message ?? 'Resumed.', control.ok);
+    }
     if (command.type === 'stop') {
-      tuneRequestRef.current += 1;
-      persistLibrary(() => store.finishActiveListeningSession());
-      await player.stop();
+      cancelPendingTune();
+      await engine.stop({retainSelection: command.retainSelection});
+      if (command.retainSelection) { setTuningStation(null); desktopMediaRef.current?.refresh(); return respond('Stopped playback.'); }
       playingStationRef.current = null;
       setPlayingStation(null);
       setTuningStation(null);
@@ -1848,9 +1950,10 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return respond('Stopped RadioCLI.');
     }
     if (command.type === 'alarm-preempt') {
-      tuneRequestRef.current += 1;
-      persistLibrary(() => store.finishActiveListeningSession());
-      await player.stop();
+      desktopSuspendedRef.current = true;
+      desktopMediaRef.current?.refresh();
+      cancelPendingTune();
+      await engine.stop();
       playingStationRef.current = null;
       setPlayingStation(null);
       setTuningStation(null);
@@ -1858,8 +1961,14 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       return respond('Interactive playback yielded to the alarm.');
     }
     if (command.type === 'set-volume') {
-      const control = await player.setVolume(clampVolume(command.volume));
-      if (control.ok) updateSettings({volume: player.getState().volume});
+      const control = command.unmute
+        ? await player.setVolume(clampVolume(command.volume), {allowStopped: true})
+        : await player.setVolume(clampVolume(command.volume));
+      if (control.ok) await updateSettings({volume: player.getState().volume});
+      if (control.ok && command.unmute && command.volume > 0) {
+        const unmuted = await player.setMuted(false, {allowStopped: true});
+        if (!unmuted.ok) return respond(unmuted.message ?? 'The output could not be unmuted.', false);
+      }
       return respond(control.message ?? `Volume ${player.getState().volume}.`, control.ok);
     }
     if (command.type === 'set-muted') { const control = await player.setMuted(command.muted); return respond(control.message ?? (command.muted ? 'Muted.' : 'Unmuted.'), control.ok); }
@@ -1867,53 +1976,67 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       const station = command.station ?? playingStationRef.current;
       if (!station) return respond('No active station to favorite.', false);
       const current = store.isFavorite(station);
-      if (current !== command.favorite) toggleFavorite(station);
+      if (current !== command.favorite) await toggleFavorite(station);
       return respond(`${command.favorite ? 'Favorited' : 'Removed favorite'}: ${station.name}.`);
     }
     if (command.type === 'airplay-list') {
       if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false, []);
-      const devices = await refreshAirPlayTargets(false);
+      let devices: AirPlayDevice[];
+      try { devices = await refreshAirPlayTargets(false); } catch (error) {
+        if (error instanceof PlaybackOutputError) return respond(error.message, false, []);
+        throw error;
+      }
       return respond(devices.length ? `${devices.length} AirPlay receiver(s) found.` : 'No AirPlay receivers found.', true, devices);
     }
     if (command.type === 'airplay-select') {
       if (networkPolicy().offline) return respond('AirPlay discovery is disabled by RADIOCLI_OFFLINE=1.', false);
-      const devices = await refreshAirPlayTargets(false);
+      let devices: AirPlayDevice[];
+      try { devices = await refreshAirPlayTargets(false); } catch (error) {
+        if (error instanceof PlaybackOutputError) return respond(error.message, false, []);
+        throw error;
+      }
+      signal?.throwIfAborted();
       const device = devices.find(item => item.id === command.deviceId);
       if (!device) return respond('AirPlay receiver not found. Refresh and use an exact receiver ID.', false, devices);
       if (device.local) {
         const backend = preferredLocalPlaybackBackend(availableBackends);
         if (!backend) return respond('No local playback backend is available. Run radiocli setup to install mpv.', false);
-        updateSettings({preferredBackend: backend});
+        await updateSettings({preferredAirPlayDevice: device.id, preferredBackend: backend});
+        signal?.throwIfAborted();
         if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
-          await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+          await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current), signal});
         }
         return respond(`Audio output set to this device (${backend}).`);
       }
       if (!isAirPlayBackendAvailable(availableBackends)) return respond('AirPlay playback is unavailable; run radiocli doctor.', false);
-      updateSettings({preferredAirPlayDevice: device.id});
-      updateSettings({preferredBackend: 'airplay'});
+      await updateSettings({preferredAirPlayDevice: device.id, preferredBackend: 'airplay'});
+      signal?.throwIfAborted();
       if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
-        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current), signal});
       }
       return respond(`Audio output set to AirPlay receiver ${device.name}.`);
     }
     if (command.type === 'airplay-local') {
       const backend = preferredLocalPlaybackBackend(availableBackends);
       if (!backend) return respond('No local playback backend is available. Run radiocli setup to install mpv.', false);
-      updateSettings({preferredBackend: backend});
+      await updateSettings({preferredBackend: backend});
+      signal?.throwIfAborted();
       if (playingStationRef.current && shouldRetuneForAudioOutput(player.getState().state)) {
-        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current)});
+        await playStation(playingStationRef.current, {queue: playbackQueueRef.current ?? queueFromCurrentList(playingStationRef.current), signal});
       }
       return respond(`Audio output set to this device (${backend}).`);
     }
     if (command.type === 'airplay-passcode') {
-      const control = player.submitAirPlayPasscode(command.code);
+      const control = await player.submitAirPlayPasscode(command.code);
       return respond(control.message ?? 'AirPlay code sent.', control.ok);
     }
     if (command.type === 'update-settings') {
-      updateSettings(command.settings);
+      if (!allowedRadioSessionSettings(command.settings)) return respond('Session settings only accept appearance and agent control. Use radiocli setup --airplay to enable Linux AirPlay.', false);
+      await updateSettings(command.settings);
       return respond('RadioCLI settings updated.');
     }
+    if (command.type !== 'next' && command.type !== 'previous') throw new Error('Unsupported radio command.');
+    signal?.throwIfAborted();
     const active = playingStationRef.current;
     const queue = playbackQueueRef.current;
     if (!active || !queue?.stations.length) return respond('No playback queue is available.', false);
@@ -1921,32 +2044,76 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const delta = command.type === 'next' ? 1 : -1;
     const next = queue.stations[(Math.max(0, currentIndex) + delta + queue.stations.length) % queue.stations.length];
     if (!next) return respond('No adjacent station is available.', false);
-    await playStation(next, {queue});
-    return respond(`Playing ${next.name}.`);
+    if (command.preserveStop && ['idle', 'stopped'].includes(player.getState().state)) {
+      engine.select(next, queue.stations);
+      playingStationRef.current = next;
+      setPlayingStation(next);
+      setNowPlaying(null);
+      desktopMediaRef.current?.refresh();
+      return respond(`Selected ${next.name}.`);
+    }
+    const startPaused = command.preservePause && player.getState().state === 'paused';
+    await playStation(next, {queue, startPaused, signal});
+    const state = player.getState();
+    const ok = playingStationRef.current && stationKey(playingStationRef.current) === stationKey(next) && state.ready && ['playing', 'paused'].includes(state.state);
+    return respond(`${startPaused ? 'Selected' : 'Playing'} ${next.name}.`, Boolean(ok));
   };
 
+  activeAlarmRef.current = alarmTui.activeAlarms.length > 0;
   useEffect(() => {
-    if (!stdin.isTTY || !(settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled) return;
+    if (playbackSession || !stdin.isTTY || !desktopPolicy.enabled || !controlSessionReady) return;
+    const media = startDesktopMediaControls({
+      player, identity: store.filePath, policy: desktopPolicy,
+      status: () => ({owner: 'tui', playback: player.getState(), station: playingStationRef.current, queue: playbackQueueRef.current?.stations ?? []}),
+      command: (command, permitted) => dispatchOwnerCommand(command, () => permitted?.() !== false && !desktopSuspendedRef.current && !activeAlarmRef.current),
+      suspended: () => desktopSuspendedRef.current || activeAlarmRef.current
+    });
+    desktopMediaRef.current = media;
+    return () => { media.close(); if (desktopMediaRef.current === media) desktopMediaRef.current = null; };
+  }, [controlSessionReady, desktopPolicy, dispatchOwnerCommand, player, stdin, store, playbackSession]);
+  useEffect(() => { desktopMediaRef.current?.refresh(); }, [alarmTui.activeAlarms.length]);
+
+  useEffect(() => {
+    if (!stdin.isTTY) return;
+    if (playbackSession) {
+      if (initialAgentCommand && (settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled) {
+        void playbackSession.call(initialAgentCommand).catch(reportActionError);
+      }
+      return;
+    }
     let disposed = false;
     let close: (() => Promise<void>) | undefined;
-    void startRadioSession(command => agentHandlerRef.current(command)).then(async session => {
+    void startRadioSession(async (command, source) => {
+      const permitted = async () => {
+        if (source !== 'cli' && command.type !== 'status' && command.type !== 'alarm-preempt') await store.readFresh();
+        if (disposed) throw new Error('RadioCLI control session is closed.');
+        if (source !== 'cli' && !(settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled && command.type !== 'status' && command.type !== 'alarm-preempt') {
+          throw new Error('Agent controls are disabled.');
+        }
+        return true;
+      };
+      return dispatchOwnerCommand(command, permitted);
+    }, undefined, {queue: 'owner'}).then(async session => {
       if (disposed) {
         await session.close();
         return;
       }
       close = session.close;
-      if (initialAgentCommand) await agentHandlerRef.current(initialAgentCommand);
+      setControlSessionReady(true);
+      if (initialAgentCommand && (settingsRef.current.agentControl ?? defaultAgentControlSettings).enabled) await dispatchOwnerCommand(initialAgentCommand);
     }).catch(error => setMessage(error instanceof Error ? error.message : 'Agent controls could not start.'));
     return () => {
       disposed = true;
+      setControlSessionReady(false);
       if (close) void close();
     };
-  }, [initialAgentCommand, library.settings.agentControl?.enabled, stdin]);
+  }, [dispatchOwnerCommand, initialAgentCommand, stdin, store, playbackSession, reportActionError]);
 
   useAppInput({
     adjustVolume,
     airPlayCode,
     canEnterAirPlayCode,
+    airPlaySupported,
     cancelPendingAutoSkip,
     copyStationUrl,
     openStationHomepage,
@@ -1986,7 +2153,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     moveExploreCursorToCell: moveExploreMapCursorToCell,
     refreshProviderHealth,
     refreshAirPlayTargets: () => {
-      void refreshAirPlayTargets();
+      void refreshAirPlayTargets().catch(reportActionError);
     },
     resetLearnedTransportKeys,
     repairMcpIntegrations,
@@ -1994,7 +2161,8 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     runSearch,
     saveLearnedTransportKey,
     screen,
-    settingsPage,
+    screenRef,
+    settingsPageRef,
     searchQuery,
     selectedRef,
     selectedStationForInput,
@@ -2067,7 +2235,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const hasActiveMicroPlayback = Boolean(
     footerStation && (footerPlayback.state === 'playing' || footerPlayback.state === 'paused')
   );
-  const statusMessage = message ?? persistenceWarning ?? presenceWarning;
+  const statusMessage = message ?? persistenceWarning ?? presenceWarning ?? (screen === 'search' ? stationContext.error ?? null : null);
   const microFooter = footerMessage ?? statusMessage ?? (
     pageFooterOwnsCompactRow
       ? pageFooter
@@ -2080,10 +2248,16 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
   const compactGlobalFooter = '←/→ tabs · ? help · q quit';
   const versionReserve = versionIndicatorWidth(installedVersion, library.updateCheck) + 2;
   const fullStatusRows = fullStatusFooterRows(screen, statusMessage, footerMessage, playbackFooter);
-  const fullLegendRows = balancedFooterLegendRows(pageFooter, globalFooter, frameWidth, 2, versionReserve);
+  const fullLegendRows = useMemo(
+    () => balancedFooterLegendRows(pageFooter, globalFooter, frameWidth, 2, versionReserve),
+    [pageFooter, globalFooter, frameWidth, versionReserve]
+  );
   const compactStatus = footerMessage ?? statusMessage ?? playbackFooter;
   const compactLegendRowCount = Math.max(1, layout.footerRows - (compactStatus ? 1 : 0));
-  const compactLegendRows = balancedFooterLegendRows(pageFooter, compactGlobalFooter, frameWidth, compactLegendRowCount, versionReserve);
+  const compactLegendRows = useMemo(
+    () => balancedFooterLegendRows(pageFooter, compactGlobalFooter, frameWidth, compactLegendRowCount, versionReserve),
+    [pageFooter, compactGlobalFooter, frameWidth, compactLegendRowCount, versionReserve]
+  );
   const microLegendWidth = Math.max(1,frameWidth-versionReserve);
   const microLegend = commandMode || capturingTransportAction || footerMessage || statusMessage
     ? microFooter
@@ -2119,6 +2293,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
       ) : null}
       <Box height={layout.contentRows} width={frameWidth} flexDirection="column" overflowY="hidden" flexShrink={0} backgroundColor={displayMode.app}>
         <AppContent
+          platform={platform}
           airPlayDevices={availableAirPlayDevices}
           airPlaySupported={airPlaySupported}
           airPlayCode={airPlayCode}
@@ -2246,6 +2421,13 @@ function appendUniqueStations(current: Station[], page: Station[]): Station[] {
   return stations;
 }
 
+function discoverySourceWarning(sources: DiscoveryPage['sources']): string | undefined {
+  const unavailable = [...new Set(sources.filter(source => source.status === 'unavailable').map(source =>
+    source.provider === 'radio-browser' ? 'Radio Browser' : source.provider === 'radio-garden' ? 'Radio Garden' : source.provider
+  ))];
+  return unavailable.length ? `Some sources are unavailable (${unavailable.join(', ')}). Showing available results.` : undefined;
+}
+
 function formatCountryStationsSubtitle(country: Country, loaded: number, hasMore: boolean): string {
   const total = country.stationCount.toLocaleString();
   const loadedLabel = loaded.toLocaleString();
@@ -2366,4 +2548,13 @@ function mouseVisibleRows(screen: Screen, layout: TerminalLayout): number {
   if (screen === 'airplay-settings') return Math.max(1, layout.contentRows - 9);
   if (['stations', 'nearby', 'explore', 'library'].includes(screen)) return layout.stationRows;
   return layout.contentRows;
+}
+
+function localSessionLibrary(library: LibraryState, platform: NodeJS.Platform, selectionRequired = true): LibraryState {
+  return platform === 'linux' && selectionRequired && library.settings.preferredBackend === 'airplay'
+    ? {...library, settings: {...library.settings, preferredBackend: 'auto'}} : library;
+}
+
+function legacyDiscoveryPage(items: Station[], limit: number): DiscoveryPage {
+  return {items, exhausted: items.length < limit, sources: []};
 }

@@ -34,7 +34,9 @@ Earth vector data is public domain.
 
 ## node-airtunes2
 
-AirPlay support is provided as an optional integration with `node-airtunes2`
-2.5.0, distributed under the GNU Affero General Public License v3. Its source,
-license text, and attribution are available in the installed dependency and at
-<https://github.com/bertrandda/node-airtunes2>.
+AirPlay support uses a source copy of `node-airtunes2` 2.5.0, distributed under
+the GNU Affero General Public License v3, with RadioCLI's native Ed25519 security
+fix. The original attribution, license, complete native source, changes and
+archive provenance ship in `vendor/node-airtunes2/`. Runtime dependencies remain
+optional. See `vendor/node-airtunes2/RADIOCLI_PATCH.md` and the original project
+at <https://github.com/bertrandda/node-airtunes2>.

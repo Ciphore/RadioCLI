@@ -4,7 +4,7 @@ import {defaultAgentControlSettings, type AirPlayDevice, type AppSettings, type 
 import {Menu, Pointer} from '../components/Menu.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {truncate} from '../format.js';
-import {settingsGroup, settingsGroups, settingsItemsForPage, type SettingsPage} from '../screen-items.js';
+import {settingsGroup, settingsGroupsForAirPlay, settingsItemsForPage, type SettingsPage} from '../screen-items.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {playbackBackendCapabilities} from '../../player/backend-install.js';
 import {airPlayReceiverSettingValue} from '../airplay-settings.js';
@@ -14,6 +14,7 @@ import {useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 
 type SettingsScreenProps = {
+  platform?: NodeJS.Platform;
   page?: SettingsPage;
   selected: number;
   settings: AppSettings;
@@ -32,6 +33,7 @@ type SettingsScreenProps = {
 };
 
 export function SettingsScreen({
+  platform = process.platform,
   page = 'root',
   selected,
   settings,
@@ -52,12 +54,12 @@ export function SettingsScreen({
   const a = (value: string): string => ascii ? toAsciiSafe(value) : value;
   const accent = themeAccent(theme);
   const lineWidth = Math.max(32, width - 4);
-  const group = settingsGroup(page);
-  const pageItems = settingsItemsForPage(page);
+  const group = settingsGroup(page, airPlaySupported);
+  const pageItems = settingsItemsForPage(page, airPlaySupported);
   const menuWindow = settingsMenuWindow(pageItems, selected, height);
   const selectedItem = pageItems[selected];
   const detail = page === 'root' && selectedItem !== 'Check for updates'
-    ? settingsGroupsDescription(selectedItem)
+    ? settingsGroupsDescription(selectedItem, airPlaySupported)
     : settingDetail({
         item: selectedItem,
         appVersion,
@@ -88,8 +90,8 @@ export function SettingsScreen({
           render={(item, _index, active) => {
             const label = settingLabel(item, updateCheck, appVersion, airPlaySupported);
             const value = page === 'root'
-              ? settingsRootValue(item)
-              : settingValue(item, settings, diagnostics, backends, airPlayDevices, updateCheck, appVersion);
+              ? settingsRootValue(item, airPlaySupported)
+              : settingValue(item, settings, diagnostics, backends, airPlayDevices, updateCheck, appVersion, platform);
             return (
               <Box width={lineWidth}>
                 <Pointer active={active} />
@@ -128,17 +130,17 @@ function settingsMenuWindow(items: readonly string[], selected: number, height: 
   };
 }
 
-function settingsRootValue(item: string): string | undefined {
-  const group = settingsGroupByLabel(item);
+function settingsRootValue(item: string, airPlayVisible: boolean): string | undefined {
+  const group = settingsGroupByLabel(item, airPlayVisible);
   return group ? `${group.items.length} settings ›` : undefined;
 }
 
-function settingsGroupByLabel(label: string) {
-  return settingsGroups.find(group => group.label === label);
+function settingsGroupByLabel(label: string, airPlayVisible: boolean) {
+  return settingsGroupsForAirPlay(airPlayVisible).find(group => group.label === label);
 }
 
-function settingsGroupsDescription(label: string | undefined): string {
-  return label ? settingsGroupByLabel(label)?.description ?? 'Press Enter to open this category.' : '';
+function settingsGroupsDescription(label: string | undefined, airPlayVisible: boolean): string {
+  return label ? settingsGroupByLabel(label, airPlayVisible)?.description ?? 'Press Enter to open this category.' : '';
 }
 
 export function settingValue(
@@ -148,7 +150,8 @@ export function settingValue(
   backends: string[],
   airPlayDevices: AirPlayDevice[],
   updateCheck: UpdateCheckState | undefined,
-  currentVersion?: string
+  currentVersion?: string,
+  platform: NodeJS.Platform = process.platform
 ): string | undefined {
   switch (item) {
     case 'Cycle display color':
@@ -164,7 +167,7 @@ export function settingValue(
     case 'Audio output':
       return audioOutputSettingValue(settings, diagnostics, backends);
     case 'AirPlay receiver':
-      return airPlayReceiverSettingValue(settings, airPlayDevices, backends);
+      return airPlayReceiverSettingValue(settings, airPlayDevices, backends, platform);
     case 'Mute or unmute':
       if (!playbackBackendCapabilities(diagnostics.backend).supportsMute) {
         return 'requires mpv';
@@ -207,7 +210,7 @@ export function settingValue(
 
 export function settingLabel(item: string, updateCheck: UpdateCheckState | undefined, currentVersion?: string, airPlaySupported = true): string {
   if (item === 'AirPlay receiver' && !airPlaySupported) {
-    return 'AirPlay receiver (macOS only)';
+    return 'AirPlay receiver (unavailable)';
   }
   if (item === 'Check for updates') {
     return updateStatusText(updateCheck, currentVersion).endsWith('available') ? 'Install update' : 'Check now';

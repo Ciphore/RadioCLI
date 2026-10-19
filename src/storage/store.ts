@@ -1,6 +1,6 @@
 import {platformPaths} from '../platform/paths.js';
 import {assertStorageWritable} from '../platform/storage.js';
-import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -22,32 +22,11 @@ import {
 } from '../types.js';
 import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
 import {migrateReceiverStyle} from '../ui/visualizers/receiver-style-registry.js';
+import {migrateStationIdentity} from './station-identity.js';
+import {stationSchema} from './station-schema.js';
+import {acquireFileLock} from './file-lock.js';
+import {replaceFileSync} from './replace-file.js';
 
-const stationSchema: z.ZodType<Station> = z
-  .object({
-    id: z.string(),
-    provider: z.enum(['radio-browser', 'radio-garden', 'playlist']),
-    name: z.string(),
-    country: z.string().optional(),
-    countryCode: z.string().optional(),
-    state: z.string().optional(),
-    city: z.string().optional(),
-    language: z.string().optional(),
-    languageCodes: z.array(z.string()).optional(),
-    tags: z.array(z.string()),
-    codec: z.string().optional(),
-    bitrate: z.number().optional(),
-    homepage: z.string().optional(),
-    favicon: z.string().optional(),
-    streamUrl: z.string().optional(),
-    clickCount: z.number().optional(),
-    votes: z.number().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
-    distanceKm: z.number().optional(),
-    hls: z.boolean().optional(),
-    lastCheckedOk: z.boolean().optional()
-  });
 
 const defaultMediaKeys = {
   previous: [],
@@ -56,6 +35,17 @@ const defaultMediaKeys = {
 };
 
 const MAX_ALARMS = 500;
+
+// Keep the shared library readable by pre-scene releases whose background MCP
+// workers quarantine an entire library when they see an unfamiliar enum value.
+// Crossfade is the last style understood by those releases. New styles live in
+// a separate preference file that old writers never read or overwrite.
+const sharedLibraryReceiverStyles = new Set(receiverStyleNames.slice(0, receiverStyleNames.indexOf('crossfade') + 1));
+const receiverPreferenceSchema = z.object({
+  version: z.literal(1),
+  receiverStyle: z.preprocess(migrateReceiverStyle, z.enum(receiverStyleNames)),
+  libraryReceiverStyle: z.literal('ultracode')
+});
 
 const settingsSchema: z.ZodType<AppSettings> = z.object({
   theme: z.enum(themeNames).default('green'),
@@ -70,6 +60,7 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   shareDirectoryVotes: z.boolean().default(true),
   preferredBackend: z.enum(['auto', 'mpv', 'ffplay', 'vlc', 'airplay']).default('auto'),
   preferredAirPlayDevice: z.string().min(1).optional(),
+  linuxAirPlayEnabled: z.boolean().optional(),
   tuneTimeoutSeconds: z.number().min(3).max(45).default(12),
   skipBrokenStreams: z.boolean().default(true),
   mediaKeys: z
@@ -85,6 +76,7 @@ const settingsSchema: z.ZodType<AppSettings> = z.object({
   reduceMotion: z.boolean().default(false),
   mouseSupport: z.boolean().default(true),
   automaticUpdateChecks: z.boolean().default(true),
+  desktopMediaControls: z.enum(['auto', 'on', 'off']).default('auto'),
   agentControl: z.object({
     enabled: z.boolean().default(false),
     openUiOnPlay: z.boolean().default(true),
@@ -201,6 +193,10 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
     )
     .default([]),
   favorites: z.array(stationSchema).default([]),
+  presets: z.array(z.object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
+    station: stationSchema
+  })).max(200).default([]),
   imported: z.array(stationSchema).default([]),
   trackHistory: z
     .array(
@@ -281,6 +277,7 @@ export class JsonLibraryStore {
   private state: LibraryState;
   private readonly idGenerator: () => string;
   private readonly now: () => Date;
+  private revision = '';
 
   constructor(
     filePath = defaultLibraryPath(),
@@ -289,14 +286,67 @@ export class JsonLibraryStore {
     this.filePath = filePath;
     this.idGenerator = options.idGenerator ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.revision = this.diskRevision();
     this.state = this.read();
+    // Normalize libraries saved by an earlier preview before any legacy
+    // background reader encounters its new enum value again.
+    if (!sharedLibraryReceiverStyles.has(this.state.settings.receiverStyle) && !existsSync(this.receiverPreferencePath())) this.commit(this.state);
   }
 
   snapshot(): LibraryState {
+    this.refresh();
+    return this.cachedSnapshot();
+  }
+
+  cachedSnapshot(): LibraryState {
     return structuredClone(this.state);
   }
 
+  /** Refresh atomically replaced files without recovering a live listening session. */
+  refresh(): boolean {
+    const revision = this.diskRevision();
+    if (revision === this.revision) return false;
+    const next = this.readForCurrentSession();
+    this.state = next;
+    this.revision = revision;
+    return true;
+  }
+
+  settings(): AppSettings {
+    this.refresh();
+    return structuredClone(this.state.settings);
+  }
+
+  private diskRevision(): string {
+    return [this.filePath, this.receiverPreferencePath()].map(file => {
+      try {
+        const info = statSync(file, {bigint: true});
+        return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+        throw storageError('read the RadioCLI library', error);
+      }
+    }).join('|');
+  }
+
+  savePreset(name: string, station: Station): void {
+    this.refresh();
+    const key = normalizePresetName(name);
+    const presets = this.state.presets ?? [];
+    if (presets.length >= 200 && !presets.some(preset => preset.name === key)) throw new Error('RadioCLI supports at most 200 station presets. Remove one with radiocli preset remove <name>.');
+    this.commit({...this.state, presets: [{name: key, station}, ...presets.filter(preset => preset.name !== key)]});
+  }
+
+  removePreset(name: string): void {
+    this.refresh();
+    const key = normalizePresetName(name);
+    const presets = this.state.presets ?? [];
+    if (!presets.some(preset => preset.name === key)) throw new Error(`No preset named ${key}. Run radiocli presets to see saved names.`);
+    this.commit({...this.state, presets: presets.filter(preset => preset.name !== key)});
+  }
+
   exportBackup(requestedPath?: string): string {
+    this.refresh();
     const targetPath = requestedPath?.trim()
       ? resolveUserPath(requestedPath)
       : resolve(process.cwd(), `radiocli-backup-${fileTimestamp(new Date())}.json`);
@@ -340,7 +390,9 @@ export class JsonLibraryStore {
         ? `${this.filePath}.before-import-${fileTimestamp(new Date())}.bak`
         : undefined;
       if (safetyBackupPath) {
-        writeJsonAtomically(safetyBackupPath, libraryStateForDisk(this.state));
+        // Another TUI or background player may have saved since this owner
+        // last refreshed. Preserve its latest data while holding the lock.
+        writeJsonAtomically(safetyBackupPath, libraryStateForDisk(this.read()));
       }
       this.write(importedState);
       this.state = importedState;
@@ -351,6 +403,7 @@ export class JsonLibraryStore {
   }
 
   updateSettings(settings: Partial<AppSettings>): LibraryState {
+    this.refresh();
     return this.commit({
       ...this.state,
       settings: {
@@ -362,13 +415,14 @@ export class JsonLibraryStore {
   }
 
   updateCheckState(updateCheck: UpdateCheckState): LibraryState {
+    this.refresh();
     return this.commit({...this.state, updateCheck});
   }
 
   addAlarm(input: AlarmCreateInput): Alarm {
     const release = acquireStoreLock(this.filePath);
     try {
-      const latestState = this.read();
+      const latestState = this.readForCurrentSession();
       if (latestState.alarms.length >= MAX_ALARMS) {
         throw new Error(`RadioCLI supports at most ${MAX_ALARMS} alarms.`);
       }
@@ -413,7 +467,7 @@ export class JsonLibraryStore {
   removeAlarm(id: string): boolean {
     const release = acquireStoreLock(this.filePath);
     try {
-      const latestState = this.read();
+      const latestState = this.readForCurrentSession();
       if (!latestState.alarms.some(alarm => alarm.id === id)) {
         this.state = latestState;
         return false;
@@ -436,11 +490,13 @@ export class JsonLibraryStore {
   }
 
   getAlarm(id: string): Alarm | undefined {
+    this.refresh();
     const alarm = this.state.alarms.find(item => item.id === id);
     return alarm ? structuredClone(alarm) : undefined;
   }
 
   listAlarms(): Alarm[] {
+    this.refresh();
     return structuredClone(this.state.alarms);
   }
 
@@ -478,6 +534,7 @@ export class JsonLibraryStore {
   }
 
   addRecent(station: Station): LibraryState {
+    this.refresh();
     const key = stationKey(station);
     const recent = [
       {station, playedAt: new Date().toISOString()},
@@ -490,9 +547,10 @@ export class JsonLibraryStore {
   // Persist the ICY track titles a station announces so "what was that song?"
   // is answerable later. Consecutive duplicates on the same station are skipped.
   recordTrack(station: Station, title: string): LibraryState {
+    this.refresh();
     const cleaned = title.trim();
     if (!cleaned) {
-      return this.snapshot();
+      return this.cachedSnapshot();
     }
 
     const key = stationKey(station);
@@ -513,6 +571,7 @@ export class JsonLibraryStore {
 
   // Most-recent-first search queries for up-arrow recall in the search box.
   addSearch(query: string): LibraryState {
+    this.refresh();
     const cleaned = query.trim();
     if (!cleaned) {
       return this.snapshot();
@@ -523,6 +582,7 @@ export class JsonLibraryStore {
   }
 
   startListeningSession(station: Station, startedAt = new Date()): LibraryState {
+    this.refresh();
     const finishedState = recoverActiveListeningSessionInState(this.state);
     const session: ListeningSession = {
       id: `${startedAt.toISOString()}-${stationKey(station)}`,
@@ -541,6 +601,7 @@ export class JsonLibraryStore {
   }
 
   checkpointActiveListeningSession(activeAt = new Date()): LibraryState {
+    this.refresh();
     const active = this.state.activity.sessions[0];
     if (!active || active.endedAt) {
       return this.snapshot();
@@ -562,6 +623,7 @@ export class JsonLibraryStore {
   }
 
   finishActiveListeningSession(endedAt = new Date()): LibraryState {
+    this.refresh();
     const nextState = finishActiveListeningSessionInState(this.state, endedAt);
     if (nextState === this.state) {
       return this.snapshot();
@@ -571,6 +633,7 @@ export class JsonLibraryStore {
   }
 
   toggleFavorite(station: Station): LibraryState {
+    this.refresh();
     const key = stationKey(station);
     const exists = this.state.favorites.some(item => stationKey(item) === key);
     const favorites = exists
@@ -581,6 +644,7 @@ export class JsonLibraryStore {
   }
 
   addImported(stations: Station[]): LibraryState {
+    this.refresh();
     const incoming: Station[] = [];
     const incomingKeys = new Set<string>();
     for (const station of stations) {
@@ -604,6 +668,7 @@ export class JsonLibraryStore {
       return false;
     }
 
+    this.refresh();
     const key = stationKey(station);
     return this.state.favorites.some(item => stationKey(item) === key);
   }
@@ -611,7 +676,7 @@ export class JsonLibraryStore {
   private mutateAlarm(id: string, change: (alarm: Alarm) => Alarm): Alarm {
     const release = acquireStoreLock(this.filePath);
     try {
-      const latestState = this.read();
+      const latestState = this.readForCurrentSession();
       const existing = latestState.alarms.find(alarm => alarm.id === id);
       if (!existing) {
         this.state = latestState;
@@ -639,9 +704,18 @@ export class JsonLibraryStore {
       throw storageError('read the RadioCLI library', error);
     }
 
+    let state: LibraryState;
     try {
-      return migrateLibraryState(librarySchema.parse(JSON.parse(contents)));
-    } catch {
+      state = migrateLibraryState(librarySchema.parse(JSON.parse(contents)));
+    } catch (error) {
+      if (error instanceof z.ZodError && error.issues.some(issue =>
+        issue.code === 'invalid_value' && issue.path.length === 2 &&
+        issue.path[0] === 'settings' && issue.path[1] === 'receiverStyle'
+      )) {
+        // Another running build may have saved a newer receiver. Its library
+        // is intact: never quarantine it or replace it with empty defaults.
+        throw new Error('The RadioCLI library uses a receiver style this process does not support. Restart RadioCLI and its MCP clients to load the updated styles.');
+      }
       try {
         assertStorageWritable(this.filePath);
         renameSync(this.filePath, `${this.filePath}.bad-${Date.now()}-${randomUUID()}`);
@@ -651,16 +725,40 @@ export class JsonLibraryStore {
       }
       return defaultState();
     }
+    // A legacy writer can still change ordinary preferences and favorites. Its
+    // fallback style must not erase the selection saved by an updated process.
+    let preference: string;
+    try { preference = readFileSync(this.receiverPreferencePath(), 'utf8'); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return state;
+      throw storageError('read the receiver preference', error);
+    }
+    const parsed = receiverPreferenceSchema.safeParse(JSON.parse(preference));
+    if (!parsed.success) throw new Error('The RadioCLI receiver preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
+    if (state.settings.receiverStyle === parsed.data.libraryReceiverStyle) state.settings.receiverStyle = parsed.data.receiverStyle;
+    return state;
+  }
+
+  private receiverPreferencePath(): string { return `${this.filePath}.receiver.json`; }
+
+  private readForCurrentSession(): LibraryState {
+    const next = this.read();
+    // Disk intentionally stores auto instead of reopening a receiver on launch.
+    // Within this owner, unrelated durable changes retain its selected output.
+    if (this.state.settings.preferredBackend === 'airplay' && next.settings.preferredBackend === 'auto') {
+      next.settings.preferredBackend = 'airplay';
+    }
+    return next;
   }
 
   private commit(nextState: LibraryState): LibraryState {
     const release = acquireStoreLock(this.filePath);
     try {
-      const latestState = this.read();
+      const latestState = this.readForCurrentSession();
       const mergedState = mergeLibraryChanges(this.state, latestState, nextState);
       this.write(mergedState);
       this.state = mergedState;
-      return this.snapshot();
+      return this.cachedSnapshot();
     } finally {
       release();
     }
@@ -670,7 +768,32 @@ export class JsonLibraryStore {
     try {
       assertStorageWritable(this.filePath);
       mkdirSync(dirname(this.filePath), {recursive: true, mode: 0o700});
-      writeJsonAtomically(this.filePath, libraryStateForDisk(state));
+      const diskState = libraryStateForDisk(state);
+      const separateReceiver = !sharedLibraryReceiverStyles.has(state.settings.receiverStyle);
+      const preferencePath = this.receiverPreferencePath();
+      let previousPreference: string | undefined;
+      try { previousPreference = readFileSync(preferencePath, 'utf8'); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      const nextPreference = separateReceiver
+        ? `${JSON.stringify({version: 1, receiverStyle: state.settings.receiverStyle, libraryReceiverStyle: 'ultracode'}, null, 2)}\n`
+        : undefined;
+      const preferenceChanged = previousPreference !== nextPreference;
+      if (preferenceChanged) {
+        if (nextPreference === undefined) rmSync(preferencePath);
+        else writeTextAtomically(preferencePath, nextPreference);
+      }
+      try {
+        writeJsonAtomically(this.filePath, separateReceiver
+          ? {...diskState, settings: {...diskState.settings, receiverStyle: 'ultracode'}}
+          : diskState);
+      } catch (error) {
+        if (preferenceChanged) {
+          if (previousPreference === undefined) rmSync(preferencePath, {force: true});
+          else writeTextAtomically(preferencePath, previousPreference);
+        }
+        throw error;
+      }
+      try { this.revision = this.diskRevision(); } catch { this.revision = ''; }
     } catch (error) {
       throw storageError('write the RadioCLI library', error);
     }
@@ -678,7 +801,7 @@ export class JsonLibraryStore {
 }
 
 export function stationKey(station: Station): string {
-  return `${station.provider}:${station.id}`;
+  return `${station.provider}:${migrateStationIdentity(station).id}`;
 }
 
 function finishActiveListeningSessionInState(state: LibraryState, endedAt: Date): LibraryState {
@@ -720,8 +843,8 @@ function recoverActiveListeningSessionInState(state: LibraryState): LibraryState
   return finishActiveListeningSessionInState(state, new Date(recoveredEnd));
 }
 
-export function defaultLibraryPath(): string {
-  const {library, legacyLibrary} = platformPaths();
+export function defaultLibraryPath(options: Parameters<typeof platformPaths>[0] = {}): string {
+  const {library, legacyLibrary} = platformPaths(options);
   for (const filePath of [library, legacyLibrary]) {
     try {
       statSync(filePath);
@@ -754,6 +877,7 @@ function defaultState(): LibraryState {
   return {
     recent: [],
     favorites: [],
+    presets: [],
     imported: [],
     trackHistory: [],
     searchHistory: [],
@@ -784,9 +908,32 @@ function defaultState(): LibraryState {
 }
 
 function migrateLibraryState(state: LibraryState): LibraryState {
+  const aliases = new Map<string, Set<string>>();
+  const migrate = (station: Station): Station => {
+    const next = migrateStationIdentity(station);
+    if (next.id !== station.id) {
+      const key = `${station.provider}:${station.id}`;
+      const targets = aliases.get(key) ?? new Set<string>();
+      targets.add(stationKey(next));
+      aliases.set(key, targets);
+    }
+    return next;
+  };
+  const recent = state.recent.map(item => ({...item, station: migrate(item.station)}));
+  const favorites = state.favorites.map(migrate);
+  const imported = state.imported.map(migrate);
+  const presets = state.presets?.map(item => ({...item, station: migrate(item.station)}));
+  const sessions = state.activity.sessions.map(item => ({...item, station: migrate(item.station)}));
+  const alarms = state.alarms.map(alarm => normalizeAlarm({...alarm, station: migrate(alarm.station),
+    playback: {...alarm.playback, ...(alarm.playback.fallbackStation ? {fallbackStation: migrate(alarm.playback.fallbackStation)} : {})}}));
   return {
     ...state,
-    alarms: state.alarms.map(normalizeAlarm),
+    recent, favorites, imported, presets, alarms,
+    activity: {sessions},
+    trackHistory: state.trackHistory.map(item => {
+      const targets = aliases.get(item.stationKey);
+      return targets?.size === 1 ? {...item, stationKey: [...targets][0]!} : item;
+    }),
     settings: {
       ...state.settings,
       preferredBackend: state.settings.preferredBackend === 'airplay' ? 'auto' : state.settings.preferredBackend,
@@ -814,18 +961,35 @@ function libraryStateForDisk(state: LibraryState): LibraryState {
 }
 
 function writeJsonAtomically(filePath: string, value: unknown): void {
+  writeTextAtomically(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeTextAtomically(filePath: string, text: string): void {
   const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
-    if (process.platform !== 'win32') {
-      chmodSync(tempPath, 0o600);
+    const fd = openSync(tempPath, 'wx', 0o600);
+    try {
+      writeFileSync(fd, text, 'utf8');
+      if (process.platform !== 'win32') chmodSync(tempPath, 0o600);
+      fsyncSync(fd);
+    } catch (error) {
+      try { closeSync(fd); } catch { /* Preserve the original persistence error. */ }
+      throw error;
     }
-    // No fallible persistence steps follow the atomic replacement.
-    renameSync(tempPath, filePath);
+    closeSync(fd);
+    replaceFileSync(tempPath, filePath);
   } catch (error) {
     try { rmSync(tempPath, {force: true}); } catch { /* Preserve the original write failure. */ }
     throw storageError('write RadioCLI data', error);
   }
+  // Flush the replacement directory where supported. Once rename succeeds the
+  // transaction is committed: a directory-sync failure cannot roll it back or
+  // leave the caller's in-memory state describing the previous file. Windows
+  // and some network/removable filesystems do not support syncing directories.
+  let directoryFd: number | undefined;
+  try { directoryFd = openSync(dirname(filePath), 'r'); fsyncSync(directoryFd); }
+  catch { /* The file itself was flushed before replacement. */ }
+  finally { if (directoryFd !== undefined) try { closeSync(directoryFd); } catch { /* Already committed. */ } }
 }
 
 function acquireStoreLock(filePath: string): () => void {
@@ -836,32 +1000,8 @@ function acquireStoreLock(filePath: string): () => void {
   } catch (error) {
     throw storageError('write the RadioCLI library', error);
   }
-  const deadline = Date.now() + 1000;
-  while (true) {
-    try {
-      mkdirSync(lockPath, {mode: 0o700});
-      return () => {
-        // The write has already succeeded or failed. Lock cleanup cannot reverse that result.
-        try { rmSync(lockPath, {recursive: true, force: true}); } catch { /* Stale locks expire below. */ }
-      };
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST') throw storageError('lock the RadioCLI library', error);
-      try {
-        if (Date.now() - statSync(lockPath).mtimeMs > 10_000) {
-          rmSync(lockPath, {recursive: true, force: true});
-        }
-      } catch (lockError) {
-        if ((lockError as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw storageError('lock the RadioCLI library', lockError);
-        }
-      }
-      if (Date.now() >= deadline) {
-        throw storageError('lock the RadioCLI library', Object.assign(new Error('Another writer holds the library lock.'), {code: 'EBUSY', cause: error}));
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-    }
-  }
+  try { return acquireFileLock(lockPath); }
+  catch (error) { throw storageError('lock the RadioCLI library', error); }
 }
 
 class LibraryStorageError extends Error {
@@ -884,10 +1024,17 @@ function storageError(operation: string, cause: unknown): LibraryStorageError {
   return cause instanceof LibraryStorageError ? cause : new LibraryStorageError(operation, cause);
 }
 
+function normalizePresetName(name: string): string {
+  const key = name.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(key)) throw new Error('Preset names must be 1-40 letters, numbers, hyphens, or underscores, starting with a letter or number.');
+  return key;
+}
+
 function mergeLibraryChanges(base: LibraryState, disk: LibraryState, next: LibraryState): LibraryState {
   return {
     recent: mergeKeyedChanges(base.recent, disk.recent, next.recent, item => stationKey(item.station), 50),
     favorites: mergeKeyedChanges(base.favorites, disk.favorites, next.favorites, stationKey, 200, true),
+    presets: mergeKeyedChanges(base.presets ?? [], disk.presets ?? [], next.presets ?? [], preset => preset.name, 200, true),
     imported: mergeKeyedChanges(base.imported, disk.imported, next.imported, stationKey, 1000, true, true),
     trackHistory: mergeKeyedChanges(base.trackHistory, disk.trackHistory, next.trackHistory, item => `${item.at}:${item.stationKey}:${item.title}`, 100),
     searchHistory: mergeSearchHistory(base.searchHistory, disk.searchHistory, next.searchHistory),

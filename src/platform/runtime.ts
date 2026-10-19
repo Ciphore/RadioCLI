@@ -73,7 +73,7 @@ export function nativeAdapters(host: PlatformProfile = identifyPlatform()): Nati
   const portable: NativeAdapterPolicy = {scheduler: null, inhibitor: null, volume: null, terminal: null, ipc: 'unix-socket', posixPermissions: true, airPlay: false};
   if (host.id === 'darwin') return {...portable, scheduler: 'launchd', inhibitor: 'caffeinate', volume: 'macos', terminal: 'macos', airPlay: true};
   if (host.id === 'win32') return {...portable, scheduler: 'task-scheduler', inhibitor: 'windows', volume: 'windows', terminal: 'windows', ipc: 'named-pipe', posixPermissions: false};
-  if (host.id === 'linux') return {...portable, scheduler: 'systemd', inhibitor: 'logind', volume: 'unix-audio', terminal: 'unix'};
+  if (host.id === 'linux') return {...portable, scheduler: 'systemd', inhibitor: 'logind', volume: 'unix-audio', terminal: 'unix', airPlay: !host.isWsl};
   if (['freebsd', 'openbsd', 'netbsd'].includes(host.id)) return {...portable, terminal: 'unix'};
   return portable;
 }
