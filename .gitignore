@@ -2,6 +2,7 @@ node_modules/
 dist/
 apps/docs/.next/
 apps/docs/.source/
+apps/docs/.generated/
 apps/docs/out/
 .playwright-cli/
 output/

@@ -5,9 +5,12 @@
   "description": "Public website and documentation for RadioCLI.",
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/build-receiver-preview.mjs",
     "dev": "next dev",
+    "prebuild": "node ../../scripts/build-receiver-preview.mjs",
     "build": "next build",
     "start": "next start",
+    "precheck": "node ../../scripts/build-receiver-preview.mjs",
     "check": "next typegen && fumadocs-mdx && tsc --noEmit",
     "postinstall": "fumadocs-mdx"
   },
@@ -16,7 +19,7 @@
     "fumadocs-mdx": "15.0.10",
     "fumadocs-ui": "16.9.3",
     "lucide-react": "^1.17.0",
-    "next": "16.3.8",
+    "next": "16.4.2",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
@@ -26,6 +29,7 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
+    "esbuild": "0.28.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"

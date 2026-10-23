@@ -1,0 +1,90 @@
+/* Tape OSD lettering. Keep the treatment on real heading text, and limit it
+ * to the home page so docs, receiver controls, and navigation stay unchanged. */
+.rc-vhs-landing :is(h1, h2, h3, .rc-vhs-button-label) {
+  font-family: var(--rc-vhs-font), monospace;
+  font-weight: 400;
+  font-synthesis: none;
+  text-transform: uppercase;
+  letter-spacing: 0.015em;
+  line-height: 1.05;
+  text-wrap: balance;
+  color: var(--rc-strong);
+  text-shadow:
+    -0.65px 0 rgba(231, 62, 85, 0.48),
+    0.65px 0 rgba(47, 115, 239, 0.48),
+    0 0 1px color-mix(in srgb, currentColor 25%, transparent);
+  -webkit-font-smoothing: auto;
+}
+
+.rc-vhs-landing .rc-btn {
+  font-family: var(--rc-vhs-font), monospace;
+  font-size: 1.45rem;
+  font-weight: 400;
+  line-height: 1;
+  border-radius: 2px;
+  padding: 0.75rem 1.1rem;
+}
+
+.rc-vhs-landing .rc-vhs-button-label {
+  color: inherit;
+  white-space: nowrap;
+}
+
+/* The texture follows glyphs rather than drawing lines across the page. */
+@supports (mask-image: linear-gradient(black, black)) {
+  .rc-vhs-landing :is(h1, h2, h3, .rc-vhs-button-label) {
+    mask-image: repeating-linear-gradient(
+      to bottom,
+      black 0 2px,
+      rgba(0, 0, 0, 0.78) 2px 3px
+    );
+  }
+}
+
+.rc-vhs-landing .rc-hero h1 {
+  font-size: clamp(3.4rem, 5.5vw, 5.2rem);
+  line-height: 0.98;
+}
+
+.rc-vhs-landing h2 {
+  font-size: clamp(2.3rem, 4.1vw, 3.5rem);
+}
+
+.rc-vhs-landing .rc-visual-feature h2 {
+  font-size: clamp(2rem, 3vw, 2.6rem);
+}
+
+.rc-vhs-landing .rc-feature-wide h2 {
+  font-size: clamp(2.5rem, 3.7vw, 3.25rem);
+}
+
+.rc-vhs-landing .rc-install-heading h2 {
+  font-size: 1.8rem;
+}
+
+.rc-vhs-landing .rc-feature-list h3 {
+  font-size: 1.6rem;
+}
+
+@media (max-width: 640px) {
+  .rc-vhs-landing .rc-hero h1 {
+    font-size: clamp(2.7rem, 10vw, 4rem);
+  }
+
+  .rc-vhs-landing h2,
+  .rc-vhs-landing .rc-visual-feature h2,
+  .rc-vhs-landing .rc-feature-wide h2 {
+    font-size: 2.25rem;
+  }
+
+  .rc-vhs-landing .rc-install-heading h2 {
+    font-size: 1.8rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .rc-vhs-landing :is(h1, h2, h3, .rc-vhs-button-label) {
+    mask-image: none;
+    text-shadow: none;
+  }
+}

@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       'Documentation for the open-source RadioCLI terminal internet radio receiver.',
     start_url: '/',
     display: 'standalone',
-    background_color: '#09090b',
-    theme_color: '#09090b',
+    background_color: '#080808',
+    theme_color: '#080808',
     icons: [
       {
         src: '/favicon.ico',

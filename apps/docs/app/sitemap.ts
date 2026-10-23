@@ -9,6 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 1,
     },
+    { url: absoluteUrl('/receivers'), changeFrequency: 'monthly', priority: 0.8 },
     ...source.getPages().map((page) => ({
       url: absoluteUrl(page.url),
       changeFrequency: page.url === '/docs/changelog' ? ('weekly' as const) : ('monthly' as const),

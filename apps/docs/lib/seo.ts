@@ -3,7 +3,7 @@ import { gitConfig } from './shared';
 
 export const siteName = 'RadioCLI';
 export const siteDescription =
-  'A terminal-first world radio receiver with resilient public-radio providers, local-first listening history, and docs for the full CLI workflow.';
+  'Internet radio for your terminal. Discover stations worldwide, save favorites, view listening stats, set alarms, and control playback from your CLI or AI assistant.';
 export const repositoryUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 export const licenseUrl = `${repositoryUrl}/blob/${gitConfig.branch}/LICENSE`;
 

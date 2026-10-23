@@ -1,0 +1,26 @@
+.rc-gallery-page .rc-receiver-name,
+.rc-gallery-page .rc-heading #receiver-heading {
+  font-family: var(--rc-vhs-font), monospace;
+  font-size: 1.5rem;
+  font-weight: 400;
+  font-synthesis: none;
+  line-height: 1.15;
+  letter-spacing: 0.015em;
+  text-transform: uppercase;
+  color: var(--rc-strong);
+  -webkit-font-smoothing: auto;
+}
+
+.rc-gallery-page .rc-heading #receiver-heading {
+  font-size: clamp(3rem, 5.5vw, 4.5rem);
+  line-height: 1;
+  text-shadow: -0.65px 0 rgba(231, 62, 85, 0.48), 0.65px 0 rgba(47, 115, 239, 0.48);
+  mask-image: repeating-linear-gradient(to bottom, black 0 2px, rgba(0, 0, 0, 0.78) 2px 3px);
+}
+
+@media (forced-colors: active) {
+  .rc-gallery-page .rc-heading #receiver-heading {
+    text-shadow: none;
+    mask-image: none;
+  }
+}

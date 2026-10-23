@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'RadioCLI',
     description:
-      'Terminal-first public radio discovery, playback, favorites, stats, and provider resilience.',
+      siteDescription,
     images: ['/demo/radiocli-fullscreen.png'],
     locale: 'en_US',
     siteName: 'RadioCLI',
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'RadioCLI',
     description:
-      'Terminal-first public radio discovery, playback, favorites, stats, and provider resilience.',
+      siteDescription,
     images: ['/demo/radiocli-fullscreen.png'],
   },
 };
