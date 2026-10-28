@@ -576,3 +576,4 @@ Initial public release.
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.1
 [0.2.5]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.5
+[0.2.6]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.6
