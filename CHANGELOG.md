@@ -26,6 +26,8 @@ All notable changes to RadioCLI are documented in this file.
   explicitly enabled development diagnostics.
 - Preserved new colors and receiver selections while older RadioCLI and MCP
   processes continue reading and writing the same library.
+- Avoided transient library-lock failures on Windows while another writer
+  releases its lock.
 
 ### Security
 
