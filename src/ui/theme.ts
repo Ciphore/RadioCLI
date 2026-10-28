@@ -16,7 +16,47 @@ export const mapWater = '#1a2430';
 export const mapMarker = '#7dd3fc';
 export const exploreMapLand = '#a0a0c0';
 
+const additionalThemeAccents: Partial<Record<ThemeName, string>> = {
+  'acid-yellow': '#f4ff45',
+  'blaze-orange': '#ff8a1f',
+  'hot-magenta': '#ff2bd6',
+  ultramarine: '#6670ff',
+  vermilion: '#dc322f',
+  'dracula-pink': '#ff79c6',
+  'dusty-mauve': '#c49ab3',
+  parchment: '#ddd0aa',
+  'laser-green': '#39ff14',
+  heather: '#b48ead',
+  'soft-silver': '#bfc8cd',
+  tangerine: '#ff5900',
+  scarlet: '#ff1010',
+  raspberry: '#d02068',
+  indigo: '#5540d8',
+  periwinkle: '#9aa8ff',
+  jade: '#299e8c',
+  cobalt: '#0050ff',
+  plum: '#b02e94',
+  cocoa: '#946645',
+  ivory: '#fff4dc',
+  sunflower: '#ffd600',
+  butter: '#fff0a0',
+  olive: '#858e35',
+  apricot: '#ffb875',
+  blush: '#f0c3cb',
+  aubergine: '#793b71',
+  pistachio: '#c5d879',
+  wineberry: '#7e174b',
+  'midnight-teal': '#005d65',
+  'neon-violet': '#7200ff',
+  pine: '#006b3c',
+  chartreuse: '#c8ff00',
+  bronze: '#967400'
+};
+
 export function themeAccent(theme: ThemeName): string {
+  const additionalAccent = additionalThemeAccents[theme];
+  if (additionalAccent) return additionalAccent;
+
   if (theme === 'amber') {
     return '#ffb000';
   }
@@ -74,6 +114,16 @@ export function themeAccent(theme: ThemeName): string {
 
 export function themeContributionColors(theme: ThemeName): string[] {
   const emptyContribution = '#1c1c1c';
+  const additionalAccent = additionalThemeAccents[theme];
+
+  if (additionalAccent) {
+    const channels = [1, 3, 5].map(offset => Number.parseInt(additionalAccent.slice(offset, offset + 2), 16));
+    // Blend from the empty cell so dark accents still have visible low levels.
+    const shades = [0.25, 0.5, 0.75].map(intensity =>
+      `#${channels.map(channel => Math.round(28 + (channel - 28) * intensity).toString(16).padStart(2, '0')).join('')}`
+    );
+    return [emptyContribution, ...shades, additionalAccent];
+  }
 
   if (theme === 'amber') {
     return [emptyContribution, '#5f3700', '#9a6200', '#d68a00', '#ffb000'];

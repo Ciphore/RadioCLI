@@ -36,15 +36,35 @@ const defaultMediaKeys = {
 
 const MAX_ALARMS = 500;
 
-// Keep the shared library readable by pre-scene releases whose background MCP
-// workers quarantine an entire library when they see an unfamiliar enum value.
-// Crossfade is the last style understood by those releases. New styles live in
-// a separate preference file that old writers never read or overwrite.
-const sharedLibraryReceiverStyles = new Set(receiverStyleNames.slice(0, receiverStyleNames.indexOf('crossfade') + 1));
+// Freeze the 0.2.5 enum independently of UI ordering. New styles must stay out
+// of both its shared library and its strictly validated .receiver.json sidecar.
+// The new namespace is ignored by old playback/MCP readers and writers.
+const sharedLibraryReceiverStyles = new Set<string>([
+  'ultracode', 'pulse-grid', 'hex-pulse', 'moire', 'galaxy', 'cyclone', 'nebula', 'lava-lamp',
+  'gallop-fine', 'motion-contour', 'ribbon', 'braille-wave', 'silk', 'lissajous', 'harmonograph',
+  'spirograph', 'goniometer', 'radial-eq', 'spectrogram', 'caustics', 'ripple-tank', 'leds',
+  'matrix', 'cascade', 'ordered-dither', 'xor-texture', 'pixel-crush', 'copper-bars',
+  'rotozoomer', 'mesh', 'hologram', 'equalizer', 'tunnel', 'kaleidoscope', 'phosphene',
+  'phyllotaxis', 'chladni', 'newton', 'cube', 'spinning-donut', 'tesseract', 'torus-knot',
+  'twister', 'lorenz', 'fern', 'fractal-tree', 'julia', 'neural-net', 'constellation',
+  'starfield', 'fireworks', 'fire', 'aurora', 'stormfront', 'planetarium', 'sumi-ocean',
+  'liftoff', 'flyover', 'skyline', 'golden-gate', 'manhattan', 'alpine', 'crossfade'
+]);
 const receiverPreferenceSchema = z.object({
   version: z.literal(1),
   receiverStyle: z.preprocess(migrateReceiverStyle, z.enum(receiverStyleNames)),
   libraryReceiverStyle: z.literal('ultracode')
+});
+// Older playback/MCP processes validate this original enum on every refresh.
+// New colors must stay out of their shared JSON, even after unrelated saves.
+const sharedLibraryThemes = new Set([
+  'green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper',
+  'cyan', 'lime', 'coral', 'rose', 'slate', 'mono'
+]);
+const themePreferenceSchema = z.object({
+  version: z.literal(1),
+  theme: z.enum(themeNames),
+  libraryTheme: z.literal('green')
 });
 
 const settingsSchema: z.ZodType<AppSettings> = z.object({
@@ -290,7 +310,10 @@ export class JsonLibraryStore {
     this.state = this.read();
     // Normalize libraries saved by an earlier preview before any legacy
     // background reader encounters its new enum value again.
-    if (!sharedLibraryReceiverStyles.has(this.state.settings.receiverStyle) && !existsSync(this.receiverPreferencePath())) this.commit(this.state);
+    if (
+      (!sharedLibraryReceiverStyles.has(this.state.settings.receiverStyle) && !existsSync(this.receiverPreferenceV2Path())) ||
+      (!sharedLibraryThemes.has(this.state.settings.theme) && !existsSync(this.themePreferencePath()))
+    ) this.commit(this.state);
   }
 
   snapshot(): LibraryState {
@@ -318,7 +341,7 @@ export class JsonLibraryStore {
   }
 
   private diskRevision(): string {
-    return [this.filePath, this.receiverPreferencePath()].map(file => {
+    return [this.filePath, this.receiverPreferencePath(), this.receiverPreferenceV2Path(), this.themePreferencePath()].map(file => {
       try {
         const info = statSync(file, {bigint: true});
         return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
@@ -710,11 +733,11 @@ export class JsonLibraryStore {
     } catch (error) {
       if (error instanceof z.ZodError && error.issues.some(issue =>
         issue.code === 'invalid_value' && issue.path.length === 2 &&
-        issue.path[0] === 'settings' && issue.path[1] === 'receiverStyle'
+        issue.path[0] === 'settings' && (issue.path[1] === 'receiverStyle' || issue.path[1] === 'theme')
       )) {
-        // Another running build may have saved a newer receiver. Its library
+        // Another running build may have saved a newer appearance. Its library
         // is intact: never quarantine it or replace it with empty defaults.
-        throw new Error('The RadioCLI library uses a receiver style this process does not support. Restart RadioCLI and its MCP clients to load the updated styles.');
+        throw new Error('The RadioCLI library uses a display color or receiver style this process does not support. Restart RadioCLI and its MCP clients to load the updated colors and styles.');
       }
       try {
         assertStorageWritable(this.filePath);
@@ -727,19 +750,39 @@ export class JsonLibraryStore {
     }
     // A legacy writer can still change ordinary preferences and favorites. Its
     // fallback style must not erase the selection saved by an updated process.
-    let preference: string;
-    try { preference = readFileSync(this.receiverPreferencePath(), 'utf8'); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return state;
-      throw storageError('read the receiver preference', error);
+    // The newer namespace wins over a leftover preview preference. Continue
+    // reading the old namespace when no newer selection has been saved.
+    for (const path of [this.receiverPreferenceV2Path(), this.receiverPreferencePath()]) {
+      let preference: string;
+      try { preference = readFileSync(path, 'utf8'); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw storageError('read the receiver preference', error);
+      }
+      const parsed = receiverPreferenceSchema.safeParse(JSON.parse(preference));
+      if (!parsed.success) throw new Error('The RadioCLI receiver preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
+      if (state.settings.receiverStyle === parsed.data.libraryReceiverStyle) state.settings.receiverStyle = parsed.data.receiverStyle;
+      break;
     }
-    const parsed = receiverPreferenceSchema.safeParse(JSON.parse(preference));
-    if (!parsed.success) throw new Error('The RadioCLI receiver preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
-    if (state.settings.receiverStyle === parsed.data.libraryReceiverStyle) state.settings.receiverStyle = parsed.data.receiverStyle;
-    return state;
+    return this.readThemePreference(state);
   }
 
   private receiverPreferencePath(): string { return `${this.filePath}.receiver.json`; }
+  private receiverPreferenceV2Path(): string { return `${this.filePath}.receiver-v2.json`; }
+  private themePreferencePath(): string { return `${this.filePath}.theme.json`; }
+
+  private readThemePreference(state: LibraryState): LibraryState {
+    let preference: string;
+    try { preference = readFileSync(this.themePreferencePath(), 'utf8'); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return state;
+      throw storageError('read the display color preference', error);
+    }
+    const parsed = themePreferenceSchema.safeParse(JSON.parse(preference));
+    if (!parsed.success) throw new Error('The RadioCLI display color preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
+    if (state.settings.theme === parsed.data.libraryTheme) state.settings.theme = parsed.data.theme;
+    return state;
+  }
 
   private readForCurrentSession(): LibraryState {
     const next = this.read();
@@ -770,26 +813,46 @@ export class JsonLibraryStore {
       mkdirSync(dirname(this.filePath), {recursive: true, mode: 0o700});
       const diskState = libraryStateForDisk(state);
       const separateReceiver = !sharedLibraryReceiverStyles.has(state.settings.receiverStyle);
-      const preferencePath = this.receiverPreferencePath();
-      let previousPreference: string | undefined;
-      try { previousPreference = readFileSync(preferencePath, 'utf8'); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      const nextPreference = separateReceiver
-        ? `${JSON.stringify({version: 1, receiverStyle: state.settings.receiverStyle, libraryReceiverStyle: 'ultracode'}, null, 2)}\n`
-        : undefined;
-      const preferenceChanged = previousPreference !== nextPreference;
-      if (preferenceChanged) {
-        if (nextPreference === undefined) rmSync(preferencePath);
-        else writeTextAtomically(preferencePath, nextPreference);
-      }
+      const separateTheme = !sharedLibraryThemes.has(state.settings.theme);
+      const preferences = [
+        {
+          path: this.receiverPreferenceV2Path(),
+          next: separateReceiver
+            ? `${JSON.stringify({version: 1, receiverStyle: state.settings.receiverStyle, libraryReceiverStyle: 'ultracode'}, null, 2)}\n`
+            : undefined
+        },
+        {path: this.receiverPreferencePath(), next: undefined},
+        {
+          path: this.themePreferencePath(),
+          next: separateTheme
+            ? `${JSON.stringify({version: 1, theme: state.settings.theme, libraryTheme: 'green'}, null, 2)}\n`
+            : undefined
+        }
+      ].map(preference => {
+        let previous: string | undefined;
+        try { previous = readFileSync(preference.path, 'utf8'); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        return {...preference, previous};
+      }).filter(preference => preference.previous !== preference.next);
+      const applied: typeof preferences = [];
       try {
-        writeJsonAtomically(this.filePath, separateReceiver
-          ? {...diskState, settings: {...diskState.settings, receiverStyle: 'ultracode'}}
-          : diskState);
+        for (const preference of preferences) {
+          if (preference.next === undefined) rmSync(preference.path);
+          else writeTextAtomically(preference.path, preference.next);
+          applied.push(preference);
+        }
+        writeJsonAtomically(this.filePath, {
+          ...diskState,
+          settings: {
+            ...diskState.settings,
+            ...(separateReceiver ? {receiverStyle: 'ultracode'} : {}),
+            ...(separateTheme ? {theme: 'green'} : {})
+          }
+        });
       } catch (error) {
-        if (preferenceChanged) {
-          if (previousPreference === undefined) rmSync(preferencePath, {force: true});
-          else writeTextAtomically(preferencePath, previousPreference);
+        for (const preference of applied.reverse()) {
+          if (preference.previous === undefined) rmSync(preference.path, {force: true});
+          else writeTextAtomically(preference.path, preference.previous);
         }
         throw error;
       }

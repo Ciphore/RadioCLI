@@ -1,5 +1,7 @@
 import type {PlaybackState, ReceiverStyle, Station, ThemeName} from '../../types.js';
 import {themeAccent, themeContributionColors} from '../theme.js';
+import {buildBoatLake} from './boat-lake.js';
+import {buildSumiOcean} from './sumi-ocean.js';
 import {retroReceiverBuilders} from './retro-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
@@ -32,6 +34,7 @@ type VisualizerBuilder = (
 
 const receiverStyleBuilders = {
   ...retroReceiverBuilders,
+  'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
   leds: buildLeds,
@@ -147,7 +150,9 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   'galaxy',
   'cyclone',
   'fire',
-  'stormfront'
+  'stormfront',
+  'boat-lake',
+  'sumi-ocean'
 ]);
 
 function resampleVisualizer(
@@ -5053,14 +5058,6 @@ function buildPlanetarium(
   return grid.map(row => lineFromCells(row, accent));
 }
 
-function receiverArtPalette(theme: ThemeName, colors: string[]): string[] {
-  if (theme !== 'mono') {
-    return colors;
-  }
-
-  return ['#181818', '#303030', '#505050', '#777777', '#9a9a9a', '#bcbcbc', '#dddddd', '#ffffff'];
-}
-
 function receiverBandEnergy(pulse: number, startBand: number, samples = 6): number {
   let total = 0;
   for (let index = 0; index < samples; index += 1) {
@@ -5068,124 +5065,6 @@ function receiverBandEnergy(pulse: number, startBand: number, samples = 6): numb
   }
 
   return total / Math.max(1, samples);
-}
-
-/** A deep-perspective indigo ocean rendered with restrained sumi marks. */
-function buildSumiOcean(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const palette = receiverArtPalette(theme, ['#020817', '#06172c', '#092743', '#0d3c60', '#15567d', '#2777a1', '#66a9cc', '#d7edf5']);
-  const grid = emptyMotionGrid(width, height, palette[0] ?? '#020817');
-  const moonX = width * (0.73 + Math.sin(pulse * 0.006) * 0.015);
-  const moonY = height * 0.22;
-  const moonRadius = Math.max(1.1, height * 0.11);
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const dx = (x - moonX) / 1.9;
-      const dy = y - moonY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance <= moonRadius) {
-        grid[y]![x] = {text: distance < moonRadius * 0.72 ? '█' : '▓', color: palette[7] ?? accent, bold: distance < moonRadius * 0.55};
-      } else if (hashNoise(x, y, 0) > 0.992) {
-        grid[y]![x] = {text: '·', color: palette[5] ?? accent};
-      }
-    }
-  }
-
-  const horizon = 0.4;
-  const layers = [
-    {base: 0.42, amp: 0.035, cycles: 15, speed: 0.009, color: 2, glyph: '·'},
-    {base: 0.47, amp: 0.038, cycles: 12, speed: 0.012, color: 2, glyph: '░'},
-    {base: 0.53, amp: 0.042, cycles: 10, speed: 0.016, color: 3, glyph: '░'},
-    {base: 0.61, amp: 0.05, cycles: 8, speed: 0.021, color: 3, glyph: '▒'},
-    {base: 0.71, amp: 0.06, cycles: 6.5, speed: 0.027, color: 4, glyph: '▒'},
-    {base: 0.83, amp: 0.075, cycles: 5.2, speed: 0.034, color: 5, glyph: '▓'},
-    {base: 0.96, amp: 0.1, cycles: 4.2, speed: 0.042, color: 5, glyph: '█'}
-  ];
-  const bass = receiverBandEnergy(pulse, 2);
-
-  // The water plane grows darker and more textured toward the viewer. Far
-  // water is quiet and compressed at the horizon; nearby water occupies more
-  // screen space, producing a clear vanishing-depth read.
-  const horizonRow = Math.max(0, Math.round(height * horizon));
-  for (let y = horizonRow; y < height; y += 1) {
-    const depth = (y - horizonRow) / Math.max(1, height - 1 - horizonRow);
-    const colorIndex = Math.min(5, 2 + Math.floor(depth * 4));
-    for (let x = 0; x < width; x += 1) {
-      const texture = hashNoise(x, y, 41);
-      const glyph = texture > 0.975
-        ? ' '
-        : depth > 0.68
-          ? texture > 0.48 ? '▓' : '▒'
-          : depth > 0.32
-            ? texture > 0.62 ? '▒' : '░'
-            : texture > 0.76 ? '░' : '·';
-      grid[y]![x] = {text: glyph, color: palette[colorIndex] ?? accent};
-    }
-  }
-
-  layers.forEach((layer, layerIndex) => {
-    for (let x = 0; x < width; x += 1) {
-      const nx = x / Math.max(1, width - 1);
-      const phase = nx * layer.cycles * Math.PI * 2 + pulse * layer.speed + layerIndex * 1.9;
-      const ridgeNoise = clampNumber(
-        0.5 +
-          Math.sin(phase) * 0.27 +
-          Math.sin(phase * 1.83 + 0.9) * 0.16 +
-          Math.cos(phase * 3.2 - 0.4) * 0.07,
-        0,
-        1
-      );
-      const near = layerIndex / Math.max(1, layers.length - 1);
-      const ridgeY = Math.round(height * (layer.base + layer.amp * (1 - ridgeNoise * 2) - (near > 0.7 ? bass * 0.018 : 0)));
-      const crest = layerIndex < 3 ? '─' : '━';
-      paintCell(grid, x, ridgeY, crest, palette[Math.min(6, layer.color + 1)] ?? accent);
-      if (ridgeY + 1 < height && layerIndex > 1) {
-        paintCell(grid, x, ridgeY + 1, layer.glyph, palette[layer.color] ?? accent);
-      }
-      if (layerIndex > 3 && ridgeY > 0 && (x + layerIndex * 3) % 13 < 3 + Math.floor(near * 3)) {
-        paintCell(grid, x, ridgeY - 1, layerIndex > 5 ? '▀' : '·', palette[6] ?? accent);
-      }
-    }
-  });
-
-  // A narrow moon path widens toward the foreground, reinforcing the same
-  // perspective even in short terminal viewports.
-  for (let y = horizonRow; y < height; y += 1) {
-    const depth = (y - horizonRow) / Math.max(1, height - 1 - horizonRow);
-    const reflectionHalfWidth = 1 + Math.floor(depth * Math.max(2, width * 0.045));
-    const center = Math.round(moonX + Math.sin(y * 2.1 + pulse * 0.025) * reflectionHalfWidth * 0.45);
-    for (let offset = -reflectionHalfWidth; offset <= reflectionHalfWidth; offset += 1) {
-      if (hashNoise(offset + 30, y, Math.floor(pulse / 12)) > 0.48 + depth * 0.14) {
-        paintCell(grid, center + offset, y, depth > 0.65 ? '━' : '─', palette[6] ?? accent);
-      }
-    }
-  }
-
-  // Two distant seabirds keep the horizon alive without making it busy.
-  const birdX = Math.round(width * (0.24 + 0.04 * Math.sin(pulse * 0.01)));
-  const birdY = Math.max(1, Math.round(height * 0.2));
-  paintCell(grid, birdX - 1, birdY, '⌁', palette[6] ?? accent);
-  paintCell(grid, birdX + 2, birdY + 1, '⌁', palette[5] ?? accent);
-
-  // A blue water plane beneath the block texture removes isolated black gaps
-  // while retaining the foreground-to-horizon depth bands.
-  for (let y = horizonRow; y < height; y += 1) {
-    const depth = (y - horizonRow) / Math.max(1, height - 1 - horizonRow);
-    const backgroundIndex = depth > 0.68 ? 3 : depth > 0.28 ? 2 : 1;
-    const backgroundColor = palette[backgroundIndex] ?? palette[1] ?? accent;
-    for (let x = 0; x < width; x += 1) {
-      const cell = grid[y]![x]!;
-      grid[y]![x] = {...cell, backgroundColor};
-    }
-  }
-
-  return grid.map(row => lineFromCells(row, accent));
 }
 
 function rgbColor(red: number, green: number, blue: number): string {

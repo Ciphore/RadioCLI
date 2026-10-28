@@ -2,16 +2,35 @@
 
 All notable changes to RadioCLI are documented in this file.
 
-## Unreleased
+## [0.2.6] - 2026-10-28
+
+### Added
+
+- Added the Boat Lake receiver, bringing the collection to 64 animated styles.
+- Expanded the display palette from 14 to 48 colors, with matching listening
+  activity shades and color choices in the website receiver gallery.
+
+### Changed
+
+- Refined Sumi Ocean with a clearer moon, moving water, and wider reflections
+  that remain readable in compact and micro layouts.
+- Updated the website receiver previews and project demos to match the terminal
+  renderers, including Boat Lake, Sumi Ocean, and the expanded color palette.
 
 ### Fixed
 
-- Prevented animated receiver rows from accumulating in Ink's text caches during
-  long sessions, including Manhattan and the other scenery styles, across full,
+- Prevented long-running animated receiver sessions from exhausting Node.js
+  memory, including Manhattan and the other scenery styles, across full,
   compact, and micro layouts.
-- Defaulted the TUI to React's production runtime before loading the renderer,
-  preventing development profiling entries from accumulating during playback.
-  Explicit developer environments remain available.
+- Kept normal TUI launches on the production React runtime while preserving
+  explicitly enabled development diagnostics.
+- Preserved new colors and receiver selections while older RadioCLI and MCP
+  processes continue reading and writing the same library.
+
+### Security
+
+- Updated Zod and Undici to patched versions within their existing dependency
+  ranges.
 
 ## [0.2.5] - 2026-10-18
 

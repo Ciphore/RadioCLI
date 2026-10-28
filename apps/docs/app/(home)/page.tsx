@@ -81,7 +81,7 @@ export default function HomePage() {
       </div>
 
       <ReceiverGallery preview />
-      <Link className="rc-text-link rc-gallery-link" href="/receivers">Try all 63 receiver styles →</Link>
+      <Link className="rc-text-link rc-gallery-link" href="/receivers">Try all 64 receiver styles →</Link>
 
       <div className="rc-visual-features">
         {features.filter((_, index) => index > 1 && index !== 4).map(feature => <VisualFeature key={feature.demo} feature={feature} />)}

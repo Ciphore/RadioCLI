@@ -20,7 +20,7 @@ assert.equal(typeof global.gc, 'function', 'Run Node with --expose-gc');
 const frames = Number(process.argv.find(value => value.startsWith('--frames='))?.split('=')[1] ?? 2000);
 assert(Number.isInteger(frames) && frames >= 1000, '--frames must be an integer >= 1000');
 const playback = {state: 'playing', ready: true, backend: 'mpv', volume: 70, muted: false};
-const scenes = ['manhattan', 'skyline', 'golden-gate', 'alpine', 'flyover', 'planetarium', 'sumi-ocean'];
+const scenes = ['manhattan', 'skyline', 'golden-gate', 'alpine', 'flyover', 'planetarium', 'sumi-ocean', 'boat-lake'];
 const viewports = [{width: 100, height: 14}, {width: 50, height: 7}, {width: 24, height: 3}];
 const env = {FORCE_COLOR: '3'};
 await configureTerminalRenderer(env);
@@ -60,7 +60,7 @@ try {
     // Half the frames stress the two richest scenes at full size. The rest
     // exercise style, viewport, palette, ASCII and background changes.
     const full = index % 2 === 0;
-    await renderFrame(full ? scenes[index % 4 === 0 ? 0 : 1] : scenes[index % scenes.length], index + 1, full ? 0 : Math.floor(index / 7) % 6);
+    await renderFrame(full ? scenes[index % 4 === 0 ? 0 : 1] : scenes[Math.floor(index / 2) % scenes.length], index + 1, full ? 0 : Math.floor(index / 7) % 6);
     if ((index + 1) % 250 === 0) {
       global.gc();
       samples.push({frame: index + 1, ...process.memoryUsage()});

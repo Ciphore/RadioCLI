@@ -1025,7 +1025,8 @@ describe('JsonLibraryStore', () => {
     for (const receiverStyle of receiverStyleNames) {
       store.updateSettings({receiverStyle});
       const legacy = JSON.parse(readFileSync(file, 'utf8'));
-      expect(legacy.settings.receiverStyle).toBe(receiverStyle);
+      expect(legacy.settings.receiverStyle).toBe(receiverStyle === 'boat-lake' ? 'ultracode' : receiverStyle);
+      expect(existsSync(`${file}.receiver.json`)).toBe(false);
       // Old stores rewrite only the fields they know, leaving the sidecar alone.
       legacy.settings.volume = 39;
       writeFileSync(file, JSON.stringify(legacy));
@@ -1034,9 +1035,69 @@ describe('JsonLibraryStore', () => {
     }
     store.updateSettings({receiverStyle: 'ultracode'});
     expect(existsSync(`${file}.receiver.json`)).toBe(false);
+    expect(existsSync(`${file}.receiver-v2.json`)).toBe(false);
     expect(observer.snapshot().settings.receiverStyle).toBe('ultracode');
     expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
   }, 20_000);
+
+  it('keeps Boat Lake out of the 0.2.5 preference namespace and honors explicit legacy selections', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const writer = new JsonLibraryStore(file);
+    writer.toggleFavorite(exampleAlarm().station);
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
+    writer.updateSettings({receiverStyle: 'boat-lake'});
+    expect(existsSync(`${file}.receiver.json`)).toBe(false);
+    expect(JSON.parse(readFileSync(`${file}.receiver-v2.json`, 'utf8'))).toEqual({version: 1, receiverStyle: 'boat-lake', libraryReceiverStyle: 'ultracode'});
+    const legacy = JSON.parse(readFileSync(file, 'utf8'));
+    expect(legacy.settings.receiverStyle).toBe('ultracode');
+    const observer = new JsonLibraryStore(file);
+    legacy.settings.volume = 39;
+    writeFileSync(file, JSON.stringify(legacy));
+    expect(observer.settings()).toMatchObject({receiverStyle: 'boat-lake', volume: 39});
+    const backup = writer.exportBackup(join(root, 'backup.json'));
+    expect(JSON.parse(readFileSync(backup, 'utf8')).library.settings.receiverStyle).toBe('boat-lake');
+    legacy.settings.receiverStyle = 'galaxy';
+    writeFileSync(file, JSON.stringify(legacy));
+    expect(observer.settings().receiverStyle).toBe('galaxy');
+    writer.updateSettings({volume: 40});
+    expect(existsSync(`${file}.receiver-v2.json`)).toBe(false);
+    expect(observer.settings().receiverStyle).toBe('galaxy');
+    writer.importBackup(backup);
+    expect(observer.settings().receiverStyle).toBe('boat-lake');
+    expect(observer.snapshot().favorites).toHaveLength(1);
+  });
+
+  it('moves a preview Boat Lake preference out of the legacy namespace on opening', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    new JsonLibraryStore(file).toggleFavorite(exampleAlarm().station);
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'boat-lake', libraryReceiverStyle: 'ultracode'}));
+    const store = new JsonLibraryStore(file);
+    expect(store.settings().receiverStyle).toBe('boat-lake');
+    expect(existsSync(`${file}.receiver.json`)).toBe(false);
+    expect(JSON.parse(readFileSync(`${file}.receiver-v2.json`, 'utf8')).receiverStyle).toBe('boat-lake');
+    expect(JSON.parse(readFileSync(file, 'utf8')).settings.receiverStyle).toBe('ultracode');
+    expect(store.snapshot().favorites).toHaveLength(1);
+  });
+
+  it('refreshes changes confined to the new preference and prefers it over a stale legacy file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({receiverStyle: 'ultracode'});
+    writeFileSync(`${file}.receiver-v2.json`, JSON.stringify({version: 1, receiverStyle: 'boat-lake', libraryReceiverStyle: 'ultracode'}));
+    expect(store.settings().receiverStyle).toBe('boat-lake');
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
+    expect(store.settings().receiverStyle).toBe('boat-lake');
+    store.updateSettings({volume: 40});
+    expect(existsSync(`${file}.receiver.json`)).toBe(false);
+    rmSync(`${file}.receiver-v2.json`);
+    expect(store.settings().receiverStyle).toBe('ultracode');
+  });
 
   it('refreshes receiver-only changes and exports and restores the actual selection', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
@@ -1082,7 +1143,7 @@ describe('JsonLibraryStore', () => {
     expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
   });
 
-  it.each(['mesh', 'galaxy', 'ultracode'] as const)('rolls back a legacy receiver preference if the library replacement fails (%s)', receiverStyle => {
+  it.each(['mesh', 'galaxy', 'ultracode', 'boat-lake'] as const)('rolls back a legacy receiver preference if the library replacement fails (%s)', receiverStyle => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
@@ -1099,10 +1160,11 @@ describe('JsonLibraryStore', () => {
     expect(() => store.updateSettings({receiverStyle, volume: 40})).toThrow(/write/);
     expect(readFileSync(file, 'utf8')).toBe(library);
     expect(readFileSync(`${file}.receiver.json`, 'utf8')).toBe(preference);
+    expect(existsSync(`${file}.receiver-v2.json`)).toBe(false);
     expect(store.settings().receiverStyle).toBe('mesh');
   });
 
-  it('preserves the library when a newer receiver preference is unsupported', () => {
+  it.each(['receiver.json', 'receiver-v2.json'])('preserves the library when %s contains an unsupported receiver', suffix => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');
@@ -1110,11 +1172,29 @@ describe('JsonLibraryStore', () => {
     store.updateSettings({receiverStyle: 'ultracode'});
     const library = readFileSync(file, 'utf8');
     const preference = JSON.stringify({version: 1, receiverStyle: 'future-scene', libraryReceiverStyle: 'ultracode'});
-    writeFileSync(`${file}.receiver.json`, preference);
+    writeFileSync(`${file}.${suffix}`, preference);
     expect(() => store.updateSettings({volume: 25})).toThrow(/library has been preserved/);
     expect(readFileSync(file, 'utf8')).toBe(library);
-    expect(readFileSync(`${file}.receiver.json`, 'utf8')).toBe(preference);
+    expect(readFileSync(`${file}.${suffix}`, 'utf8')).toBe(preference);
     expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
+  });
+
+  it.each(['boat-lake', 'ultracode'] as const)('rolls back both new appearance preferences after a failed library save (%s)', receiverStyle => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({receiverStyle: 'boat-lake', theme: 'jade'});
+    const paths = [file, `${file}.receiver-v2.json`, `${file}.theme.json`];
+    const before = paths.map(path => readFileSync(path, 'utf8'));
+    const rename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (to === file) throw Object.assign(new Error('replacement failed'), {code: 'EIO'});
+      return rename(from, to);
+    });
+    expect(() => store.updateSettings({receiverStyle, theme: 'pine'})).toThrow(/write/);
+    expect(paths.map(path => readFileSync(path, 'utf8'))).toEqual(before);
+    expect(store.settings()).toMatchObject({receiverStyle: 'boat-lake', theme: 'jade'});
   });
 
   it('persists every display color exposed by the UI cycle', () => {
@@ -1127,6 +1207,119 @@ describe('JsonLibraryStore', () => {
       store.updateSettings({theme});
       expect(new JsonLibraryStore(file).snapshot().settings.theme).toBe(theme);
     }
+  });
+
+  it('preserves all display colors and favorites when legacy playback writers save', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    // Freeze the enum understood by already-running pre-palette processes.
+    const legacyThemes = ['green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper', 'cyan', 'lime', 'coral', 'rose', 'slate', 'mono'];
+    const writer = new JsonLibraryStore(file);
+    writer.toggleFavorite(exampleAlarm().station);
+    const observer = new JsonLibraryStore(file);
+    for (const theme of themeNames) {
+      writer.updateSettings({theme});
+      const legacy = JSON.parse(readFileSync(file, 'utf8'));
+      expect(legacyThemes, theme).toContain(legacy.settings.theme);
+      legacy.settings.volume = 39;
+      writeFileSync(file, JSON.stringify(legacy));
+      expect(observer.snapshot().settings).toMatchObject({theme, volume: 39});
+      expect(observer.snapshot().favorites).toHaveLength(1);
+    }
+    writer.updateSettings({theme: 'amber'});
+    expect(existsSync(`${file}.theme.json`)).toBe(false);
+    expect(observer.settings().theme).toBe('amber');
+    expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
+  });
+
+  it('normalizes an inline preview color before legacy readers see it again', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const original = new JsonLibraryStore(file).toggleFavorite(exampleAlarm().station);
+    writeFileSync(file, JSON.stringify({...original, settings: {...original.settings, theme: 'jade'}}));
+    expect(new JsonLibraryStore(file).settings().theme).toBe('jade');
+    expect(JSON.parse(readFileSync(file, 'utf8')).settings.theme).toBe('green');
+    expect(new JsonLibraryStore(file).snapshot().favorites).toHaveLength(1);
+  });
+
+  it('refreshes theme-only changes and backs up the actual selection', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const writer = new JsonLibraryStore(file);
+    writer.updateSettings({theme: 'jade'});
+    const observer = new JsonLibraryStore(file);
+    const backup = writer.exportBackup(join(root, 'backup.json'));
+    expect(JSON.parse(readFileSync(backup, 'utf8')).library.settings.theme).toBe('jade');
+    writeFileSync(`${file}.theme.json`, JSON.stringify({version: 1, theme: 'pine', libraryTheme: 'green'}));
+    expect(observer.settings().theme).toBe('pine');
+    writer.importBackup(backup);
+    expect(observer.settings().theme).toBe('jade');
+    // An explicit legacy selection takes precedence over a stale preference.
+    const legacy = JSON.parse(readFileSync(file, 'utf8'));
+    legacy.settings.theme = 'blue';
+    writeFileSync(file, JSON.stringify(legacy));
+    expect(observer.settings().theme).toBe('blue');
+  });
+
+  it.each(['jade', 'cobalt', 'amber'] as const)('rolls back the display color when the library save fails (%s)', theme => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'jade'});
+    const library = readFileSync(file, 'utf8');
+    const preference = readFileSync(`${file}.theme.json`, 'utf8');
+    const rename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (to === file) throw Object.assign(new Error('replacement failed'), {code: 'EIO'});
+      return rename(from, to);
+    });
+    expect(() => store.updateSettings({theme, volume: 40})).toThrow(/write/);
+    expect(readFileSync(file, 'utf8')).toBe(library);
+    expect(readFileSync(`${file}.theme.json`, 'utf8')).toBe(preference);
+    expect(store.settings().theme).toBe('jade');
+  });
+
+  it.each(['library', 'preference'])('preserves data when a future display color is unsupported in the %s', location => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.toggleFavorite(exampleAlarm().station);
+    if (location === 'library') {
+      const library = JSON.parse(readFileSync(file, 'utf8'));
+      library.settings.theme = 'future-color';
+      writeFileSync(file, JSON.stringify(library));
+    } else {
+      writeFileSync(`${file}.theme.json`, JSON.stringify({version: 1, theme: 'future-color', libraryTheme: 'green'}));
+    }
+    const library = readFileSync(file, 'utf8');
+    expect(() => store.updateSettings({volume: 25})).toThrow(/display color/);
+    expect(readFileSync(file, 'utf8')).toBe(library);
+    expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
+  });
+
+  it.each(['ultracode', 'boat-lake'] as const)('restores receiver preferences when saving a display color preference fails (%s)', receiverStyle => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    new JsonLibraryStore(file).updateSettings({theme: 'jade', receiverStyle: 'ultracode'});
+    writeFileSync(`${file}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
+    const store = new JsonLibraryStore(file);
+    const paths = [file, `${file}.receiver.json`, `${file}.theme.json`];
+    const before = paths.map(path => readFileSync(path, 'utf8'));
+    const rename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (to === `${file}.theme.json`) throw Object.assign(new Error('replacement failed'), {code: 'EIO'});
+      return rename(from, to);
+    });
+    expect(() => store.updateSettings({theme: 'cobalt', receiverStyle})).toThrow(/write/);
+    expect(paths.map(path => readFileSync(path, 'utf8'))).toEqual(before);
+    expect(existsSync(`${file}.receiver-v2.json`)).toBe(false);
+    expect(store.settings()).toMatchObject({theme: 'jade', receiverStyle: 'mesh'});
   });
 
   it('uses the new RADIOCLI_HOME override', () => {

@@ -51,7 +51,7 @@ recorded evidence; npm cannot rerun the source verification from that artifact.
 Test the packed tarball locally:
 
 ```bash
-VERSION=0.2.5
+VERSION=0.2.6
 npm pack
 npm install -g "./ciphore-radiocli-$VERSION.tgz"
 radiocli --help
@@ -63,7 +63,7 @@ Publish:
 
 ```bash
 npm login
-npm publish ./output/release-evidence/ciphore-radiocli-0.2.5.tgz --access public
+npm publish ./output/release-evidence/ciphore-radiocli-0.2.6.tgz --access public
 ```
 
 After publishing, `npm install -g @ciphore/radiocli` should install the
@@ -99,9 +99,9 @@ The evidence directory also retains the tested tarball and a `candidate.json`
 source record. `--require-clean` rejects a dirty or unknown source state when
 running the fresh-install harness directly.
 
-The same harness upgrades separate installations of published versions 0.2.3
-and 0.2.4 to the candidate tarball. It keeps each older storage implementation
-running throughout the replacement, then checks all 63 supported receivers while
+The same harness upgrades separate installations of published versions 0.2.3, 0.2.4,
+and 0.2.5 to the candidate tarball. It keeps each older storage implementation
+running throughout the replacement, then checks all 64 supported receivers while
 old and new processes read and write one library. Favorites, recent stations,
 track/search history, alarms, and the previously selected receiver must survive.
 Each `upgrade-<version>.json` record is bound to the tested artifact, source, and
@@ -200,7 +200,7 @@ The reusable formula template lives in `packaging/homebrew/radiocli.rb.template`
 After each npm publish, fetch the npm tarball URL and SHA:
 
 ```bash
-VERSION=0.2.5
+VERSION=0.2.6
 TARBALL="$(npm view @ciphore/radiocli@$VERSION dist.tarball)"
 curl -L "$TARBALL" -o "/tmp/radiocli-$VERSION.tgz"
 shasum -a 256 "/tmp/radiocli-$VERSION.tgz"
