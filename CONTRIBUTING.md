@@ -95,6 +95,24 @@ major screens, and receiver styles. Preserve Unicode captures. When rendering
 changes intentionally, describe the visible effect in the pull request and do
 not update snapshots merely to hide failures.
 
+Receiver changes also run an isolated real-Ink memory regression in the normal
+test suite. For a longer accelerated soak (frames run without the 80 ms delay):
+
+```bash
+node --expose-gc --import tsx scripts/receiver-memory-smoke.mjs --frames=10000
+```
+
+The harness updates one persistent Ink root, discards terminal output, waits
+for each frame to flush, and compares
+post-GC JavaScript heap after warmup; RSS includes allocator high-water memory
+and is recorded separately. It cycles scenery, sizes, themes, ASCII, and
+background settings. Like the CLI, it defaults to the production React runtime
+before loading the renderer. An explicit `NODE_ENV=development` keeps React's
+developer diagnostics, including profiling entries retained by Node; use the
+production runtime for memory acceptance. Node 26 has an additional receiver-only CI check on Linux,
+macOS, and Windows for issue #55; this does not replace the full Node 22/24
+platform matrix or establish full Node 26 platform verification.
+
 ## Issue Triage
 
 Playback issues should include station name, country, backend, and

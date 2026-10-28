@@ -31,6 +31,7 @@ import {formatExploreCursor} from './app-state.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from './cosmo-world-map.js';
 import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adaptive-explore-layout.js';
 import {AdaptiveMarquee} from './components/AdaptiveMarquee.js';
+import {ReceiverVisualRow} from './components/ReceiverVisualRow.js';
 
 type AdaptiveContentProps = {
   platform?: NodeJS.Platform;
@@ -628,7 +629,7 @@ function AdaptiveNowPlaying({
   reduceMotion: boolean;
 }): React.ReactElement {
   const pulse = useReceiverPulse();
-  const {screenReader} = useDisplay();
+  const {screenReader, app: appBackground} = useDisplay();
   const accent = themeAccent(theme);
   const stationName = station?.name ?? 'No station tuned';
   const showMetadata = Boolean(metadata?.title) && (screenReader || mode === 'compact' && height >= 9);
@@ -663,13 +664,7 @@ function AdaptiveNowPlaying({
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       {!screenReader ? <Box flexDirection="column" height={availableVisualRows} overflow="hidden" aria-hidden>
         {visualRows.map((row, index) => (
-          <Text key={index} color={row.segments ? undefined : row.color}>
-            {row.segments
-              ? renderAdaptiveSegments(row.segments, ascii)
-              : ascii
-                ? toAsciiSafe(row.text)
-                : row.text}
-          </Text>
+          <ReceiverVisualRow key={index} row={row} width={width} ascii={ascii} backgroundColor={appBackground} />
         ))}
       </Box> : null}
       {showMetadata ? (
@@ -680,22 +675,6 @@ function AdaptiveNowPlaying({
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
     </Box>
   );
-}
-
-function renderAdaptiveSegments(
-  segments: Array<{text: string; color: string; backgroundColor?: string; bold?: boolean}>,
-  ascii: boolean
-): React.ReactNode {
-  let offset = 0;
-  return segments.map(segment => {
-    const key = offset;
-    offset += segment.text.length;
-    return (
-      <Text key={key} color={segment.color} backgroundColor={segment.backgroundColor} bold={segment.bold}>
-        {ascii ? toAsciiSafe(segment.text) : segment.text}
-      </Text>
-    );
-  });
 }
 
 function AdaptiveSearch({

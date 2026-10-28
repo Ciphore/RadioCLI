@@ -2,6 +2,17 @@
 
 All notable changes to RadioCLI are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Prevented animated receiver rows from accumulating in Ink's text caches during
+  long sessions, including Manhattan and the other scenery styles, across full,
+  compact, and micro layouts.
+- Defaulted the TUI to React's production runtime before loading the renderer,
+  preventing development profiling entries from accumulating during playback.
+  Explicit developer environments remain available.
+
 ## [0.2.5] - 2026-10-18
 
 ### Added
