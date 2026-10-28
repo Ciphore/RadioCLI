@@ -2,7 +2,7 @@ import type {ThemeName} from '../../types.js';
 import {themeAccent} from '../theme.js';
 import {horseStrideFrames, horseStrideHeight, horseStrideWidth} from './horse-stride.js';
 
-const frames = horseStrideFrames.map(frame => Buffer.from(frame, 'base64'));
+const frames = horseStrideFrames.map(frame => Uint8Array.from(atob(frame), char => char.charCodeAt(0)));
 const brailleBits = [[1, 8], [2, 16], [4, 32], [64, 128]] as const;
 
 /** One pose per receiver tick. The same scale and torso anchor are used for every pose. */

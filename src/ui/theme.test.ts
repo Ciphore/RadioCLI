@@ -20,6 +20,15 @@ describe('themeContributionColors', () => {
       expect(colors[4]).toBe(themeAccent(theme));
     }
   });
+
+  it('increases brightness at each contribution level', () => {
+    for (const theme of themeNames) {
+      const colors = themeContributionColors(theme);
+      for (let level = 1; level < colors.length; level++) {
+        expect(relativeLuminance(colors[level]!), `${theme}: level ${level}`).toBeGreaterThan(relativeLuminance(colors[level - 1]!));
+      }
+    }
+  });
 });
 
 describe('neutral text colors', () => {
@@ -33,6 +42,12 @@ describe('neutral text colors', () => {
 });
 
 describe('nextTheme', () => {
+  it('gives every selectable theme a distinct truecolor accent', () => {
+    const accents = themeNames.map(themeAccent);
+    for (const accent of accents) expect(accent).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(new Set(accents.map(accent => accent.toLowerCase())).size).toBe(themeNames.length);
+  });
+
   it('uses the ultracode purple as the violet display color', () => {
     expect(themeAccent('violet')).toBe('#8c50f0');
     expect(themeContributionColors('violet').at(-1)).toBe('#8c50f0');

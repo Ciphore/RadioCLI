@@ -173,6 +173,35 @@ jobs:
           path: output/release-evidence/
           if-no-files-found: warn
 
+  receiver-node26:
+    name: Receiver regression / Node 26 / ${{ matrix.os }}
+    if: github.event_name != 'schedule'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # Issue #55 was reported on Node 26. This additive renderer check keeps
+    # the maintained Node 22/24 platform and playback matrix unchanged.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Receiver output, memory and terminal compatibility
+        env:
+          VITEST_MAX_WORKERS: '1'
+        run: npx vitest run src/cli-tui-runtime.test.ts src/ui/components/ReceiverVisualRow.test.tsx src/ui/visual-baseline.test.tsx src/ui/portable-render.test.tsx src/ui/receiver-animation.test.tsx
+
   playback-smoke:
     name: Playback Smoke
     runs-on: ${{ matrix.os }}
@@ -272,16 +301,17 @@ jobs:
 
   required-release-checks:
     name: Required Release Checks
-    needs: [verify, playback-smoke, docs]
+    needs: [verify, receiver-node26, playback-smoke, docs]
     if: always() && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Require all maintained-platform jobs
         env:
           VERIFY: ${{ needs.verify.result }}
+          RECEIVER_NODE26: ${{ needs.receiver-node26.result }}
           PLAYBACK: ${{ needs.playback-smoke.result }}
           DOCS: ${{ needs.docs.result }}
-        run: test "$VERIFY" = success && test "$PLAYBACK" = success && test "$DOCS" = success
+        run: test "$VERIFY" = success && test "$RECEIVER_NODE26" = success && test "$PLAYBACK" = success && test "$DOCS" = success
 
   # Experimental jobs run in full guest kernels, not Linux containers. They are
   # opt-in/weekly and do not establish maintained or audible-playback support.

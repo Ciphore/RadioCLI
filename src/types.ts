@@ -7,7 +7,28 @@ import {
 export {defaultReceiverStyle, receiverStyleNames};
 
 const providerIds = ['radio-browser', 'radio-garden', 'playlist'] as const;
-export const themeNames = ['green', 'amber', 'blue', 'ruby', 'ice', 'teal', 'violet', 'copper', 'cyan', 'lime', 'coral', 'rose', 'slate', 'mono'] as const;
+export const themeNames = [
+  // Reds
+  'vermilion', 'scarlet',
+  // Oranges and earth tones
+  'cocoa', 'copper', 'tangerine', 'blaze-orange', 'coral', 'apricot',
+  // Golds and creams
+  'bronze', 'amber', 'sunflower', 'butter', 'parchment', 'ivory',
+  // Yellow greens
+  'olive', 'lime', 'chartreuse', 'acid-yellow', 'pistachio',
+  // Greens
+  'pine', 'laser-green', 'green',
+  // Teals and cyans
+  'midnight-teal', 'jade', 'teal', 'cyan', 'ice',
+  // Blues
+  'cobalt', 'blue', 'slate', 'periwinkle', 'ultramarine', 'indigo',
+  // Purples and mauves
+  'neon-violet', 'violet', 'aubergine', 'plum', 'heather', 'dusty-mauve',
+  // Magentas and pinks
+  'hot-magenta', 'wineberry', 'raspberry', 'ruby', 'dracula-pink', 'rose', 'blush',
+  // Neutrals
+  'soft-silver', 'mono'
+] as const;
 type ProviderId = (typeof providerIds)[number];
 
 export type Screen =

@@ -62,6 +62,7 @@ export const receiverStyleRegistry = [
   {id: 'golden-gate', maxRows: 14, minRows: 7},
   {id: 'manhattan', maxRows: 14, minRows: 7},
   {id: 'alpine', maxRows: 14, minRows: 7},
+  {id: 'boat-lake', maxRows: 18, minRows: 7},
   {id: 'crossfade', maxRows: 14, minRows: 7},
 ] as const;
 

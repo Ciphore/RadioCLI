@@ -4,7 +4,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-export const upgradeBaselines = ['0.2.3', '0.2.4'];
+export const upgradeBaselines = ['0.2.3', '0.2.4', '0.2.5'];
 
 export function sourceIdentity(root, execute = spawnSync) {
   const readGit = args => {
@@ -40,7 +40,7 @@ export function buildReleaseEvidence({candidate, normal, portable, audit, networ
     const record = upgrades.find(item => item?.baseline === baseline);
     if (record?.result !== 'passed' || record.tarballSha256 !== candidate?.tarballSha256 || JSON.stringify(record?.source) !== JSON.stringify(candidate?.source)
       || ['platform', 'architecture', 'node'].some(key => record?.[key] !== normal?.[key])
-      || !['in-place-install', 'saved-library-preservation', 'all-supported-receivers', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling'].every(check => record?.checks?.includes(check))) {
+      || !['in-place-install', 'saved-library-preservation', 'all-supported-receivers', 'all-supported-colors', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling'].every(check => record?.checks?.includes(check))) {
       reasons.push(`Missing matching successful upgrade evidence from ${baseline}.`);
     }
   }

@@ -13,6 +13,7 @@ import {sha256, upgradeBaselines} from './release-evidence.mjs';
 // even older releases without refresh() exercise their original schema.
 const driver = `
 const {JsonLibraryStore} = await import(process.argv[2]);
+const {receiverStyleNames, themeNames} = await import(new URL('../types.js', process.argv[2]).href);
 const file = process.argv[3];
 function details(error) {
   return {message: error.message, code: error.code, syscall: error.syscall,
@@ -21,7 +22,8 @@ function details(error) {
 process.on('message', ({id, method, args = []}) => {
   try {
     const store = new JsonLibraryStore(file);
-    const result = method === 'snapshot' ? store.snapshot() : store[method](...args);
+    const result = method === 'choices' ? {receivers: receiverStyleNames, themes: themeNames}
+      : method === 'snapshot' ? store.snapshot() : store[method](...args);
     process.send({id, result});
   } catch (error) { process.send({id, error: details(error)}); }
 });
@@ -94,6 +96,7 @@ export async function runUpgradeSmoke(tarball, {baseline, source = null, evidenc
     writeFileSync(script, driver);
     const old = storeProcess(script, module, file, env, `baseline ${baseline}`); clients.push(old);
     await old.ready;
+    const legacyChoices = await old.call('choices');
     const station = {id: 'upgrade-fixture', provider: 'playlist', name: 'Retained 日本 station', tags: ['upgrade'], streamUrl: 'https://example.invalid/upgrade'};
     await old.call('toggleFavorite', station);
     await old.call('addRecent', station);
@@ -114,31 +117,44 @@ export async function runUpgradeSmoke(tarball, {baseline, source = null, evidenc
     const rendered = JSON.parse(runCommand(process.execPath, ['--input-type=module', '-e', `
       import {createHash} from 'node:crypto';
       const m = await import(process.argv[1]);
+      const {themeNames} = await import(new URL('../../types.js', process.argv[1]).href);
       const {buildVisualizer} = await import(process.argv[2]);
       const playback = {state:'playing', backend:'mpv', volume:70, muted:false, ready:true};
       const hashes = m.receiverStyleNames.map(style => createHash('sha256').update(JSON.stringify(buildVisualizer(style, 37, 100, 14, null, playback, 'green'))).digest('hex'));
-      console.log(JSON.stringify({names:m.receiverStyleNames, defaultStyle:m.defaultReceiverStyle, hashes}));
+      console.log(JSON.stringify({names:m.receiverStyleNames, defaultStyle:m.defaultReceiverStyle, themes:themeNames, hashes}));
     `, pathToFileURL(join(packageRoot, 'dist', 'ui', 'visualizers', 'receiver-style-registry.js')).href,
     pathToFileURL(join(packageRoot, 'dist', 'ui', 'visualizers', 'receiver-visualizers.js')).href], {cwd: project, env}).stdout);
     const registry = rendered.names;
     assert.equal(rendered.defaultStyle, 'ultracode');
     assert.equal(registry[0], 'ultracode');
     assert.equal(registry[8], 'gallop-fine');
-    assert.equal(registry.length, 63);
-    assert.deepEqual(registry.slice(-2), ['alpine', 'crossfade']);
+    assert.equal(registry.length, 64);
+    assert.deepEqual(registry.slice(-3), ['alpine', 'boat-lake', 'crossfade']);
     assert.equal(rendered.hashes.length, registry.length);
     for (const receiverStyle of registry) {
       await candidate.call('updateSettings', {receiverStyle});
       // Force both a legacy read and a legacy write, in addition to polling.
-      assert.equal((await old.call('snapshot')).settings.receiverStyle, receiverStyle);
+      assert.equal((await old.call('snapshot')).settings.receiverStyle, legacyChoices.receivers.includes(receiverStyle) ? receiverStyle : 'ultracode');
       await old.call('updateSettings', {volume: 41});
       const retained = await candidate.call('snapshot');
       assert.equal(retained.settings.receiverStyle, receiverStyle);
       assert.equal(retained.settings.volume, 41);
       for (const key of ['favorites', 'recent', 'trackHistory', 'searchHistory', 'alarms']) assert.deepEqual(retained[key], before[key], `Mixed-version writes lost ${key}.`);
     }
+    await candidate.call('updateSettings', {receiverStyle: 'boat-lake'});
     await delay(1200);
-    assert.equal((await candidate.call('snapshot')).settings.receiverStyle, 'crossfade');
+    assert.equal((await candidate.call('snapshot')).settings.receiverStyle, 'boat-lake');
+    for (const theme of rendered.themes) {
+      await candidate.call('updateSettings', {theme});
+      assert.equal((await old.call('snapshot')).settings.theme, legacyChoices.themes.includes(theme) ? theme : 'green');
+      await old.call('updateSettings', {volume: 43});
+      const retained = await candidate.call('snapshot');
+      assert.equal(retained.settings.theme, theme);
+      assert.equal(retained.settings.receiverStyle, 'boat-lake');
+      assert.equal(retained.settings.volume, 43);
+      for (const key of ['favorites', 'recent', 'trackHistory', 'searchHistory', 'alarms']) assert.deepEqual(retained[key], before[key], `Mixed-version color writes lost ${key}.`);
+    }
+    await candidate.call('updateSettings', {theme: 'green'});
     assert.equal(readdirSync(home).some(name => name.includes('.bad-')), false, 'An old process quarantined the shared library.');
     await candidate.call('updateSettings', {receiverStyle: 'ultracode'});
     assert.equal((await candidate.call('snapshot')).settings.receiverStyle, 'ultracode');
@@ -150,7 +166,7 @@ export async function runUpgradeSmoke(tarball, {baseline, source = null, evidenc
     const evidence = {schemaVersion: 1, checkedAt: new Date().toISOString(), source, baseline, tarballSha256: sha256(tarball),
       package: JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).version,
       platform: process.platform, architecture: process.arch, node: process.version,
-      checks: ['in-place-install', 'saved-library-preservation', 'legacy-style-preservation', 'canonical-style-order', 'all-supported-receivers', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling', 'return-to-default'], result: 'passed'};
+      checks: ['in-place-install', 'saved-library-preservation', 'legacy-style-preservation', 'canonical-style-order', 'all-supported-receivers', 'all-supported-colors', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling', 'return-to-default'], result: 'passed'};
     if (evidencePath) { mkdirSync(dirname(evidencePath), {recursive: true}); writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`); }
     console.log(`upgrade_smoke=${JSON.stringify(evidence)}`);
     return evidence;

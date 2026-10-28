@@ -148,8 +148,8 @@ export function ReceiverGallery({ preview = false }: { preview?: boolean }) {
     <section id="receivers" className="rc-section rc-receivers" aria-labelledby="receiver-heading">
       <div className="rc-receiver-heading">
         <div className="rc-heading">
-          <h2 id="receiver-heading">{preview ? '63 animated receiver styles' : 'Receiver styles'}</h2>
-          <p>{preview ? 'Choose from ASCII patterns, waves, cityscapes, and more.' : '63 animated playback visuals, from flowing patterns to cityscapes and landscapes.'}</p>
+          <h2 id="receiver-heading">{preview ? '64 animated receiver styles' : 'Receiver styles'}</h2>
+          <p>{preview ? 'Choose from ASCII patterns, waves, cityscapes, and more.' : '64 animated playback visuals, from flowing patterns to cityscapes and landscapes.'}</p>
         </div>
         {!preview && <div className="rc-receiver-controls">
           <button className="rc-color-toggle" type="button" onClick={cycleTheme} aria-label={`Receiver color: ${theme}. Next color`}>

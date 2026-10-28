@@ -9,6 +9,10 @@ const cellHeight = 20;
 const playback = {state: 'playing', ready: true} as PlaybackState;
 let surface: HTMLCanvasElement | undefined;
 const brailleBits = [[1, 8], [2, 16], [4, 32], [64, 128]];
+const triangles: Record<string, readonly (readonly [number, number])[]> = {
+  '◢': [[1, 0], [1, 1], [0, 1]], '◣': [[0, 0], [0, 1], [1, 1]],
+  '◤': [[0, 0], [1, 0], [0, 1]], '◥': [[0, 0], [1, 0], [1, 1]],
+};
 const quadrants: Record<string, number> = {
   '▘': 1, '▝': 2, '▖': 4, '▗': 8, '▌': 5, '▐': 10, '▀': 3, '▄': 12,
   '▚': 9, '▞': 6, '▛': 7, '▜': 11, '▙': 13, '▟': 14, '█': 15,
@@ -50,6 +54,17 @@ export function drawReceiver(canvas: HTMLCanvasElement, style: ReceiverStyle, pu
               context.arc(left + 2.5 + dx * 5, top + 2.5 + dy * 5, 1.6, 0, Math.PI * 2);
             }
           }
+          context.fill();
+        } else if (style === 'sumi-ocean' && glyph === '●') {
+          context.beginPath();
+          context.arc(left + cellWidth / 2, top + cellHeight / 2, cellWidth / 2, 0, Math.PI * 2);
+          context.fill();
+        } else if (glyph in triangles) {
+          context.beginPath();
+          triangles[glyph].forEach(([dx, dy], index) => {
+            if (index === 0) context.moveTo(left + dx * cellWidth, top + dy * cellHeight);
+            else context.lineTo(left + dx * cellWidth, top + dy * cellHeight);
+          });
           context.fill();
         } else if (glyph in quadrants) {
           const mask = quadrants[glyph];

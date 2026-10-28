@@ -34,6 +34,10 @@ if (isDirectRun(process.argv[1], import.meta.url)) {
 }
 
 async function renderTui(encodedCommand?: string): Promise<void> {
+  // React's development profiler retains per-frame timing entries in Node.
+  // Choose the production runtime before loading Ink or JSX; explicit developer
+  // environments still take precedence.
+  process.env.NODE_ENV ??= 'production';
   const {renderTui: render} = await import('./cli/render-tui.js');
   await render(printHelp, encodedCommand);
 }

@@ -12,8 +12,8 @@ function complete() {
   return {candidate, normal: {...installed, install: 'normal'}, portable: {...installed, install: 'omit-optional'}, audit: {status: 'passed', scope: 'required-runtime', sourceRevision: source.revision, arguments: ['--omit=dev', '--include=optional', '--audit-level=low']},
     network: {result: 'passed', sourceRevision: source.revision, platform: installed.platform, architecture: installed.architecture, node: installed.node,
       checks: {mpv_tls_rejection: 'passed: untrusted TLS', finite_eof: 'passed: stopped', mpv_disconnect: 'passed: recovered', mpv_stall: 'passed: recovered', mpv_nested_tls: 'passed: untrusted TLS'}},
-    upgrades: ['0.2.3', '0.2.4'].map(baseline => ({...installed, baseline,
-      checks: ['in-place-install', 'saved-library-preservation', 'all-supported-receivers', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling']})),
+    upgrades: ['0.2.3', '0.2.4', '0.2.5'].map(baseline => ({...installed, baseline,
+      checks: ['in-place-install', 'saved-library-preservation', 'all-supported-receivers', 'all-supported-colors', 'installed-renderers', 'retired-style-migration', 'old-process-live-reads-and-writes', 'background-polling']})),
     checks: ['typecheck', 'lint', 'tests', 'harness', 'build', 'package', 'native-tui', 'native-network', 'source-mcp', 'background-cli', 'packed'].map(name => ({name, status: 'passed'}))};
 }
 
@@ -40,6 +40,7 @@ for (const [name, mutate] of [
   ['missing one upgrade baseline', data => { data.upgrades.pop(); }],
   ['stale upgrade artifact', data => { data.upgrades[0].tarballSha256 = 'd'.repeat(64); }],
   ['foreign upgrade runtime', data => { data.upgrades[0].platform = 'win32'; }],
+  ['missing color upgrade regression', data => { data.upgrades[0].checks = data.upgrades[0].checks.filter(check => check !== 'all-supported-colors'); }],
   ['missing old-process regression', data => { data.upgrades[0].checks = []; }],
   ['failed packed pipeline', data => { data.checks.find(check => check.name === 'packed').status = 'failed'; }],
   ['stale native network evidence', data => { data.network.sourceRevision = 'd'.repeat(40); }],

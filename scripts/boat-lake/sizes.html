@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Boat Lake · TUI size checks</title>
+<style>
+:root{color-scheme:dark;font:15px system-ui;background:#080d1b;color:#dce4ff}
+body{max-width:1000px;margin:40px auto;padding:0 24px}h1{font-size:30px;font-weight:500}p{color:#96a5c8;line-height:1.6}a{color:#c5d6ff}h2{font-size:15px;font-weight:500;margin:28px 0 10px}small{display:block;color:#96a5c8;margin:12px 0 6px;font-size:11px}section{margin-bottom:32px;overflow-x:auto}canvas{display:block;image-rendering:pixelated}pre{font:13.333333px/16px monospace;letter-spacing:0;margin:0;white-space:pre;width:max-content}pre span{display:inline-block;height:16px;vertical-align:top}
+</style>
+<h1>Boat Lake at TUI sizes</h1>
+<p>Each scene uses its own composition and the exact receiver output. Canvas cells are 8 × 16 pixels. The text views use real Unicode glyphs in the browser’s monospace font; terminal fonts may render their edges differently. <a href="/">Back to the animated reference comparison.</a></p>
+<main></main>
+<script type="module">
+import {buildBoatLake} from './receiver.js';
+import {paintReceiver} from './terminal-canvas.js';
+for (const [width,height] of [[100,14],[80,10],[60,7],[36,4],[24,4],[20,3]]) {
+  const frame=buildBoatLake(24,width,height,'blue');
+  const section=document.createElement('section');
+  const title=document.createElement('h2');title.textContent=`${width} × ${height}`;section.append(title);
+  const canvas=document.createElement('canvas');canvas.width=width*8;canvas.height=height*16;canvas.setAttribute('aria-label',`Boat Lake at ${width} columns and ${height} rows`);paintReceiver(canvas.getContext('2d'),frame);section.append(canvas);
+  if(height<=7){
+    const label=document.createElement('small');label.textContent='Terminal glyphs · browser monospace';section.append(label);
+    const pre=document.createElement('pre');
+    for(const row of frame){
+      for(const segment of row.segments){const span=document.createElement('span');span.textContent=segment.text;span.style.color=segment.color;span.style.backgroundColor=segment.backgroundColor;pre.append(span)}
+      pre.append(document.createTextNode('\n'));
+    }
+    section.append(pre);
+  }
+  document.querySelector('main').append(section);
+}
+</script>
+</html>

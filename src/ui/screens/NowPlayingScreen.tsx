@@ -16,6 +16,7 @@ import {toAsciiSafe} from '../ascii.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {buildVisualizer, visualizerHeight} from '../visualizers/receiver-visualizers.js';
 import {useReceiverPulse} from '../receiver-animation.js';
+import {ReceiverVisualRow} from '../components/ReceiverVisualRow.js';
 
 type NowPlayingProps = {
   station: Station | null;
@@ -83,7 +84,6 @@ export function NowPlayingScreen({
     : station
       ? 'Waiting for ICY track metadata'
       : infoFallback;
-  const renderRows = ascii ? visualRows.map(asciifyVisualRow) : visualRows;
   const favoriteText = favorite ? '★ Favorite' : '☆ Favorite';
 
   return (
@@ -112,12 +112,8 @@ export function NowPlayingScreen({
           <Text color={accent} aria-label={`Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}`}>{receiverState}</Text>
         </Box>
         {!screenReader ? <Box marginTop={visualizerGutterRows} flexDirection="column" flexShrink={1} overflow="hidden" aria-hidden>
-          {renderRows.map((row, index) => (
-            <Text key={index} color={row.segments ? undefined : row.color}>
-              {row.segments
-                ? renderSegments(row.segments)
-                : row.text}
-            </Text>
+          {visualRows.map((row, index) => (
+            <ReceiverVisualRow key={index} row={row} width={innerWidth} ascii={ascii} backgroundColor={panelBackground} />
           ))}
         </Box> : null}
         <Box marginTop={visualizerGutterRows} justifyContent="space-between" width={innerWidth} flexShrink={0}>
@@ -149,17 +145,6 @@ export function NowPlayingScreen({
   );
 }
 
-type VisualSegment = {text: string; color: string; backgroundColor?: string; bold?: boolean};
-type VisualRow = {text: string; color: string; segments?: VisualSegment[]};
-
-function asciifyVisualRow(row: VisualRow): VisualRow {
-  return {
-    ...row,
-    text: toAsciiSafe(row.text),
-    segments: row.segments?.map(segment => ({...segment, text: toAsciiSafe(segment.text)}))
-  };
-}
-
 export function recentTracksForStation(history: TrackPlay[], station: Station | null, limit: number): TrackPlay[] {
   if (!station) {
     return [];
@@ -187,19 +172,4 @@ export function receiverStationIdentity(
     name: station.name,
     location: truncate(stationLocation(station).toUpperCase(), locationWidth)
   };
-}
-
-function renderSegments(segments: VisualSegment[]): React.ReactNode {
-  let offset = 0;
-  return segments.map(segment => {
-    // Keep identity tied to geometry, not animated color. Color-bearing keys
-    // forced React to unmount and recreate hundreds of Text nodes per frame.
-    const key = offset;
-    offset += segment.text.length;
-    return (
-      <Text key={key} color={segment.color} backgroundColor={segment.backgroundColor} bold={segment.bold}>
-        {segment.text}
-      </Text>
-    );
-  });
 }

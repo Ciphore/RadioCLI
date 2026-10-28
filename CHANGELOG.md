@@ -2,6 +2,38 @@
 
 All notable changes to RadioCLI are documented in this file.
 
+## [0.2.6] - 2026-10-28
+
+### Added
+
+- Added the Boat Lake receiver, bringing the collection to 64 animated styles.
+- Expanded the display palette from 14 to 48 colors, with matching listening
+  activity shades and color choices in the website receiver gallery.
+
+### Changed
+
+- Refined Sumi Ocean with a clearer moon, moving water, and wider reflections
+  that remain readable in compact and micro layouts.
+- Updated the website receiver previews and project demos to match the terminal
+  renderers, including Boat Lake, Sumi Ocean, and the expanded color palette.
+
+### Fixed
+
+- Prevented long-running animated receiver sessions from exhausting Node.js
+  memory, including Manhattan and the other scenery styles, across full,
+  compact, and micro layouts.
+- Kept normal TUI launches on the production React runtime while preserving
+  explicitly enabled development diagnostics.
+- Preserved new colors and receiver selections while older RadioCLI and MCP
+  processes continue reading and writing the same library.
+- Avoided transient library-lock failures on Windows while another writer
+  releases its lock.
+
+### Security
+
+- Updated Zod and Undici to patched versions within their existing dependency
+  ranges.
+
 ## [0.2.5] - 2026-10-18
 
 ### Added
@@ -546,3 +578,4 @@ Initial public release.
 [0.1.2]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.1.1
 [0.2.5]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.5
+[0.2.6]: https://github.com/Ciphore/RadioCLI/releases/tag/v0.2.6

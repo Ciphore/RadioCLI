@@ -245,8 +245,8 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(63);
-    expect(receiverStyleNames.slice(-2)).toEqual(['alpine', 'crossfade']);
+    expect(receiverStyleNames).toHaveLength(64);
+    expect(receiverStyleNames.slice(-3)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
     expect(receiverStyleNames.indexOf('braille-wave')).toBe(receiverStyleNames.indexOf('ribbon') + 1);
@@ -556,12 +556,12 @@ describe('receiver visualizers', () => {
     expect(text).toMatch(/─/);
   });
 
-  it('renders sumi ocean as layered blue swells with compressed distant waves', () => {
+  it('renders sumi ocean as a continuous indigo field with moonlit quadrant ripples', () => {
     const rows = buildVisualizer('sumi-ocean', 24, 100, 18, station, playback, 'blue');
     const text = frameText(rows);
 
-    expect(text).toMatch(/[─━]/);
-    expect(rows.flatMap(row => row.segments ?? []).some(segment => segment.color === '#15567d')).toBe(true);
+    expect(text).toMatch(/[▘▝▀▖▌▞▛▗▚▐▜▄▙▟]/);
+    expect(rows.flatMap(row => row.segments ?? []).some(segment => segment.color === '#fcfdff')).toBe(true);
     expect(rows.slice(Math.floor(rows.length * 0.4)).every(row => row.text.length === 100)).toBe(true);
     expect(rows.slice(Math.floor(rows.length * 0.4)).every(row => row.segments?.every(segment => segment.backgroundColor))).toBe(true);
   });

@@ -1,4 +1,4 @@
-import {mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {tmpdir} from 'node:os';
@@ -116,16 +116,35 @@ describe('station identity and fresh library reads', () => {
 });
 
 describe('asynchronous library repository', () => {
-  it.each([true, false])('publishes receiver preference changes with worker=%s', async worker => {
+  it.each([true, false])('publishes display color preference changes with worker=%s', async worker => {
+    const path = file(); const writer = new JsonLibraryStore(path);
+    writer.updateSettings({theme: 'jade'});
+    const repository = new LibraryRepository(new JsonLibraryStore(path), {worker});
+    try {
+      await repository.readFresh();
+      writeFileSync(`${path}.theme.json`, JSON.stringify({version: 1, theme: 'pine', libraryTheme: 'green'}));
+      await expect.poll(() => repository.settings().theme, {timeout: 5000}).toBe('pine');
+      await repository.updateSettings({volume: 42});
+      expect(new JsonLibraryStore(path).settings()).toMatchObject({theme: 'pine', volume: 42});
+      expect(JSON.parse(readFileSync(path, 'utf8')).settings.theme).toBe('green');
+    } finally { await repository.close(); }
+  }, 10_000);
+
+  it.each([
+    {worker: true, suffix: 'receiver.json', receiverStyle: 'mesh'},
+    {worker: false, suffix: 'receiver.json', receiverStyle: 'mesh'},
+    {worker: true, suffix: 'receiver-v2.json', receiverStyle: 'boat-lake'},
+    {worker: false, suffix: 'receiver-v2.json', receiverStyle: 'boat-lake'}
+  ] as const)('publishes $suffix changes with worker=$worker', async ({worker, suffix, receiverStyle}) => {
     const path = file(); const writer = new JsonLibraryStore(path);
     writer.updateSettings({receiverStyle: 'ultracode'});
     const repository = new LibraryRepository(new JsonLibraryStore(path), {worker});
     try {
       await repository.readFresh();
-      writeFileSync(`${path}.receiver.json`, JSON.stringify({version: 1, receiverStyle: 'mesh', libraryReceiverStyle: 'ultracode'}));
-      await expect.poll(() => repository.settings().receiverStyle, {timeout: 5000}).toBe('mesh');
+      writeFileSync(`${path}.${suffix}`, JSON.stringify({version: 1, receiverStyle, libraryReceiverStyle: 'ultracode'}));
+      await expect.poll(() => repository.settings().receiverStyle, {timeout: 5000}).toBe(receiverStyle);
       await repository.updateSettings({volume: 42});
-      expect(new JsonLibraryStore(path).settings()).toMatchObject({receiverStyle: 'mesh', volume: 42});
+      expect(new JsonLibraryStore(path).settings()).toMatchObject({receiverStyle, volume: 42});
     } finally { await repository.close(); }
   }, 10_000);
 

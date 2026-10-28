@@ -6,13 +6,30 @@ import {performance} from 'node:perf_hooks';
 /** An owner is never evicted for being slow. Only a positively dead PID or an
  * explicitly released generation can be reclaimed. Unknown/legacy locks fail
  * closed; their age cannot distinguish a crashed writer from a suspended one. */
-export function acquireFileLock(directory: string, timeoutMs = 1000): () => void {
+export function acquireFileLock(directory: string, timeoutMs = 1000, platform: NodeJS.Platform = process.platform): () => void {
   const marker = `owner-${process.pid}-${randomUUID()}`;
   const deadline = performance.now() + timeoutMs;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const retry = (error?: unknown): void => {
+    if (performance.now() >= deadline) {
+      if (error) throw error;
+      throw Object.assign(new Error('The library lock has a live or unknown owner.'), {code: 'EBUSY'});
+    }
+    Atomics.wait(pause, 0, 0, 10);
+  };
+  // Windows can briefly deny access while a previous lock directory is pending
+  // deletion. Retry only before ownership, without treating denial as absence.
+  const transient = (error: unknown): boolean => platform === 'win32' && ['EACCES', 'EPERM', 'EBUSY'].includes(codeOf(error) ?? '');
   while (true) {
     let acquired = false;
     try { mkdirSync(directory, {mode: 0o700}); acquired = true; }
-    catch (error) { if (codeOf(error) !== 'EEXIST') throw error; }
+    catch (error) {
+      if (codeOf(error) !== 'EEXIST') {
+        if (!transient(error)) throw error;
+        retry(error);
+        continue;
+      }
+    }
     if (acquired) {
       try { writeFileSync(join(directory, marker), '', {mode: 0o600, flag: 'wx'}); }
       catch (error) {
@@ -37,11 +54,14 @@ export function acquireFileLock(directory: string, timeoutMs = 1000): () => void
         renameSync(join(directory, owner), join(directory, reaper));
         finishLock(directory, reaper);
       }
-    } catch (error) { if (codeOf(error) !== 'ENOENT') throw error; }
-    if (performance.now() >= deadline) {
-      throw Object.assign(new Error('The library lock has a live or unknown owner.'), {code: 'EBUSY'});
+    } catch (error) {
+      if (codeOf(error) !== 'ENOENT') {
+        if (!transient(error)) throw error;
+        retry(error);
+        continue;
+      }
     }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    retry();
   }
 }
 
