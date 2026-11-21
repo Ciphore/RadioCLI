@@ -21,8 +21,9 @@ import {arcadeReceiverBuilders} from './arcade-receivers.js';
 import {everydayReceiverBuilders} from './everyday-receivers.js';
 import {gtaReceiverBuilders} from './gta-receivers.js';
 import {museReceiverBuilders} from './muse-receivers.js';
+import {boldReceiverBuilders} from './bold-receivers.js';
 import {wonderReceiverBuilders} from './wonder-receivers.js';
-import {aurora, constellation, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
+import {aurora, constellation, equalizer, motionContour, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
 import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
@@ -54,6 +55,7 @@ type VisualizerBuilder = (
 ) => VisualLine[];
 
 const receiverStyleBuilders = {
+  ...boldReceiverBuilders,
   ...wonderReceiverBuilders,
   ...museReceiverBuilders,
   ...viceCollabReceiverBuilders,
@@ -90,7 +92,7 @@ const receiverStyleBuilders = {
   'manhattan-harbor': manhattanHarbor,
   'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
-  'motion-contour': buildMotionContour,
+  'motion-contour': motionContour,
   leds: buildLeds,
   matrix: buildMatrix,
   hologram: buildHologram,
@@ -101,7 +103,7 @@ const receiverStyleBuilders = {
   starfield,
   mesh: buildMesh,
   ribbon: buildRibbon,
-  equalizer: buildEqualizer,
+  equalizer,
   tunnel: buildTunnel,
   kaleidoscope: buildKaleidoscope,
   constellation,
@@ -217,8 +219,9 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(everydayReceiverBuilders) as (keyof typeof everydayReceiverBuilders)[],
   ...Object.keys(gtaReceiverBuilders) as (keyof typeof gtaReceiverBuilders)[],
   ...Object.keys(museReceiverBuilders) as (keyof typeof museReceiverBuilders)[],
+  ...Object.keys(boldReceiverBuilders) as (keyof typeof boldReceiverBuilders)[],
   ...Object.keys(wonderReceiverBuilders) as (keyof typeof wonderReceiverBuilders)[],
-  'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora',
+  'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora', 'equalizer', 'motion-contour',
   'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
   'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
   'pulse-grid',
@@ -333,83 +336,6 @@ function buildFlatZeroSignal(width: number, requestedHeight: number, theme: Them
     text: rowIndex === height - 1 ? baseline : blank,
     color: rowIndex === height - 1 ? accent : '#767676'
   }));
-}
-
-function buildEqualizer(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const bandWidth = 3;
-  const bandCount = Math.floor((width - 2) / bandWidth);
-
-  const levels = Array.from({length: bandCount}, (_, i) => {
-    const low = Math.sin(i * 0.18 + pulse * 0.46);
-    const mid = Math.cos(i * 0.32 - pulse * 0.28);
-    const high = Math.sin(i * 0.45 + pulse * 0.68);
-    const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
-    const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
-    return Math.round(eased * height);
-  });
-
-  const peaks = Array.from({length: bandCount}, (_, i) => {
-    let maxLvl = 0;
-    for (let k = 0; k < 8; k++) {
-      const p = (pulse - k + 240) % 240;
-      const low = Math.sin(i * 0.18 + p * 0.46);
-      const mid = Math.cos(i * 0.32 - p * 0.28);
-      const high = Math.sin(i * 0.45 + p * 0.68);
-      const normalized = (low * 0.4 + mid * 0.35 + high * 0.25 + 1) / 2;
-      const eased = Math.pow(Math.max(0, Math.min(1, normalized)), 1.4);
-      const lvl = Math.round(eased * height);
-      if (lvl > maxLvl) {
-        maxLvl = lvl;
-      }
-    }
-    return maxLvl;
-  });
-
-  const rows: VisualLine[] = [];
-  const colors = themeContributionColors(theme);
-
-  for (let rowIndex = 0; rowIndex < height; rowIndex++) {
-    const threshold = height - rowIndex;
-    let rowText = ' ';
-
-    for (let i = 0; i < bandCount; i++) {
-      const lvl = levels[i]!;
-      const peak = peaks[i]!;
-
-      let bandChar = '  ';
-      if (lvl >= threshold) {
-        bandChar = '██';
-      } else if (peak === threshold) {
-        bandChar = '◆◆';
-      } else {
-        bandChar = '··';
-      }
-
-      rowText += bandChar + ' ';
-    }
-
-    let color = colors[2] ?? accent;
-    if (rowIndex < Math.max(1, height * 0.3)) {
-      color = '#ff5f87';
-    } else if (rowIndex < Math.max(2, height * 0.6)) {
-      color = colors[4] ?? accent;
-    } else {
-      color = colors[3] ?? accent;
-    }
-
-    rows.push({
-      text: rowText.padEnd(width).slice(0, width),
-      color
-    });
-  }
-
-  return rows;
 }
 
 const ultracodeWavelength = 20;
@@ -533,51 +459,6 @@ function rgbToHex([red, green, blue]: Rgb): string {
 
 function clampColor(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function buildMotionContour(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const h = Math.max(9, height);
-  const cx = (width - 1) / 2;
-  const cy = (h - 1) / 2;
-  const xScale = Math.max(1, width * 0.36);
-  const yScale = Math.max(1, h * 0.58);
-  const rings = 8;
-  const accent = themeAccent(theme);
-
-  return Array.from({length: h}, (_, y) => {
-    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
-      const nx = (x - cx) / xScale;
-      const ny = (y - cy) / yScale;
-      const radius = Math.sqrt(nx * nx + ny * ny);
-      const theta = Math.atan2(ny, nx);
-      const boundary =
-        0.62 +
-        0.08 * Math.sin(theta * 5 + pulse * 0.18) +
-        0.07 * Math.cos(theta * 8 - pulse * 0.13) +
-        0.04 * Math.sin(theta * 13 + pulse * 0.09);
-
-      for (let ring = rings; ring >= 1; ring -= 1) {
-        const target = boundary * (ring / rings);
-        const distance = Math.abs(radius - target);
-        if (distance < 0.017 + ring * 0.0015) {
-          const position = (theta + Math.PI) / (Math.PI * 2);
-          return {
-            text: ring % 3 === 0 ? '∙' : ring % 2 === 0 ? '•' : '·',
-            color: motionColorAt((position + ring * 0.08) % 1, theme)
-          };
-        }
-      }
-
-      return {text: ' ', color: accent};
-    });
-
-    return lineFromCells(cells, accent);
-  }).slice(0, height);
 }
 
 function buildLeds(

@@ -86,7 +86,8 @@ const gtaViNeon: Builder = (pulse, width, height, theme) => {
     }
     x += wide + 1;
   }
-  for (let n = 0; n < p.pw / 16; n++) palm(p, Math.round((n + 0.5) * 16), street, Math.round(p.ph * 0.42), n % 2 ? 2 : -2, t, c('#07030f'));
+  // Street palms stay below the rooflines and take a little of the neon, so they read as trees rather than a dark band.
+  for (let n = 0; n < p.pw / 26; n++) palm(p, Math.round((n + 0.5) * 26), street, Math.round(p.ph * 0.24), n % 2 ? 2 : -2, t, c('#2a1250'));
   for (let y = street; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
     // Wet asphalt: the fronts repeat below, smeared sideways.
     const source = p.at(x + Math.round(Math.sin(y * 2.2 + t * 2 + x * 0.3) * 1.3), street - 1 - (y - street) * 2);

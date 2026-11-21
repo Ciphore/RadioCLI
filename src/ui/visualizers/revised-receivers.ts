@@ -1,5 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder} from './cell-canvas.js';
+import {TAU, band, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder} from './cell-canvas.js';
 import {horseAspect, horseMask} from './gallop.js';
 
 // Star figures in a unit box: [x, y] points, then the pairs to join.
@@ -291,5 +291,63 @@ export const gallopQuad: Builder = (pulse, width, height, theme) => {
     if (bits) g.set(x, y, QUADS[bits]!, g.paint.fan(tri(y / g.h * 0.5 + 0.2) * 1.2 - 0.6));
     else if (y === foot && Math.abs(x - g.w / 2) < horse.wide / 4.4) g.set(x, y, '▁', g.paint.ink(0.2));
   }
+  return g.finish();
+};
+
+const EIGHTHS = ' ▁▂▃▄▅▆▇█';
+
+// A spectrum analyser: bars that rise in eighth-row steps through a cool-to-hot gradient, white caps that hang and fall, and a faint mirror image below.
+export const equalizer: Builder = (pulse, width, height, theme) => {
+  const g = grid(width, height, theme);
+  const t = seconds(pulse);
+  const pitch = g.w >= 40 ? 3 : 2, bars = Math.max(1, Math.floor((g.w + 1) / pitch)), left = Math.floor((g.w - (bars * pitch - 1)) / 2);
+  const mirror = g.h >= 8 ? Math.max(1, Math.round(g.h * 0.22)) : 0, rows = g.h - mirror;
+  const tones = Array.from({length: rows}, (_, up) => g.paint.fan(-0.85 + 1.75 * up / Math.max(1, rows - 1)));
+  for (let bar = 0; bar < bars; bar++) {
+    const index = bar * 22 / bars, level = clamp(band(index, t) * 1.15) * rows;
+    let peak = level;
+    for (let k = 1; k < 14; k++) peak = Math.max(peak, clamp(band(index, t - k * 0.08) * 1.15) * rows - Math.max(0, k - 5) * 0.45);
+    for (let w = 0; w < pitch - 1; w++) {
+      const x = left + bar * pitch + w;
+      for (let up = 0; up < rows; up++) {
+        const fill = clamp(level - up), y = rows - 1 - up;
+        if (fill > 0) g.set(x, y, EIGHTHS[Math.max(1, Math.round(fill * 8))]!, tones[up]!);
+        else if (Math.floor(peak) === up && peak > level + 0.3) g.set(x, y, '▁▂▃▄▅▆▇▇'[Math.floor((peak - up) * 8)]! === '▁' ? '▁' : '▔', '#ffffff', undefined, true);
+        else if (up === 0) g.set(x, y, '▁', mix(panelBackground, tones[0]!, 0.5));
+      }
+      // The reflection: the same bar hanging down from the baseline, squeezed and dimmed with depth.
+      for (let down = 0; down < mirror; down++) {
+        const fill = clamp(level * mirror / rows * 0.9 - down);
+        if (fill > 0) g.set(x, rows + down, fill >= 1 ? '█' : '▀', mix(panelBackground, tones[Math.min(rows - 1, Math.round(down * rows / mirror))]!, 0.34 * (1 - down / mirror)));
+      }
+    }
+  }
+  return g.finish();
+};
+
+// The spectrum as terrain: a filled, glowing outline at the front, and the shapes it had a moment ago standing behind it like a range of hills.
+export const motionContour: Builder = (pulse, width, height, theme) => {
+  const g = grid(width, height, theme);
+  const p = pixels(g);
+  const t = seconds(pulse);
+  const layers = 4;
+  for (let layer = layers - 1; layer >= 0; layer--) {
+    const depth = layer / (layers - 1), when = t - layer * 0.28, tint = g.paint.fan(0.85 - depth * 1.7);
+    const foot = p.ph - 1 - Math.round(depth * p.ph * 0.3), tall = (p.ph - 2) * (0.92 - depth * 0.42);
+    let last = foot;
+    for (let x = 0; x < p.pw; x++) {
+      // A smooth curve through the bands, tapered to nothing at both ends so each range closes on itself.
+      const u = x / Math.max(1, p.pw - 1), taper = Math.sin(u * Math.PI) ** 0.5;
+      const level = clamp(0.06 + band(u * 16 + layer * 1.3, when) * 1.05) * taper;
+      const top = Math.round(foot - level * tall);
+      for (let y = top; y <= foot; y++) {
+        const into = (y - top) / Math.max(1, foot - top);
+        p.px(x, y, mix(panelBackground, tint, (0.55 - 0.4 * into) * (1 - depth * 0.55)));
+      }
+      for (let y = Math.min(top, last); y <= Math.max(top, last); y++) p.px(x, y, mix(tint, '#ffffff', layer ? 0.1 : 0.45));
+      last = top;
+    }
+  }
+  p.flush();
   return g.finish();
 };

@@ -291,16 +291,6 @@ const oelCityCruise: Builder = (pulse, width, height, theme) => {
       p.px(x, y, y === roadY ? mid : dash ? lit : bg);
     }
   }
-  // Bass-reactive mini EQ nestled on the car cowl at the bottom edge.
-  const bars = Math.max(4, Math.min(18, Math.floor(p.pw / 4)));
-  const eqLeft = Math.floor((p.pw - bars * 3) / 2);
-  for (let b = 0; b < bars; b++) {
-    const h = Math.round(band(b * 1.5, t) * Math.max(1, p.ph - roadY - 1));
-    for (let k = 0; k < h; k++) {
-      p.px(eqLeft + b * 3, p.ph - 1 - k, k > 2 ? g.paint.fan(0.95) : lit);
-      p.px(eqLeft + b * 3 + 1, p.ph - 1 - k, k > 2 ? g.paint.fan(0.95) : lit);
-    }
-  }
   p.flush();
   if (g.w >= 26 && g.h >= 5) g.write(1, 0, 'NIGHT CRUISE  FM 99.5', dim, bg);
   return g.finish();

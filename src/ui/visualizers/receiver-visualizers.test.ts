@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(289);
+    expect(receiverStyleNames).toHaveLength(313);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -285,7 +285,11 @@ describe('receiver visualizers', () => {
       'koi-pond', 'double-helix', 'pendulum-wave', 'mandala', 'bubble-wrap', 'wind-turbines',
       'balloon-fiesta', 'comet', 'bioluminescence', 'light-prism', 'music-box', 'fresnel-lens',
       'tide-clock', 'bonfire', 'soda-fizz', 'marching-band', 'television-wall', 'beehive',
-      'potters-wheel', 'owl', 'curtain-call'
+      'potters-wheel', 'owl', 'curtain-call', 'sound-ribbon', 'demo-plasma', 'flow-field',
+      'mosaic-drift', 'retro-stripes', 'arc-tiles', 'glyph-tide', 'pixel-sort', 'halftone-wave',
+      'marbling', 'circuit-traces', 'sunburst', 'topo-map', 'riley-waves', 'aura',
+      'kinetic-type', 'hypno-spiral', 'rule-110', 'dune-sea', 'swell', 'ink-bloom',
+      'sunrise-eq', 'test-card', 'light-wall'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
