@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(265);
+    expect(receiverStyleNames).toHaveLength(289);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -281,7 +281,11 @@ describe('receiver visualizers', () => {
       'sonique-ribbon', 'g-force-flow', 'scope-peaks', 'mirror-bars', 'sound-eclipse', 'win98-player',
       'astrolabe', 'pinball', 'terrarium', 'loom-weave', 'sea-beacon', 'tourbillon',
       'bathysphere', 'zen-garden', 'rose-window', 'switchboard', 'marble-run', 'chess-match',
-      'vice-radio-wheel', 'leonida-chase', 'vice-billboard'
+      'vice-radio-wheel', 'leonida-chase', 'vice-billboard', 'moon-jellies', 'starlings', 'paper-lanterns',
+      'koi-pond', 'double-helix', 'pendulum-wave', 'mandala', 'bubble-wrap', 'wind-turbines',
+      'balloon-fiesta', 'comet', 'bioluminescence', 'light-prism', 'music-box', 'fresnel-lens',
+      'tide-clock', 'bonfire', 'soda-fizz', 'marching-band', 'television-wall', 'beehive',
+      'potters-wheel', 'owl', 'curtain-call'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);

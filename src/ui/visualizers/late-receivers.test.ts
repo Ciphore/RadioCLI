@@ -8,9 +8,11 @@ import {yuletideReceiverBuilders} from './yuletide-receivers.js';
 import {arcadeReceiverBuilders} from './arcade-receivers.js';
 import {everydayReceiverBuilders} from './everyday-receivers.js';
 import {gtaReceiverBuilders} from './gta-receivers.js';
+import {museReceiverBuilders} from './muse-receivers.js';
+import {wonderReceiverBuilders} from './wonder-receivers.js';
 import {receiverStyleNames} from './receiver-style-registry.js';
 
-const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders};
+const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders, muse: museReceiverBuilders, wonder: wonderReceiverBuilders};
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
 const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | 'ruby' = 'violet') => buildVisualizer(style, pulse, 80, 14, null, playback, theme);
 const text = (style: ReceiverStyle, pulse = 60): string => frame(style, pulse).map(row => row.text).join('\n');

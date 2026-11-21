@@ -20,6 +20,8 @@ import {viceCollabReceiverBuilders} from './vice-collab-receivers.js';
 import {arcadeReceiverBuilders} from './arcade-receivers.js';
 import {everydayReceiverBuilders} from './everyday-receivers.js';
 import {gtaReceiverBuilders} from './gta-receivers.js';
+import {museReceiverBuilders} from './muse-receivers.js';
+import {wonderReceiverBuilders} from './wonder-receivers.js';
 import {aurora, constellation, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
 import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
@@ -52,6 +54,8 @@ type VisualizerBuilder = (
 ) => VisualLine[];
 
 const receiverStyleBuilders = {
+  ...wonderReceiverBuilders,
+  ...museReceiverBuilders,
   ...viceCollabReceiverBuilders,
   ...gtaReceiverBuilders,
   ...atelierReceiverBuilders,
@@ -212,6 +216,8 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(arcadeReceiverBuilders) as (keyof typeof arcadeReceiverBuilders)[],
   ...Object.keys(everydayReceiverBuilders) as (keyof typeof everydayReceiverBuilders)[],
   ...Object.keys(gtaReceiverBuilders) as (keyof typeof gtaReceiverBuilders)[],
+  ...Object.keys(museReceiverBuilders) as (keyof typeof museReceiverBuilders)[],
+  ...Object.keys(wonderReceiverBuilders) as (keyof typeof wonderReceiverBuilders)[],
   'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora',
   'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
   'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',

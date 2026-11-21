@@ -57,7 +57,13 @@ All notable changes to RadioCLI are documented in this file.
   Weave, Sea Beacon, Tourbillon, Bathysphere, Zen Garden, Rose Window,
   Switchboard, Marble Run, and Chess Match.
 - Added three GTA VI collaboration receivers: Vice Radio Wheel, Leonida Chase,
-  and Vice Billboard. The collection now has 265 animated styles.
+  and Vice Billboard. 
+- Added twelve muse receivers (Moon Jellies, Starlings, Paper Lanterns, Koi
+  Pond, Double Helix, Pendulum Wave, Mandala, Bubble Wrap, Wind Turbines,
+  Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,
+  Music Box, Fresnel Lens, Tide Clock, Bonfire, Soda Fizz, Marching Band,
+  Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call). The
+  collection now has 289 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
