@@ -16,7 +16,7 @@ world without leaving your terminal. No account. No cloud library.
   codec, and bitrate, or browse country lists. The interactive world map uses a
   cached station atlas to find broadcasts around the map cursor and sort them by
   distance. Cached directory results remain available during provider outages.
-- **364 receiver styles:** Switch between braille animation, ASCII geometry,
+- **376 receiver styles:** Switch between braille animation, ASCII geometry,
   waves, fire, cityscapes, and the Gallop display without interrupting
   playback. Choose from 48 color themes independently. Receivers animate during
   active playback and return to a zero-signal display when audio is inactive.

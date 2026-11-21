@@ -364,6 +364,18 @@ export const receiverStyleRegistry = [
   {id: 'alpine-ii', maxRows: 14, minRows: 7},
   {id: 'boat-lake-ii', maxRows: 14, minRows: 7},
   {id: 'crossfade-ii', maxRows: 14, minRows: 7},
+  {id: 'tokyo-rain', maxRows: 14, minRows: 7},
+  {id: 'paris-dawn', maxRows: 14, minRows: 7},
+  {id: 'london-night', maxRows: 14, minRows: 7},
+  {id: 'brooklyn-sunset', maxRows: 14, minRows: 7},
+  {id: 'miami-synth', maxRows: 14, minRows: 7},
+  {id: 'chicago-snow', maxRows: 14, minRows: 7},
+  {id: 'sydney-harbor', maxRows: 14, minRows: 7},
+  {id: 'candy-lane', maxRows: 14, minRows: 7},
+  {id: 'argyle', maxRows: 14, minRows: 7},
+  {id: 'pop-panels', maxRows: 14, minRows: 7},
+  {id: 'quilt-stars', maxRows: 14, minRows: 7},
+  {id: 'bounce-party', maxRows: 14, minRows: 7},
 ] as const;
 
 export type ReceiverStyleId = (typeof receiverStyleRegistry)[number]['id'];

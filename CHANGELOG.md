@@ -6,6 +6,9 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Added
 
+- Added twelve cityscape and pattern receivers: Tokyo Rain, Paris Dawn, London
+  Night, Brooklyn Sunset, Miami Synth, Chicago Snow, Sydney Harbor, Candy Lane,
+  Argyle, Pop Panels, Quilt Stars, and Bounce Party.
 - Added 51 encore receivers: second takes on the original styles, each
   named after its original with an `-ii` suffix. The originals are unchanged.
 - Added twenty-four full-bleed graphic receivers, from Sound Ribbon, Demo
@@ -67,7 +70,7 @@ All notable changes to RadioCLI are documented in this file.
   Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,
   Music Box, Fresnel Lens, Tide Clock, Bonfire, Soda Fizz, Marching Band,
   Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call). The
-  collection now has 364 animated styles.
+  collection now has 376 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
