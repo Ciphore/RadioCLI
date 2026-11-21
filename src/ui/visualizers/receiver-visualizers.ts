@@ -10,7 +10,10 @@ import {galleryReceiverBuilders} from './gallery-receivers.js';
 import {playroomReceiverBuilders} from './playroom-receivers.js';
 import {cabinetReceiverBuilders} from './cabinet-receivers.js';
 import {festiveReceiverBuilders} from './festive-receivers.js';
-import {aurora, constellation, gallopDust, gallopEcho, gallopHerd, gallopPlates, rippleTank, starfield, tesseract} from './revised-receivers.js';
+import {yuletideReceiverBuilders} from './yuletide-receivers.js';
+import {deckReceiverBuilders} from './deck-receivers.js';
+import {reverieReceiverBuilders} from './reverie-receivers.js';
+import {aurora, constellation, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
 import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
@@ -42,6 +45,9 @@ type VisualizerBuilder = (
 ) => VisualLine[];
 
 const receiverStyleBuilders = {
+  ...reverieReceiverBuilders,
+  ...deckReceiverBuilders,
+  ...yuletideReceiverBuilders,
   ...retroReceiverBuilders,
   ...mediaPlayerReceiverBuilders,
   ...screensaverReceiverBuilders,
@@ -50,10 +56,11 @@ const receiverStyleBuilders = {
   ...playroomReceiverBuilders,
   ...cabinetReceiverBuilders,
   ...festiveReceiverBuilders,
-  'gallop-herd': gallopHerd,
-  'gallop-plates': gallopPlates,
-  'gallop-dust': gallopDust,
-  'gallop-echo': gallopEcho,
+  'gallop-silhouette': gallopSilhouette,
+  'gallop-ascii': gallopAscii,
+  'gallop-led': gallopLed,
+  'gallop-neon': gallopNeon,
+  'gallop-quad': gallopQuad,
   'golden-gate-fog': goldenGateFog,
   'golden-gate-sunset': goldenGateSunset,
   'golden-gate-night': goldenGateNight,
@@ -181,8 +188,11 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(playroomReceiverBuilders) as (keyof typeof playroomReceiverBuilders)[],
   ...Object.keys(cabinetReceiverBuilders) as (keyof typeof cabinetReceiverBuilders)[],
   ...Object.keys(festiveReceiverBuilders) as (keyof typeof festiveReceiverBuilders)[],
+  ...Object.keys(yuletideReceiverBuilders) as (keyof typeof yuletideReceiverBuilders)[],
+  ...Object.keys(deckReceiverBuilders) as (keyof typeof deckReceiverBuilders)[],
+  ...Object.keys(reverieReceiverBuilders) as (keyof typeof reverieReceiverBuilders)[],
   'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora',
-  'gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo',
+  'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
   'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
   'pulse-grid',
   'hex-pulse',

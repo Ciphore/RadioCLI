@@ -98,9 +98,9 @@ export function braille(g: Grid) {
     const steps = Math.min(4 * (dw + dh), Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)))) || 1;
     for (let i = 0; i <= steps; i++) dot(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, color);
   };
-  const flush = (): void => {
+  const flush = (background?: string): void => {
     for (let cell = 0; cell < bits.length; cell++) {
-      if (bits[cell]) g.set(cell % g.w, Math.floor(cell / g.w), String.fromCharCode(0x2800 + bits[cell]!), colors[cell]!);
+      if (bits[cell]) g.set(cell % g.w, Math.floor(cell / g.w), String.fromCharCode(0x2800 + bits[cell]!), colors[cell]!, background);
     }
   };
   return {dw, dh, dot, line, flush};
@@ -191,3 +191,8 @@ export function replay<State>(runs: Map<string, Run<State>>, key: string, epoch:
   while (run.step < step) tick(run.state, run.step++);
   return run.state;
 }
+
+/** The synthetic spectrum every meter reads: band level in [0, 1] at a time in seconds. */
+export const band = (index: number, t: number): number => clamp(
+  0.5 + 0.3 * Math.sin(index * 0.61 + t * 2.3) + 0.24 * Math.sin(index * 0.23 - t * 1.5 + 1.7) + 0.18 * Math.sin(index * 1.37 + t * 3.7)
+) ** 1.6 * (0.6 + 0.4 * kick(t));

@@ -23,7 +23,6 @@ export function horseMask(pose: number, dotsW: number, dotsH: number, mirror = f
   }
   return mask;
 }
-export const horsePoses = frames.length;
 export const horseAspect = horseStrideWidth / horseStrideHeight;
 
 /** One pose per receiver tick. The same scale and torso anchor are used for every pose. */

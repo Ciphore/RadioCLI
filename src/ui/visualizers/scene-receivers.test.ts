@@ -2,9 +2,9 @@ import {describe, expect, it} from 'vitest';
 import {themeNames, type PlaybackState, type ReceiverStyle} from '../../types.js';
 import {displayWidth} from '../format.js';
 import {buildVisualizer} from './receiver-visualizers.js';
-import {receiverStyleNames} from './receiver-style-registry.js';
+import {migrateReceiverStyle, receiverStyleNames} from './receiver-style-registry.js';
 
-const variations = ['gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo', 'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night',
+const variations = ['gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad', 'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night',
   'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor'] as const satisfies readonly ReceiverStyle[];
 const revised = ['constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora'] as const satisfies readonly ReceiverStyle[];
 const styles = [...variations, ...revised];
@@ -20,21 +20,25 @@ describe('scene variations and revised receivers', () => {
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
       const frames = [0, 3, 7, 10, 90].map(pulse => JSON.stringify(frame(style, pulse)));
-      // The plates are stills by design: only the lit frame moves on.
-      expect(new Set(frames).size, style).toBeGreaterThanOrEqual(style === 'gallop-plates' ? 3 : 5);
+      expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
     expect(signatures.size).toBe(styles.length);
   });
 
-  it('draws the horse in braille in every gallop, each arranged differently', () => {
-    const ink = (style: ReceiverStyle): number => (text(style).match(/[⠁-⣿]/g) ?? []).length;
-    for (const style of ['gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo'] as const) expect(ink(style), style).toBeGreaterThan(60);
-    expect(text('gallop-plates')).toMatch(/└1─+[\s\S]*└2─/);
-    expect(text('gallop-dust')).toMatch(/─{3}/);
-    // The herd and the echo use several tones; the plates light exactly one frame.
-    expect(colours('gallop-herd').size).toBeGreaterThan(4);
-    expect(colours('gallop-echo').size).toBeGreaterThan(3);
+  it('draws the same centred horse in five different textures', () => {
+    expect(text('gallop-ascii')).toMatch(/[.:;+=*#@]{4}/);
+    expect(text('gallop-led')).toMatch(/·+●+/);
+    expect(text('gallop-quad')).toMatch(/[▘▝▀▖▌▞▛▗▚▐▜▄▙▟█]{3}/);
+    for (const style of ['gallop-silhouette', 'gallop-neon'] as const) expect(text(style), style).toMatch(/[▀▄]/);
+    for (const style of ['gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad'] as const) {
+      // Centred: the drawing's left and right margins match to within a few cells.
+      const rows = frame(style, 60).map(row => (row.segments ?? []).map(segment => segment.backgroundColor || !/^[\s·▁]*$/.test(segment.text) ? '#'.repeat(segment.text.length) : ' '.repeat(segment.text.length)).join(''));
+      const left = Math.min(...rows.filter(row => row.trim()).map(row => row.search(/\S/))), right = Math.min(...rows.filter(row => row.trim()).map(row => 80 - row.trimEnd().length));
+      expect(Math.abs(left - right), style).toBeLessThanOrEqual(style === 'gallop-silhouette' ? 80 : 4);
+      expect(migrateReceiverStyle(style)).toBe(style);
+    }
+    for (const retired of ['gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo']) expect(migrateReceiverStyle(retired)).toBe('ultracode');
   });
 
   it('keeps each bridge in its own light', () => {

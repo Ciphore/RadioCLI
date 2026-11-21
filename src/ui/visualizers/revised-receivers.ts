@@ -1,6 +1,6 @@
 import {panelBackground} from '../theme.js';
 import {TAU, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder} from './cell-canvas.js';
-import {horseAspect, horseMask, horsePoses} from './gallop.js';
+import {horseAspect, horseMask} from './gallop.js';
 
 // Star figures in a unit box: [x, y] points, then the pairs to join.
 const FIGURES: {name: string; stars: [number, number][]; links: [number, number][]}[] = [
@@ -192,103 +192,104 @@ export const aurora: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-type Horse = {left: number; top: number; wide: number; tall: number; pose: number; color: string; mirror?: boolean};
-/** Stamp horses into one braille layer; later horses overwrite the colour of earlier ones where they overlap. */
-const stable = (g: ReturnType<typeof grid>, horses: Horse[]): void => {
-  const b = braille(g);
-  for (const horse of horses) {
-    const w = Math.max(2, Math.round(horse.wide)), h = Math.max(2, Math.round(horse.tall));
-    const mask = horseMask(horse.pose, w, h, horse.mirror);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) b.dot(Math.round(horse.left) + x, Math.round(horse.top) + y, horse.color);
-  }
-  b.flush();
-};
-const horseSize = (g: ReturnType<typeof grid>, share: number): [number, number] => {
-  const tall = Math.min(g.h * 4 * share, g.w * 2 * share / horseAspect);
-  return [tall * horseAspect, tall];
+/** The stride pose for this pulse, centred in a W×H grid of units that are `stretch` times taller than wide. */
+const stride = (pulse: number, W: number, H: number, stretch: number, share = 0.86) => {
+  const tall = Math.max(2, Math.floor(Math.min(H * share, W * share / (horseAspect * stretch))));
+  const wide = Math.max(2, Math.floor(tall * horseAspect * stretch));
+  const mask = horseMask(pulse, wide, tall);
+  const left = Math.floor((W - wide) / 2), top = Math.floor((H - tall) / 2);
+  return {wide, tall, left, top, ink: (x: number, y: number): boolean => x >= left && y >= top && x < left + wide && y < top + tall && mask[(y - top) * wide + x - left] === 1};
 };
 
-// The whole herd on the move: far horses small, slow and dim, near ones large and quick, all out of step.
-export const gallopHerd: Builder = (pulse, width, height, theme) => {
+// The horse as a solid body: the outline is closed, flooded from outside, and whatever the flood cannot reach is horse.
+export const gallopSilhouette: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const dw = g.w * 2, dh = g.h * 4;
-  for (let x = 0; x < g.w; x++) g.set(x, g.h - 1, hash(x + Math.floor(t * 30), 1) > 0.8 ? '.' : '_', g.paint.ink(0.3));
-  const horses: Horse[] = [];
-  for (let depth = 0; depth < 3; depth++) {
-    const near = (depth + 1) / 3;
-    const [wide, tall] = horseSize(g, 0.34 + 0.3 * near);
-    const count = Math.max(1, Math.round(dw / wide * (0.5 + 0.2 * depth)));
-    for (let n = 0; n < count; n++) {
-      const id = depth * 10 + n, lap = dw + wide * 2;
-      const run = ((n / count + hash(id, 2) * 0.3 / count) * lap + t * (10 + 26 * near)) % lap - wide;
-      horses.push({left: run, top: dh - tall - (2 - depth) * dh * 0.11 - 1, wide, tall, pose: pulse * (0.8 + 0.2 * near) + hash(id, 3) * horsePoses,
-        color: mix(panelBackground, g.paint.fan(hash(id, 4) * 1.2 - 0.6), 0.3 + 0.7 * near)});
+  const p = pixels(g);
+  const horse = stride(pulse, p.pw, p.ph, 1, 0.9);
+  const W = horse.wide + 2, H = horse.tall + 2;
+  const outside = new Uint8Array(W * H);
+  // The drawing has small breaks in it; a line thickened by one pixel has none, so the flood stays out.
+  const wall = (x: number, y: number): boolean => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (horse.ink(horse.left + x - 1 + dx, horse.top + y - 1 + dy)) return true;
+    return false;
+  };
+  const queue = [0];
+  outside[0] = 1;
+  while (queue.length) {
+    const at = queue.pop()!, x = at % W, y = Math.floor(at / W);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx, ny = y + dy, next = ny * W + nx;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || outside[next] || wall(nx, ny)) continue;
+      outside[next] = 1; queue.push(next);
     }
   }
-  stable(g, horses);
-  return g.finish();
-};
-
-// The photographer's plates: every pose of one stride laid side by side, with the moving one lit.
-export const gallopPlates: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const rows = g.h >= 16 ? 2 : 1;
-  const plateH = Math.floor(g.h / rows), plateW = Math.max(4, Math.min(Math.floor(g.w / 3), Math.round((plateH - 1) * 4 * horseAspect / 2) + 2));
-  const columns = Math.max(1, Math.floor(g.w / plateW)), plates = columns * rows;
-  const left = Math.floor((g.w - columns * plateW) / 2);
-  const step = horsePoses / plates, live = Math.floor(pulse / step) % plates;
-  const horses: Horse[] = [];
-  for (let plate = 0; plate < plates; plate++) {
-    const x = left + plate % columns * plateW, y = Math.floor(plate / columns) * plateH;
-    const lit = ((plate % plates) + plates) % plates === ((live % plates) + plates) % plates;
-    const frame = lit ? g.paint.accent : g.paint.ink(0.22);
-    for (let c = 0; c < plateW; c++) g.set(x + c, y + plateH - 1, c === 0 ? '└' : '─', frame);
-    g.write(x + 1, y + plateH - 1, String(plate + 1), frame);
-    const tall = (plateH - 1) * 4, wide = Math.min((plateW - 1) * 2, tall * horseAspect);
-    horses.push({left: (x + 1) * 2 + ((plateW - 1) * 2 - wide) / 2, top: y * 4 + (tall - wide / horseAspect), wide, tall: wide / horseAspect, pose: plate * step,
-      color: lit ? mix(g.paint.accent, '#ffffff', 0.4) : g.paint.ink(0.42)});
+  const ground = horse.top + horse.tall;
+  for (let x = 0; x < p.pw; x++) if (ground < p.ph) p.px(x, ground, g.paint.ink(0.16 + 0.1 * hash(x - Math.floor(pulse) * 3, 1)));
+  for (let y = 0; y < horse.tall; y++) for (let x = 0; x < horse.wide; x++) {
+    const line = horse.ink(horse.left + x, horse.top + y);
+    if (!line && outside[(y + 1) * W + x + 1]) continue;
+    // Lit from above: the back catches the light, the belly falls into shade.
+    p.px(horse.left + x, horse.top + y, line ? mix(g.paint.accent, '#ffffff', 0.45) : g.paint.ink(0.78 - 0.5 * y / horse.tall));
   }
-  stable(g, horses);
+  p.flush();
   return g.finish();
 };
 
-// One horse flat out: ground streaming under it, dust thrown up behind, and the air drawn into lines.
-export const gallopDust: Builder = (pulse, width, height, theme) => {
+const DENSITY = ' .:;+=*#@';
+// The horse typed out: each character chosen by how much of the drawing passes through its cell.
+export const gallopAscii: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
+  const horse = stride(pulse, g.w * 2, g.h * 4, 1);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    let ink = 0;
+    for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) if (horse.ink(x * 2 + dx, y * 4 + dy)) ink++;
+    if (ink) g.set(x, y, DENSITY[ink]!, g.paint.ink(0.42 + 0.58 * ink / 8), undefined, ink > 4);
+  }
+  return g.finish();
+};
+
+// The horse on a sign board: a full grid of lamps, with the ones that make the picture switched on.
+export const gallopLed: Builder = (pulse, width, height, theme) => {
+  const g = grid(width, height, theme);
+  const horse = stride(pulse, g.w, g.h * 2, 1, 0.94);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    // Each lamp is one cell: lit if the drawing touches either half of it.
+    const lit = horse.ink(x, y * 2) || horse.ink(x, y * 2 + 1);
+    const fresh = lit && !(stride(pulse - 1, g.w, g.h * 2, 1, 0.94).ink(x, y * 2) || stride(pulse - 1, g.w, g.h * 2, 1, 0.94).ink(x, y * 2 + 1));
+    g.set(x, y, lit ? '●' : '·', lit ? mix(g.paint.accent, '#ffffff', fresh ? 0.5 : 0.1) : g.paint.ink(0.12), undefined, lit);
+  }
+  return g.finish();
+};
+
+// The horse in bent glass tube: a white-hot core, a coloured halo, and a faint wash on the wall behind.
+export const gallopNeon: Builder = (pulse, width, height, theme) => {
+  const g = grid(width, height, theme);
+  const p = pixels(g);
   const t = seconds(pulse);
-  const [wide, tall] = horseSize(g, 0.82);
-  const dw = g.w * 2, dh = g.h * 4;
-  const left = dw * 0.56 - wide / 2, top = dh - tall - 3 + Math.sin(pulse * TAU / horsePoses * 2) * 1.2;
-  for (let line = 0; line < g.h; line++) {
-    const long = 3 + Math.floor(hash(line, 1) * g.w * 0.3), lap = g.w + long;
-    const x = g.w - Math.floor((t * (22 + 30 * hash(line, 2)) + hash(line, 3) * lap) % lap);
-    if (hash(line, 4) > 0.45) for (let c = 0; c < long; c++) g.set(x + c, line, '─', g.paint.ink(0.1 + 0.25 * c / long));
+  const horse = stride(pulse, p.pw, p.ph, 1, 0.88);
+  const buzz = 0.88 + 0.12 * noise(t * 9, 3);
+  for (let y = horse.top - 2; y < horse.top + horse.tall + 2; y++) for (let x = horse.left - 2; x < horse.left + horse.wide + 2; x++) {
+    let near = 9;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (horse.ink(x + dx, y + dy)) near = Math.min(near, Math.hypot(dx, dy));
+    if (near > 1.05) continue;
+    const tube = g.paint.fan(Math.sin((x - horse.left) / horse.wide * 3 + t * 0.4));
+    p.px(x, y, near === 0 ? mix(tube, '#ffffff', 0.72 * buzz) : mix(panelBackground, tube, (near < 1.1 ? 0.5 : 0.22) * buzz));
   }
-  for (let x = 0; x < g.w; x++) {
-    const tuft = hash(x + Math.floor(t * 36), 9);
-    g.set(x, g.h - 1, tuft > 0.9 ? '"' : tuft > 0.7 ? '.' : '_', g.paint.ink(0.34));
-  }
-  for (let puff = 0; puff < 26; puff++) {
-    const age = fract(t * 1.1 + puff / 26);
-    const x = Math.round((left + wide * 0.18) / 2 - age * g.w * 0.4 - hash(puff, 5) * 3), y = g.h - 1 - Math.round(age * (1 + 3 * hash(puff, 6)));
-    g.set(x, y, age < 0.3 ? '•' : age < 0.6 ? '∙' : '·', mix(panelBackground, g.paint.fan(0.7), 0.75 * (1 - age)));
-  }
-  stable(g, [{left, top, wide, tall, pose: pulse, color: mix(g.paint.accent, '#ffffff', 0.25)}]);
+  p.flush();
   return g.finish();
 };
 
-// The stride smeared through time: the horse followed by fading copies of where it just was.
-export const gallopEcho: Builder = (pulse, width, height, theme) => {
+const QUADS = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█';
+// The horse cut from quarter blocks: four hard-edged pixels to a cell, and a shadow keeping pace underneath.
+export const gallopQuad: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
-  const [wide, tall] = horseSize(g, 0.86);
-  const dw = g.w * 2, dh = g.h * 4;
-  const horses: Horse[] = [];
-  const echoes = Math.max(2, Math.min(4, Math.floor(dw / (wide * 0.3)) - 2));
-  for (let echo = echoes; echo >= 0; echo--) {
-    horses.push({left: dw * 0.5 - wide / 2 + (echoes / 2 - echo) * wide * 0.3, top: (dh - tall) / 2, wide, tall, pose: pulse - echo * 1.5,
-      color: echo ? mix(panelBackground, g.paint.fan(echo / echoes * 2 - 1), 0.85 * (1 - echo / (echoes + 1)) ** 1.6) : mix(g.paint.accent, '#ffffff', 0.5)});
+  const horse = stride(pulse, g.w * 2, g.h * 2, 2, 0.9);
+  const foot = Math.floor((horse.top + horse.tall) / 2);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    let bits = 0;
+    for (let q = 0; q < 4; q++) if (horse.ink(x * 2 + (q & 1), y * 2 + (q >> 1))) bits |= 1 << q;
+    if (bits) g.set(x, y, QUADS[bits]!, g.paint.fan(tri(y / g.h * 0.5 + 0.2) * 1.2 - 0.6));
+    else if (y === foot && Math.abs(x - g.w / 2) < horse.wide / 4.4) g.set(x, y, '▁', g.paint.ink(0.2));
   }
-  stable(g, horses);
   return g.finish();
 };

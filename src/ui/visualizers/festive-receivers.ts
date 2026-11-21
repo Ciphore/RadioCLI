@@ -2,8 +2,8 @@ import type {ThemeName} from '../../types.js';
 import {TAU, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, textPixel, tri, type Builder, type Pixels} from './cell-canvas.js';
 
 // These scenes keep the colours the season is known by; only their lights follow the theme. Mono gets the same scenes in greys.
-const RED = '#d8283c', GREEN = '#1f8f4d', PINE = '#12613a', GOLD = '#f6c453', SNOW = '#f2f6fb', EMBER = '#ff8a2a', NIGHT = '#0b1630', WOOD = '#7a4a2a', INK = '#05070c';
-const season = (theme: ThemeName) => (hex: string): string => {
+export const RED = '#d8283c', GREEN = '#1f8f4d', PINE = '#12613a', GOLD = '#f6c453', SNOW = '#f2f6fb', EMBER = '#ff8a2a', NIGHT = '#0b1630', WOOD = '#7a4a2a', INK = '#05070c';
+export const season = (theme: ThemeName) => (hex: string): string => {
   if (theme !== 'mono') return hex;
   const [r, g, b] = [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
   const grey = Math.round(0.3 * r! + 0.59 * g! + 0.11 * b!).toString(16).padStart(2, '0');
@@ -12,26 +12,26 @@ const season = (theme: ThemeName) => (hex: string): string => {
 const DIGITS = [[14, 17, 17, 17, 14], [4, 12, 4, 4, 14], [30, 1, 14, 16, 31], [30, 1, 14, 1, 30], [18, 18, 31, 2, 2], [31, 16, 30, 1, 30], [14, 16, 30, 17, 14], [31, 1, 2, 4, 4], [14, 17, 14, 17, 14], [14, 17, 15, 1, 14]];
 
 /** Is this pixel lit in a line of letters and digits on a six-pixel advance? */
-const lettering = (text: string, x: number, y: number): boolean => {
+export const lettering = (text: string, x: number, y: number): boolean => {
   if (x < 0 || y < 0 || y > 4 || x % 6 === 5) return false;
   const glyph = text[Math.floor(x / 6)] ?? ' ';
   return glyph >= '0' && glyph <= '9' ? ((DIGITS[Number(glyph)]![y]! >> (4 - x % 6)) & 1) === 1 : textPixel(text, x, y);
 };
 /** Set lettering in pixels; the painter chooses a colour per pixel, or nothing to leave it clear. */
-const write = (p: Pixels, text: string, left: number, top: number, scale: number, paint: (letter: number, x: number, y: number) => string | undefined): void => {
+export const write = (p: Pixels, text: string, left: number, top: number, scale: number, paint: (letter: number, x: number, y: number) => string | undefined): void => {
   for (let y = 0; y < 5 * scale; y++) for (let x = 0; x < (text.length * 6 - 1) * scale; x++) {
     if (!lettering(text, Math.floor(x / scale), Math.floor(y / scale))) continue;
     const color = paint(Math.floor(x / scale / 6), x, y);
     if (color) p.px(left + x, top + y, color);
   }
 };
-const snowfall = (p: Pixels, t: number, flakes: number, color: string): void => {
+export const snowfall = (p: Pixels, t: number, flakes: number, color: string): void => {
   for (let flake = 0; flake < flakes; flake++) {
     const drift = hash(flake, 1) * p.pw + Math.sin(t * 0.6 + flake) * 2.5;
     p.px(Math.floor(((drift % p.pw) + p.pw) % p.pw), Math.floor(fract(hash(flake, 2) + t * (0.035 + 0.05 * hash(flake, 3))) * p.ph), color);
   }
 };
-const starlight = (p: Pixels, t: number, horizon: number, color: string, ground: string): void => {
+export const starlight = (p: Pixels, t: number, horizon: number, color: string, ground: string): void => {
   for (let star = 0; star < p.pw * horizon / 70; star++) {
     p.px(Math.floor(hash(star, 41) * p.pw), Math.floor(hash(star, 42) * horizon), mix(ground, color, 0.25 + 0.75 * tri(t * (0.15 + 0.2 * hash(star, 43)) + hash(star, 44))));
   }
@@ -40,10 +40,10 @@ const fill = (p: Pixels, color: (x: number, y: number) => string): void => {
   for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, color(x, y));
 };
 /** A background that only changes from row to row. */
-const wash = (p: Pixels, color: (y: number) => string): void => {
+export const wash = (p: Pixels, color: (y: number) => string): void => {
   for (let y = 0; y < p.ph; y++) { const tone = color(y); for (let x = 0; x < p.pw; x++) p.px(x, y, tone); }
 };
-const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: (dx: number, dy: number) => string | undefined): void => {
+export const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: (dx: number, dy: number) => string | undefined): void => {
   for (let y = Math.floor(cy - ry); y <= cy + ry; y++) for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
     const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
     if (dx * dx + dy * dy > 1) continue;
@@ -52,7 +52,7 @@ const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: 
   }
 };
 /** A candle or lamp flame: a teardrop that leans and stretches a little every frame. */
-const flame = (p: Pixels, x: number, base: number, tall: number, t: number, seed: number, c: (hex: string) => string): void => {
+export const flame = (p: Pixels, x: number, base: number, tall: number, t: number, seed: number, c: (hex: string) => string): void => {
   const flicker = 0.8 + 0.2 * noise(t * 5, seed * 7.3), lean = (noise(t * 3, seed * 3.1 + 9) - 0.5) * 1.6;
   const height = Math.max(1, tall * flicker);
   for (let rise = 0; rise < height; rise++) {
@@ -175,7 +175,7 @@ const santaSleigh: Builder = (pulse, width, height, theme) => {
 };
 
 /** One decorated tree: tiered boughs, a garland, baubles on a three-phase blink, a star, and presents. */
-const tree = (p: Pixels, cx: number, base: number, tall: number, t: number, c: (hex: string) => string, accent: string, seed: number): void => {
+export const tree = (p: Pixels, cx: number, base: number, tall: number, t: number, c: (hex: string) => string, accent: string, seed: number): void => {
   const trunk = Math.max(1, Math.round(tall * 0.1)), crown = tall - trunk;
   const tiers = Math.max(2, Math.round(crown / 6));
   const top = base - tall;

@@ -1012,7 +1012,7 @@ describe('JsonLibraryStore', () => {
       store.updateSettings({receiverStyle});
       expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
     }
-  }, 20_000);
+  }, 60_000);
 
   // This matrix performs durable filesystem commits for every receiver.
   it('preserves every supported receiver and favorites through background writes', () => {
@@ -1038,7 +1038,7 @@ describe('JsonLibraryStore', () => {
     expect(existsSync(`${file}.receiver-v2.json`)).toBe(false);
     expect(observer.snapshot().settings.receiverStyle).toBe('ultracode');
     expect(readdirSync(root).some(name => name.includes('.bad-'))).toBe(false);
-  }, 20_000);
+  }, 60_000);
 
   it('keeps Boat Lake out of the 0.2.5 preference namespace and honors explicit legacy selections', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));

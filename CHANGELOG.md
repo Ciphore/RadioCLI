@@ -28,9 +28,18 @@ All notable changes to RadioCLI are documented in this file.
 - Added twelve festive receivers: Merry Christmas, Santa Sleigh, Christmas
   Tree, Fireside, Winter Village, Sleigh Bells, New Year, Diwali, Lunar New
   Year, Eid Night, Menorah, and Holi. These keep their own seasonal colours.
-- Added variations on existing scenes: Gallop Herd, Plates, Dust and Echo;
-  Golden Gate Fog, Sunset and Night; Skyline Dawn, Rain and Synth; and
-  Manhattan Henge, Snow and Harbor. The collection now has 161 animated styles.
+- Added variations on existing scenes: Gallop Silhouette, ASCII, LED, Neon and
+  Quad; Golden Gate Fog, Sunset and Night; Skyline Dawn, Rain and Synth; and
+  Manhattan Henge, Snow and Harbor.
+- Added twelve more Christmas receivers (Santa Claus, Chimney, Snow Globe,
+  Gingerbread, Candy Cane, Advent Calendar, Nutcracker, Wreath, Ornaments,
+  Snowman, Workshop, Christmas Lights) and Fireworks Skyline for New Year.
+- Added twelve hi-fi receivers: Head Unit, VFD Spectrum, Winamp, VU Needles,
+  Tape Deck, Segment Clock, Graphic EQ, Marquee, Dial Scale, Compact Disc,
+  Boombox, and LED Ladder.
+- Added twelve quieter loops: Falling Blocks, Serpent, Paddle Ball, Heartbeat,
+  Breathe, Rain Window, Night Drive, Game of Life, Hourglass, Metronome,
+  Progress Bars, and Typewriter. The collection now has 199 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
