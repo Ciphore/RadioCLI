@@ -170,6 +170,25 @@ describe('RadioCLI setup', () => {
     expect(rehearsal).toHaveBeenCalledOnce();
     expect(text).toContain('https://brew.sh');
     expect(text).toContain('Verification');
+    // The verdict and the next step are the last things on screen.
+    expect(text).not.toContain('Run radiocli to start listening.');
+    expect(text).toContain('No player is installed, so RadioCLI cannot play stations yet.');
+    expect(text.indexOf('Nothing was installed: mpv still missing.')).toBeGreaterThan(text.indexOf('Verification'));
+    expect(text.trimEnd().endsWith('RadioCLI finds it there.')).toBe(true);
+  });
+
+  it('does not ask which players to install when it has no way to install them', async () => {
+    const output = Object.assign(new PassThrough(), {isTTY: true});
+    const input = Object.assign(new PassThrough(), {isTTY: true});
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const questions: string[] = [];
+    await expect(runSetup({platform: 'darwin', args: [], input, output, hasCommand: () => false,
+      prompt: async question => { questions.push(question); return false; }}))
+      .rejects.toThrow('setup installed nothing');
+    expect(questions.some(question => /mpv|FFmpeg|VLC/.test(question))).toBe(false);
+    expect(questions.some(question => question.includes('Agent control via MCP'))).toBe(true);
+    expect(text.indexOf('it cannot install mpv or FFmpeg / ffplay here')).toBeLessThan(text.indexOf('Installation plan'));
   });
 
   it('continues past a failed package and an unavailable package index, then reports the failure', async () => {
@@ -440,7 +459,7 @@ describe('RadioCLI setup', () => {
       args: ['--yes', '--only=mpv,ffmpeg', '--package-manager=brew'],
       input: new PassThrough(),
       output,
-      hasCommand: command => command === 'brew',
+      hasCommand: command => command === 'brew' || (executed.length > 0 && command === 'mpv'),
       runCommand: async command => { executed.push(command.display); }
     });
 

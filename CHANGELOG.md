@@ -18,6 +18,11 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Changed
 
+- When no package manager is available, setup says so before asking which
+  players to install and ends with what is still missing and how to get it,
+  instead of inviting you to start listening.
+- A standalone `mpv.app` in Applications is found without any PATH or
+  environment configuration on macOS.
 - Setup asks before enabling agent control and no longer selects it by default,
   because enabling it edits other applications' configuration.
 - Setup applies the agent-control choice and runs its playback check even when a

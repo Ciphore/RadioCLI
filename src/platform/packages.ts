@@ -200,7 +200,7 @@ export function packageInstallPrerequisites(manager: SetupPackageManager, compon
 export function manualInstallGuidance(platform: NodeJS.Platform): string[] {
   if (platform === 'darwin') return [
     'Install Homebrew from https://brew.sh or MacPorts from https://www.macports.org, then run radiocli setup again.',
-    'A standalone mpv build is also listed at https://mpv.io/installation/.'
+    'Or put a standalone mpv.app from https://mpv.io/installation/ in Applications; RadioCLI finds it there.'
   ];
   if (platform === 'win32') return ['Install mpv with WinGet, Scoop or Chocolatey, or use a build listed at https://mpv.io/installation/.'];
   return ['Install mpv with your system package manager (see https://mpv.io/installation/). If it is outside PATH, set RADIOCLI_MPV_PATH to its absolute path.'];

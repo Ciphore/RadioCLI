@@ -188,6 +188,14 @@ function applicationCandidates(command: string, {platform, env, home}: CommandRe
     ];
   }
 
+  // The standalone macOS builds linked from mpv.io are app bundles, not PATH installs.
+  if (command === 'mpv' && platform === 'darwin') {
+    return [
+      '/Applications/mpv.app/Contents/MacOS/mpv',
+      posix.join(home, 'Applications', 'mpv.app', 'Contents', 'MacOS', 'mpv')
+    ];
+  }
+
   if (platform !== 'win32') return [];
 
   if (command === 'vlc' || command === 'cvlc') {

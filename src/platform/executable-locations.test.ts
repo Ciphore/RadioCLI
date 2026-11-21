@@ -15,6 +15,20 @@ describe('command resolution', () => {
     expect(resolution).toEqual({path: expected, discovery: 'application-directory'});
   });
 
+  it('finds a standalone macOS mpv.app without PATH', () => {
+    for (const expected of ['/Applications/mpv.app/Contents/MacOS/mpv', '/Users/listener/Applications/mpv.app/Contents/MacOS/mpv']) {
+      const resolution = resolveCommandDetails('mpv', {
+        platform: 'darwin',
+        env: {PATH: ''},
+        home: '/Users/listener',
+        isRunnable: path => path === expected,
+        registryPaths: () => []
+      });
+
+      expect(resolution).toEqual({path: expected, discovery: 'application-directory'});
+    }
+  });
+
   it('supports per-user Windows mpv installations', () => {
     const expected = 'C:\\Users\\listener\\AppData\\Local\\Programs\\MPV\\mpv.exe';
     const resolution = resolveCommandDetails('mpv', {

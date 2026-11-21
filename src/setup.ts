@@ -80,7 +80,10 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   output.write(`Manager ${packageManager ?? 'not detected'}\n\n`);
 
   let selected = parsed.only ?? defaultComponents(platform, parsed.all);
-  if (!parsed.yes && !parsed.only && isInteractive(input, output)) {
+  if (!packageManager && selected.some(component => !installed[component])) {
+    // Say so before any question: answering yes below cannot install anything.
+    output.write(`Setup installs players through a package manager, and none was found, so it cannot install ${selected.filter(component => !installed[component]).map(componentLabel).join(' or ')} here.\n\n`);
+  } else if (!parsed.yes && !parsed.only && isInteractive(input, output)) {
     selected = await promptForComponents({platform, installed, output, prompt});
   }
   let airplay = parsed.airplay;
@@ -134,21 +137,26 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     return;
   }
 
-  const finishWithout = async (error: Error): Promise<never> => {
+  const finishWithout = async (error: Error, afterVerification?: () => void): Promise<never> => {
     await finishMcpSetup(mcp, agentUi, false, output);
     await verify();
+    afterVerification?.();
     throw error;
   };
 
   if (!plan.packageManager && missing.length > 0) {
-    output.write('\nNo supported system package manager was found.\n');
-    for (const line of manualInstallGuidance(platform)) output.write(`  ${line}\n`);
+    const guidance = (): void => {
+      output.write(`\nNothing was installed: ${missing.map(componentLabel).join(' and ')} still missing.\nNo supported system package manager was found.\n`);
+      for (const line of manualInstallGuidance(platform)) output.write(`  ${line}\n`);
+    };
     if (parsed.dryRun) {
+      guidance();
       output.write('\nDry run complete. Install the missing components manually; no system packages were changed.\n');
       await finishMcpSetup(mcp, agentUi, true, output);
       return;
     }
-    return finishWithout(new Error('No supported system package manager was found. Install mpv manually, then run radiocli doctor.'));
+    // Keep the next step as the last thing on screen, below the verification.
+    return finishWithout(new Error('No supported system package manager was found, so setup installed nothing. Install a player as described above, then run radiocli doctor.'), guidance);
   }
 
   if (parsed.dryRun) {
@@ -478,7 +486,9 @@ async function printVerification(output: Writable, {platform, osRelease, env, re
   if (rehearsals.length === 0) output.write('  decoder=unverified No local playback backend is available for a rehearsal.\n');
   output.write('  physical_output=unverified Play a station on your intended speakers, headphones, or AirPlay receiver to verify that path.\n');
   if (rehearsals.some(item => item.status !== 'passed')) output.write('  Playback needs attention. Run radiocli doctor --playback for a repeatable local check.\n');
-  output.write('\nRun radiocli to start listening.\n');
+  output.write(backends.length === 0
+    ? '\nNo player is installed, so RadioCLI cannot play stations yet.\n'
+    : '\nRun radiocli to start listening.\n');
 }
 
 function writeHeader(output: Writable): void {
