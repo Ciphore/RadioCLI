@@ -28,7 +28,9 @@ All notable changes to RadioCLI are documented in this file.
 - Added twelve festive receivers: Merry Christmas, Santa Sleigh, Christmas
   Tree, Fireside, Winter Village, Sleigh Bells, New Year, Diwali, Lunar New
   Year, Eid Night, Menorah, and Holi. These keep their own seasonal colours.
-  The collection now has 148 animated styles.
+- Added variations on existing scenes: Gallop Herd, Plates, Dust and Echo;
+  Golden Gate Fog, Sunset and Night; Skyline Dawn, Rain and Synth; and
+  Manhattan Henge, Snow and Harbor. The collection now has 161 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
@@ -41,6 +43,9 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Changed
 
+- Constellation, Tesseract, Starfield, Ripple Tank and Aurora are redrawn:
+  named star figures traced in turn, a clean hypercube, radial warp streaks,
+  rain rings on a pond, and curtains of light over a ridge and lake.
 - Cube is now a solid, flat-shaded body turning at a steady rate, and Spinning
   Donut is drawn without gaps at every size.
 - When no package manager is available, setup says so before asking which

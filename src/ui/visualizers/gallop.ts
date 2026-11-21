@@ -5,6 +5,27 @@ import {horseStrideFrames, horseStrideHeight, horseStrideWidth} from './horse-st
 const frames = horseStrideFrames.map(frame => Uint8Array.from(atob(frame), char => char.charCodeAt(0)));
 const brailleBits = [[1, 8], [2, 16], [4, 32], [64, 128]] as const;
 
+/** One pose as a dot mask of the requested size, by area coverage. Any width works; the pose is mirrored when asked. */
+export function horseMask(pose: number, dotsW: number, dotsH: number, mirror = false): Uint8Array {
+  const frame = frames[((Math.floor(pose) % frames.length) + frames.length) % frames.length]!;
+  const mask = new Uint8Array(dotsW * dotsH);
+  for (let y = 0; y < dotsH; y++) {
+    const sy0 = Math.floor(y * horseStrideHeight / dotsH), sy1 = Math.ceil((y + 1) * horseStrideHeight / dotsH);
+    for (let x = 0; x < dotsW; x++) {
+      const sx0 = Math.floor(x * horseStrideWidth / dotsW), sx1 = Math.ceil((x + 1) * horseStrideWidth / dotsW);
+      let ink = 0;
+      for (let sy = sy0; sy < sy1; sy++) for (let sx = sx0; sx < sx1; sx++) {
+        const bit = sy * horseStrideWidth + sx;
+        ink += (frame[bit >> 3]! >> (bit & 7)) & 1;
+      }
+      if (ink / ((sx1 - sx0) * (sy1 - sy0)) >= 0.22) mask[y * dotsW + (mirror ? dotsW - 1 - x : x)] = 1;
+    }
+  }
+  return mask;
+}
+export const horsePoses = frames.length;
+export const horseAspect = horseStrideWidth / horseStrideHeight;
+
 /** One pose per receiver tick. The same scale and torso anchor are used for every pose. */
 export function buildGallop(pulse: number, width: number, height: number, theme: ThemeName) {
   const w = Math.max(1, Math.floor(width));

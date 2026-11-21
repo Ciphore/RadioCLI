@@ -10,6 +10,8 @@ import {galleryReceiverBuilders} from './gallery-receivers.js';
 import {playroomReceiverBuilders} from './playroom-receivers.js';
 import {cabinetReceiverBuilders} from './cabinet-receivers.js';
 import {festiveReceiverBuilders} from './festive-receivers.js';
+import {aurora, constellation, gallopDust, gallopEcho, gallopHerd, gallopPlates, rippleTank, starfield, tesseract} from './revised-receivers.js';
+import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
 type VisualLine = {
@@ -48,6 +50,19 @@ const receiverStyleBuilders = {
   ...playroomReceiverBuilders,
   ...cabinetReceiverBuilders,
   ...festiveReceiverBuilders,
+  'gallop-herd': gallopHerd,
+  'gallop-plates': gallopPlates,
+  'gallop-dust': gallopDust,
+  'gallop-echo': gallopEcho,
+  'golden-gate-fog': goldenGateFog,
+  'golden-gate-sunset': goldenGateSunset,
+  'golden-gate-night': goldenGateNight,
+  'skyline-dawn': skylineDawn,
+  'skyline-rain': skylineRain,
+  'skyline-synth': skylineSynth,
+  'manhattan-henge': manhattanHenge,
+  'manhattan-snow': manhattanSnow,
+  'manhattan-harbor': manhattanHarbor,
   'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
@@ -58,13 +73,13 @@ const receiverStyleBuilders = {
   fire: buildAsciiFire,
   fireworks: buildAsciiFireworks,
   'spinning-donut': buildAsciiDonut,
-  starfield: buildAsciiStarfield,
+  starfield,
   mesh: buildMesh,
   ribbon: buildRibbon,
   equalizer: buildEqualizer,
   tunnel: buildTunnel,
   kaleidoscope: buildKaleidoscope,
-  constellation: buildConstellation,
+  constellation,
   'pulse-grid': buildPulseGrid,
   lissajous: buildLissajous,
   'braille-wave': buildBrailleWave,
@@ -72,7 +87,7 @@ const receiverStyleBuilders = {
   spectrogram: buildSpectrogram,
   nebula: buildNebula,
   silk: buildSilk,
-  'ripple-tank': buildRippleTank,
+  'ripple-tank': rippleTank,
   phyllotaxis: buildPhyllotaxis,
   harmonograph: buildHarmonograph,
   moire: buildMoire,
@@ -81,7 +96,7 @@ const receiverStyleBuilders = {
   lorenz: buildLorenz,
   fern: buildFern,
   chladni: buildChladni,
-  tesseract: buildTesseract,
+  tesseract,
   'torus-knot': buildTorusKnot,
   rotozoomer: buildRotozoomer,
   'fractal-tree': buildFractalTree,
@@ -92,7 +107,7 @@ const receiverStyleBuilders = {
   cyclone: buildCyclone,
   'lava-lamp': buildLavaLamp,
   newton: buildNewton,
-  aurora: buildAurora,
+  aurora,
   'xor-texture': buildXorTexture,
   'hex-pulse': buildHexPulse,
   spirograph: buildSpirograph,
@@ -166,6 +181,9 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(playroomReceiverBuilders) as (keyof typeof playroomReceiverBuilders)[],
   ...Object.keys(cabinetReceiverBuilders) as (keyof typeof cabinetReceiverBuilders)[],
   ...Object.keys(festiveReceiverBuilders) as (keyof typeof festiveReceiverBuilders)[],
+  'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora',
+  'gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo',
+  'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
   'pulse-grid',
   'hex-pulse',
   'galaxy',
@@ -1092,109 +1110,6 @@ function buildAsciiDonut(
   return rows.map(text => ({text, color: accent}));
 }
 
-function buildAsciiStarfield(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const ramp = themeContributionColors(theme);
-  const geometry = starfieldGeometry(width, height);
-
-  // Dense multi-layer warp field: dust nebula + mid stars + near streaks + flares
-  return Array.from({length: height}, (_, y) => {
-    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
-      const cellIndex = y * width + x;
-      const angle = geometry.angle[cellIndex] ?? 0;
-      const dist = geometry.distance[cellIndex] ?? 0.001;
-
-      // Soft nebula dust so the void isn't empty
-      const nebula =
-        0.22 * Math.sin(angle * 3 + pulse * 0.03) +
-        0.18 * Math.sin(dist * 0.12 - pulse * 0.04 + angle * 2) +
-        0.12 * Math.cos(x * 0.08 + y * 0.15 + pulse * 0.02);
-      const dust = clampNumber(0.18 + nebula * 0.5, 0, 0.55);
-
-      // Multiple star layers with different speeds (true parallax warp)
-      let best = dust * 0.35;
-      let bestGlyph = dust > 0.28 ? '·' : ' ';
-      let bestColor = ramp[1] ?? '#2a2a40';
-      let bold = false;
-
-      for (let layer = 0; layer < 4; layer += 1) {
-        const layerSpeed = 0.35 + layer * 0.55;
-        // Quantize angle into star "lanes" so stars feel discrete
-        const angDiff = geometry.angularDifference[layer]?.[cellIndex] ?? Math.PI;
-        if (angDiff > 0.04 + layer * 0.01) {
-          continue;
-        }
-
-        const seed = geometry.seed[layer]?.[cellIndex] ?? 0;
-        const phase = geometry.phase[layer]?.[cellIndex] ?? 0;
-        const depth = ((pulse * layerSpeed * 0.45 + phase * 40 + seed) % 100) / 100;
-        const starDist = Math.pow(depth, 1.55) * geometry.maxDistance * (0.15 + phase * 0.85);
-        const along = Math.abs(dist - starDist);
-        // Near stars elongate into streaks
-        const streak = layer >= 2 ? 0.8 + depth * 4.5 : 0.35 + depth * 1.2;
-        const hit = along < streak;
-
-        if (!hit) {
-          continue;
-        }
-
-        const intensity = clampNumber((1 - along / streak) * (0.35 + depth * 0.75) * (0.5 + layer * 0.2), 0, 1);
-        if (intensity <= best) {
-          continue;
-        }
-
-        best = intensity;
-        if (layer >= 3 && depth > 0.7) {
-          bestGlyph = intensity > 0.85 ? '✦' : intensity > 0.65 ? '*' : '+';
-          bestColor = '#ffffff';
-          bold = true;
-        } else if (layer >= 2) {
-          bestGlyph = depth > 0.6 ? (along < 0.5 ? '━' : '*') : depth > 0.35 ? '+' : '·';
-          bestColor = depth > 0.55 ? '#ffffff' : accent;
-        } else if (layer === 1) {
-          bestGlyph = depth > 0.55 ? '*' : depth > 0.3 ? '+' : '·';
-          bestColor = ramp[Math.min(ramp.length - 1, 2 + Math.floor(depth * 3))] ?? accent;
-        } else {
-          bestGlyph = depth > 0.5 ? '·' : '˙';
-          bestColor = ramp[1] ?? '#555566';
-        }
-      }
-
-      // Occasional cross-flare on the brightest stars
-      if (best > 0.88) {
-        // already bright center
-      }
-
-      if (best < 0.08) {
-        return {text: ' ', color: accent};
-      }
-
-      // Fill nebula with faint background tint
-      const bg =
-        dust > 0.32 && best < 0.5
-          ? theme === 'mono'
-            ? '#121218'
-            : ramp[0] ?? '#0a0a14'
-          : undefined;
-
-      return {
-        text: bestGlyph,
-        color: bestColor,
-        backgroundColor: bg,
-        bold
-      };
-    });
-
-    // Add a few hard cross-flares as post pass via bright neighbors — done per-cell above
-    return lineFromCells(cells, accent);
-  });
-}
-
 function buildMesh(
   pulse: number,
   width: number,
@@ -1340,51 +1255,6 @@ function buildKaleidoscope(
   return grid.map(row => lineFromCells(row, accent));
 }
 
-function buildConstellation(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const grid = emptyMotionGrid(width, height, '#06090f');
-  const accent = themeAccent(theme);
-  const linkColor = theme === 'mono' ? '#b8b8b8' : interpolateHex(accent, '#ffffff', 0.48);
-  const count = Math.max(8, Math.min(18, Math.floor(width / 6)));
-  const nodes: Array<{x: number; y: number}> = [];
-
-  for (let i = 0; i < count; i += 1) {
-    const baseX = hashNoise(i * 13 + 1, 1, 0);
-    const baseY = hashNoise(i * 7 + 3, 2, 0);
-    const speedX = 0.6 + hashNoise(i, 5, 0) * 0.8;
-    const speedY = 0.4 + hashNoise(i, 9, 0) * 0.7;
-    const x = baseX * (width - 1) + Math.sin(pulse * 0.03 * speedX + i) * width * 0.16;
-    const y = baseY * (height - 1) + Math.cos(pulse * 0.025 * speedY + i * 1.3) * height * 0.2;
-    nodes.push({
-      x: ((x % (width - 1)) + (width - 1)) % (width - 1),
-      y: ((y % (height - 1)) + (height - 1)) % (height - 1)
-    });
-  }
-
-  const linkDistance = width * 0.22;
-  for (let i = 0; i < nodes.length; i += 1) {
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const a = nodes[i]!;
-      const b = nodes[j]!;
-      const dx = a.x - b.x;
-      const dy = (a.y - b.y) * 2;
-      if (Math.sqrt(dx * dx + dy * dy) < linkDistance) {
-        drawLineCells(grid, a.x, a.y, b.x, b.y, '·', linkColor);
-      }
-    }
-  }
-
-  for (const node of nodes) {
-    paintCell(grid, node.x, node.y, '✦', accent);
-  }
-
-  return grid.map(row => lineFromCells(row, accent));
-}
-
 function buildPulseGrid(
   pulse: number,
   width: number,
@@ -1459,30 +1329,6 @@ function paintCell(grid: VisualCell[][], x: number, y: number, text: string, col
   }
 
   row[ix] = {text, color};
-}
-
-function drawLineCells(
-  grid: VisualCell[][],
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  text: string,
-  color: string
-): void {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const steps = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy) * 2)));
-
-  for (let step = 1; step < steps; step += 1) {
-    const t = step / steps;
-    const x = Math.round(x0 + dx * t);
-    const y = Math.round(y0 + dy * t);
-    const row = grid[y];
-    if (row?.[x]?.text === ' ') {
-      row[x] = {text, color};
-    }
-  }
 }
 
 type BrailleCanvas = {
@@ -1748,41 +1594,6 @@ function buildSilk(
       }
 
       previous = target;
-    }
-  }
-
-  return brailleToLines(canvas, accent);
-}
-
-function buildRippleTank(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const canvas = createBraille(width, height);
-  const ramp = themeContributionColors(theme);
-  const accent = themeAccent(theme);
-  const dotsWide = width * 2;
-  const dotsHigh = height * 4;
-  const sources = [
-    {x: dotsWide * 0.32 + Math.sin(pulse * 0.03) * dotsWide * 0.05, y: dotsHigh * 0.4},
-    {x: dotsWide * 0.68 + Math.cos(pulse * 0.025) * dotsWide * 0.05, y: dotsHigh * 0.62}
-  ];
-
-  for (let y = 0; y < dotsHigh; y += 1) {
-    for (let x = 0; x < dotsWide; x += 1) {
-      let value = 0;
-      for (const source of sources) {
-        const distance = Math.sqrt((x - source.x) ** 2 + (y - source.y) ** 2);
-        value += Math.cos(distance * 0.5 - pulse * 0.35);
-      }
-
-      const normalized = (value + 2) / 4;
-      if (normalized > 0.85) {
-        const colorIndex = Math.min(ramp.length - 1, 1 + Math.round(normalized * (ramp.length - 2)));
-        brailleSet(canvas, x, y, ramp[colorIndex] ?? accent);
-      }
     }
   }
 
@@ -2187,58 +1998,6 @@ function buildChladni(
         Math.cos(m * Math.PI * u) * Math.cos(n * Math.PI * v);
       if (Math.abs(z) < 0.05) {
         brailleSet(canvas, xx, yy, ramp[Math.min(ramp.length - 1, 2 + Math.floor(v * (ramp.length - 2)))] ?? accent);
-      }
-    }
-  }
-
-  return brailleToLines(canvas, accent);
-}
-
-function buildTesseract(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const canvas = createBraille(width, height);
-  const ramp = themeContributionColors(theme);
-  const accent = themeAccent(theme);
-  const dotsWide = width * 2;
-  const dotsHigh = height * 4;
-  const cx = (dotsWide - 1) / 2;
-  const cy = (dotsHigh - 1) / 2;
-  const angleA = pulse * 0.025;
-  const angleB = pulse * 0.017;
-  const scale = Math.min(dotsWide, dotsHigh) * 0.26;
-
-  const projected = Array.from({length: 16}, (_, i) => {
-    let x = i & 1 ? 1 : -1;
-    let y = i & 2 ? 1 : -1;
-    let z = i & 4 ? 1 : -1;
-    let w = i & 8 ? 1 : -1;
-    const xw = x * Math.cos(angleA) - w * Math.sin(angleA);
-    w = x * Math.sin(angleA) + w * Math.cos(angleA);
-    x = xw;
-    const yz = y * Math.cos(angleB) - z * Math.sin(angleB);
-    z = y * Math.sin(angleB) + z * Math.cos(angleB);
-    y = yz;
-    const w4 = 2.2 / (2.2 - w);
-    const x3 = x * w4;
-    const y3 = y * w4;
-    const z3 = z * w4;
-    const persp = 2.6 / (2.6 - z3);
-    return {x: x3 * persp, y: y3 * persp, z: z3};
-  });
-
-  for (let i = 0; i < 16; i += 1) {
-    for (let j = i + 1; j < 16; j += 1) {
-      const diff = i ^ j;
-      if ((diff & (diff - 1)) === 0) {
-        const a = projected[i]!;
-        const b = projected[j]!;
-        const depth = clampNumber((a.z + 1.6) / 3.2, 0, 1);
-        const color = ramp[Math.min(ramp.length - 1, 1 + Math.round(depth * (ramp.length - 2)))] ?? accent;
-        drawBrailleLine(canvas, cx + a.x * scale, cy + a.y * scale, cx + b.x * scale, cy + b.y * scale, color);
       }
     }
   }
@@ -2658,96 +2417,6 @@ function buildNewton(
   }
 
   return grid.map(row => lineFromCells(row, accent));
-}
-
-function buildAurora(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  // Northern-lights palette: deep night → teal → green → violet → white fringe
-  const night = theme === 'mono' ? '#0a0a0a' : '#040814';
-  const ramp =
-    theme === 'mono'
-      ? ['#0e0e12', '#1a1a24', '#2e2e3a', '#4a4a5a', '#787888', '#a8a8b8', '#d0d0dc', '#ffffff']
-      : ['#061018', '#0a2a28', '#0d4a3c', '#128a5a', '#2ecf7a', '#7dffb0', '#a8ffe0', '#c8b0ff', '#e8f0ff'];
-  const glyphs = [' ', '·', '┊', '│', '║', '░', '▒', '▓', '█'];
-  const curtains = 6;
-
-  return Array.from({length: height}, (_, y) => {
-    const ny = y / Math.max(1, height - 1);
-    const curtainRows = Array.from({length: curtains}, (_, c) => {
-      const fold =
-        0.08 +
-        c * 0.15 +
-        0.06 * Math.sin(pulse * 0.035 + c * 1.9) +
-        0.03 * Math.sin(y * 0.28 + pulse * 0.05 + c) +
-        0.02 * Math.sin(y * 0.55 - pulse * 0.04 + c * 0.7);
-      const halfWidth = 0.045 + 0.02 * Math.sin(pulse * 0.03 + c) + 0.015 * Math.sin(y * 0.4 + c);
-      const vertical =
-        0.35 +
-        0.65 * Math.sin(Math.PI * clampNumber(ny * 1.15 - 0.05, 0, 1)) *
-          (0.7 + 0.3 * Math.sin(pulse * 0.06 + c * 1.1 + y * 0.15));
-      return {c, fold, halfWidth, vertical};
-    });
-    const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
-      const nx = x / Math.max(1, width - 1);
-      let field = 0;
-      let filament = 0;
-
-      for (const curtain of curtainRows) {
-        // Curtain folds drift slowly; each sheet has different phase & width.
-        const dist = Math.abs(nx - curtain.fold);
-        // Soft body of the curtain (filled, not holey)
-        const body = Math.exp(-Math.pow(dist / curtain.halfWidth, 2));
-        field += body * curtain.vertical * (0.85 + 0.15 * Math.sin(pulse * 0.08 + curtain.c));
-
-        // Fine vertical filaments inside the curtain
-        if (body > 0.15) {
-          const micro = Math.sin(x * (2.8 + curtain.c * 0.4) + pulse * 0.25 + y * 0.1);
-          filament += body * Math.max(0, micro) * 0.35;
-        }
-      }
-
-      // Background night sky stars
-      const star = hashNoise(x, y, 3) > 0.992 ? 0.55 : 0;
-      // Horizontal shimmer bands
-      const shimmer = 0.08 * Math.sin(x * 0.55 + pulse * 0.18 + y * 0.08);
-      const intensity = clampNumber(field * 0.7 + filament + shimmer + star * 0.3, 0, 1);
-
-      // Always paint night background so there are no "holes"
-      if (intensity < 0.06) {
-        const starGlyph = star > 0 ? '·' : ' ';
-        return {
-          text: starGlyph,
-          color: star > 0 ? '#8899aa' : accent,
-          backgroundColor: night
-        };
-      }
-
-      const level = Math.min(ramp.length - 1, Math.floor(intensity * (ramp.length - 0.01)));
-      const gi = Math.min(glyphs.length - 1, Math.floor(intensity * glyphs.length));
-      // Prefer vertical glyphs for curtain fibers, blocks for dense cores
-      let glyph = glyphs[gi] ?? '█';
-      if (intensity > 0.25 && intensity < 0.7 && filament > 0.12) {
-        glyph = intensity > 0.5 ? '║' : '│';
-      }
-      if (star > 0 && intensity < 0.35) {
-        glyph = '✦';
-      }
-
-      return {
-        text: glyph,
-        color: intensity > 0.82 ? '#ffffff' : ramp[Math.min(ramp.length - 1, level + 1)] ?? accent,
-        backgroundColor: ramp[level] ?? night,
-        bold: intensity > 0.75
-      };
-    });
-
-    return lineFromCells(cells, accent);
-  });
 }
 
 function buildXorTexture(
@@ -5167,60 +4836,7 @@ function hashNoise(x: number, y: number, pulse: number): number {
   return value - Math.floor(value);
 }
 
-type StarfieldGeometry = {
-  angle: Float64Array;
-  distance: Float64Array;
-  maxDistance: number;
-  angularDifference: Float64Array[];
-  seed: Int32Array[];
-  phase: Float64Array[];
-};
-
 const STARFIELD_GEOMETRY_CACHE_LIMIT = 4;
-const starfieldGeometryCache = new Map<string, StarfieldGeometry>();
-
-function starfieldGeometry(width: number, height: number): StarfieldGeometry {
-  const key = `${width}x${height}`;
-  const cached = starfieldGeometryCache.get(key);
-  if (cached) return cached;
-
-  const size = Math.max(0, width * height);
-  const angle = new Float64Array(size);
-  const distance = new Float64Array(size);
-  const angularDifference = Array.from({length: 4}, () => new Float64Array(size));
-  const seed = Array.from({length: 4}, () => new Int32Array(size));
-  const phase = Array.from({length: 4}, () => new Float64Array(size));
-  const cx = (width - 1) / 2;
-  const cy = (height - 1) / 2;
-  const maxDistance = Math.sqrt(cx * cx + (cy * 2.05) ** 2);
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      const dx = x - cx;
-      const dy = (y - cy) * 2.05;
-      const cellAngle = Math.atan2(dy, dx);
-      angle[index] = cellAngle;
-      distance[index] = Math.sqrt(dx * dx + dy * dy) + 0.001;
-      for (let layer = 0; layer < 4; layer += 1) {
-        const laneCount = 48 + layer * 36;
-        const lane = Math.floor(((cellAngle + Math.PI) / (Math.PI * 2)) * laneCount);
-        const laneAngle = (lane / laneCount) * Math.PI * 2 - Math.PI;
-        angularDifference[layer]![index] = Math.abs(
-          Math.atan2(Math.sin(cellAngle - laneAngle), Math.cos(cellAngle - laneAngle))
-        );
-        const cellSeed = lane * 17 + layer * 91;
-        seed[layer]![index] = cellSeed;
-        phase[layer]![index] = hashNoise(cellSeed, layer, 0);
-      }
-    }
-  }
-
-  const geometry = {angle, distance, maxDistance, angularDifference, seed, phase};
-  rememberGeometry(starfieldGeometryCache, key, geometry);
-  return geometry;
-}
-
 function rememberGeometry<T>(cache: Map<string, T>, key: string, value: T): void {
   if (cache.size >= STARFIELD_GEOMETRY_CACHE_LIMIT) {
     const oldest = cache.keys().next().value;

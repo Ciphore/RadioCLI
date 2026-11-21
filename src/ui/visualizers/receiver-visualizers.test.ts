@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(148);
+    expect(receiverStyleNames).toHaveLength(161);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -261,7 +261,11 @@ describe('receiver visualizers', () => {
       'rubens-tube', 'sound-field', 'epicycles', 'snowflake', 'moon-phases', 'circle-packing',
       'flower-of-life', 'knotwork', 'tartan', 'fair-isle', 'infinity-mirror', 'ferris-wheel',
       'merry-christmas', 'santa-sleigh', 'christmas-tree', 'fireside', 'winter-village', 'sleigh-bells',
-      'new-year', 'diwali', 'lunar-new-year', 'eid-night', 'menorah', 'holi'
+      'new-year', 'diwali', 'lunar-new-year', 'eid-night', 'menorah', 'holi',
+      'gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo',
+      'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night',
+      'skyline-dawn', 'skyline-rain', 'skyline-synth',
+      'manhattan-henge', 'manhattan-snow', 'manhattan-harbor'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
@@ -578,13 +582,27 @@ describe('receiver visualizers', () => {
     expect(colors).toContain('#4f9a62');
   });
 
-  it('renders constellation links with visible theme-tinted contrast', () => {
+  it('traces a named constellation in theme-tinted links over a field of stars', () => {
     const rows = buildVisualizer('constellation', 10, 80, 12, station, playback, 'ruby');
-    const colors = new Set(rows.flatMap(row => row.segments ?? []).map(segment => segment.color));
+    const text = frameText(rows);
 
-    expect(frameText(rows)).toMatch(/·/);
-    expect(colors).toContain('#ffacc1');
-    expect(colors).not.toContain('#2c3340');
+    expect(text).toMatch(/·/);
+    expect(text).toMatch(/[⠁-⣿]{2}/);
+    expect(text).toMatch(/[✦★]/);
+    expect(text).toMatch(/ORION|URSA|CASSIOPEIA|CYGNUS|LYRA|SCORPIUS/);
+    expect(buildVisualizer('constellation', 10, 80, 12, station, playback, 'blue')).not.toEqual(rows);
+  });
+
+  it('draws all thirty-two edges of the tesseract inside the panel', () => {
+    for (const pulse of [0, 13, 40, 77]) {
+      const rows = buildVisualizer('tesseract', pulse, 80, 14, station, playback, 'violet');
+      const footprint = glyphFootprint(rows, /[⠁-⣿●]/);
+      expect(footprint.minY, `pulse ${pulse}`).toBeGreaterThanOrEqual(0);
+      expect(footprint.height, `pulse ${pulse}`).toBeGreaterThanOrEqual(8);
+      expect(footprint.width, `pulse ${pulse}`).toBeLessThan(70);
+      // Nothing is cut off at the sides: the outermost columns of the panel stay clear.
+      expect(rows.every(row => row.text.startsWith('  ') && row.text.endsWith('  ')), `pulse ${pulse}`).toBe(true);
+    }
   });
 
   it('renders Manhattan with layered architecture and recognizable illuminated crowns', () => {
@@ -722,10 +740,8 @@ describe('receiver visualizers', () => {
       'aurora'
     ] as const) {
       const rows = buildVisualizer(style, 12, 64, visualizerHeight(style, 12), station, playback, 'violet');
-      const text = frameText(rows);
-      const filled = text.replace(/\s/g, '').length;
-      const total = text.replace(/\n/g, '').length;
-      expect(filled / Math.max(1, total)).toBeGreaterThan(0.25);
+      const total = frameText(rows).replace(/\n/g, '').length;
+      expect(visibleCellCount(rows) / Math.max(1, total)).toBeGreaterThan(0.25);
     }
   });
 
