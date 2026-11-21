@@ -1,30 +1,10 @@
 import {buildCosmoWorldMap} from '../cosmo-world-map.js';
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, seconds, textPixel, tri, type Builder} from './cell-canvas.js';
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, replay, seconds, smooth, textPixel, tri, type Builder, type Run} from './cell-canvas.js';
 
-const smooth = (n: number): number => { const c = clamp(n); return c * c * (3 - 2 * c); };
 const pad2 = (n: number): string => String(Math.floor(n)).padStart(2, '0');
 const BLOCKS = ' ▁▂▃▄▅▆▇█';
 const QUADRANTS = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█';
-
-type Run<State> = {epoch: number; step: number; state: State};
-
-/**
- * Real simulations cannot be written as a function of the pulse, so they are
- * replayed instead: each run restarts from a seed every epoch, and a frame is
- * that run advanced to the requested step. Stepping forward is one tick; a
- * jump backwards replays the epoch, which bounds the cost at one epoch.
- */
-function replay<State>(runs: Map<string, Run<State>>, key: string, epoch: number, step: number, start: (epoch: number) => State, tick: (state: State, step: number) => void): State {
-  let run = runs.get(key);
-  if (!run || run.epoch !== epoch || run.step > step) {
-    if (!run && runs.size >= 4) runs.delete(runs.keys().next().value!);
-    run = {epoch, step: 0, state: start(epoch)};
-    runs.set(key, run);
-  }
-  while (run.step < step) tick(run.state, run.step++);
-  return run.state;
-}
 
 // The disk optimiser: scattered blocks are read from the far end and packed against the start.
 const defrag: Builder = (pulse, width, height, theme) => {

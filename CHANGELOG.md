@@ -18,8 +18,14 @@ All notable changes to RadioCLI are documented in this file.
   simulations.
 - Added a gallery of twelve receivers after painters and movements: Mondrian,
   Starry Night, Seurat, Rothko, Pollock, Kandinsky, Lichtenstein, Haring,
-  Klimt, Schotter, Vasarely, and Zellige. The collection now has 112 animated
-  styles.
+  Klimt, Schotter, Vasarely, and Zellige.
+- Added twelve playroom receivers: Boing Ball, Flying Toasters, Minesweeper,
+  Tape Loading, Steam Train, Bonsai, Dot Matrix, Etch A Sketch, LCD Pet,
+  Newton's Cradle, Abacus, and Dominoes.
+- Added a cabinet of twelve curiosities: Rubens Tube, Sound Field, Epicycles,
+  Snowflake, Moon Phases, Circle Packing, Flower of Life, Knotwork, Tartan,
+  Fair Isle, Infinity Mirror, and Ferris Wheel. The collection now has 136
+  animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
@@ -32,6 +38,8 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Changed
 
+- Cube is now a solid, flat-shaded body turning at a steady rate, and Spinning
+  Donut is drawn without gaps at every size.
 - When no package manager is available, setup says so before asking which
   players to install and ends with what is still missing and how to get it,
   instead of inviting you to start listening.

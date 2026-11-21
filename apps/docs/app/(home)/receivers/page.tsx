@@ -5,10 +5,10 @@ import './receiver-names.css';
 import { ReceiverGallery } from '@/components/receiver-gallery';
 
 export const metadata: Metadata = {
-  title: '112 Receiver Styles',
-  description: 'Explore all 112 RadioCLI receiver styles, with their original palettes and supported theme colors. Animated directly from the terminal renderer.',
+  title: '136 Receiver Styles',
+  description: 'Explore all 136 RadioCLI receiver styles, with their original palettes and supported theme colors. Animated directly from the terminal renderer.',
   alternates: { canonical: '/receivers' },
-  openGraph: { title: 'RadioCLI Receiver Styles', url: '/receivers', description: '112 animated receiver styles, original palettes, and supported theme colors.' },
+  openGraph: { title: 'RadioCLI Receiver Styles', url: '/receivers', description: '136 animated receiver styles, original palettes, and supported theme colors.' },
 };
 
 export default function ReceiversPage() {

@@ -7,6 +7,8 @@ import {mediaPlayerReceiverBuilders} from './media-player-receivers.js';
 import {screensaverReceiverBuilders} from './screensaver-receivers.js';
 import {nostalgiaReceiverBuilders} from './nostalgia-receivers.js';
 import {galleryReceiverBuilders} from './gallery-receivers.js';
+import {playroomReceiverBuilders} from './playroom-receivers.js';
+import {cabinetReceiverBuilders} from './cabinet-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
 type VisualLine = {
@@ -42,6 +44,8 @@ const receiverStyleBuilders = {
   ...screensaverReceiverBuilders,
   ...nostalgiaReceiverBuilders,
   ...galleryReceiverBuilders,
+  ...playroomReceiverBuilders,
+  ...cabinetReceiverBuilders,
   'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
@@ -157,6 +161,8 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(screensaverReceiverBuilders) as (keyof typeof screensaverReceiverBuilders)[],
   ...Object.keys(nostalgiaReceiverBuilders) as (keyof typeof nostalgiaReceiverBuilders)[],
   ...Object.keys(galleryReceiverBuilders) as (keyof typeof galleryReceiverBuilders)[],
+  ...Object.keys(playroomReceiverBuilders) as (keyof typeof playroomReceiverBuilders)[],
+  ...Object.keys(cabinetReceiverBuilders) as (keyof typeof cabinetReceiverBuilders)[],
   'pulse-grid',
   'hex-pulse',
   'galaxy',
@@ -675,82 +681,80 @@ function buildHologram(
   return rows;
 }
 
+/**
+ * A solid cube, ray-cast one cell at a time so its silhouette, faces and edges
+ * are exact instead of splatted. The motion is one rigid body: a steady spin
+ * about the cube's own vertical axis, carried by a slower steady tumble. Each
+ * face holds a single flat tone, which is what lets the eye read three planes
+ * meeting at a corner.
+ */
 function buildAsciiCube(
   pulse: number,
   width: number,
   height: number,
   theme: ThemeName
 ): VisualLine[] {
-  const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
-  const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
-  const angleY = pulse * 0.13;
-  const angleX = 0.62 + Math.sin(pulse * 0.045) * 0.28;
-  const angleZ = Math.sin(pulse * 0.035) * 0.16;
-  // Pull the camera back another notch so the cube reads as an object in space
-  // instead of pressing against its viewport.
-  const scaleY = Math.max(1.45, Math.min((height - 2) / 3.0, width / 12) * 0.7);
-  const scaleX = scaleY * 2.35;
-
-  drawCubeSurfaces(grid, zBuffer, angleX, angleY, angleZ, scaleX, scaleY, width, height);
-
-  const vertices = cubeVertices().map(point =>
-    projectRotatedCubePoint(rotateCubePoint(point, angleX, angleY, angleZ), scaleX, scaleY, width, height)
-  );
-  const edges: Array<[number, number]> = [
-    [0, 1],
-    [1, 3],
-    [3, 2],
-    [2, 0],
-    [4, 5],
-    [5, 7],
-    [7, 6],
-    [6, 4],
-    [0, 4],
-    [1, 5],
-    [2, 6],
-    [3, 7]
-  ];
-
-  for (const [from, to] of edges) {
-    const a = vertices[from];
-    const b = vertices[to];
-    if (!a || !b) {
-      continue;
-    }
-
-    drawCubeEdgeZ(grid, zBuffer, a, b);
-  }
-
-  for (const point of vertices) {
-    writeCubeSurfaceGlyph(grid, zBuffer, point.x, point.y, point.z + 0.14, cubeCornerGlyph(point.z));
-  }
-
-  // Per-glyph theme shading — always tracks display theme (skip dark empty slot).
   const accent = themeAccent(theme);
   const ramp = themeContributionColors(theme).filter((_, i) => i > 0);
   const litRamp = ramp.length > 0 ? ramp : [accent];
   const voidColor = theme === 'mono' ? '#1a1a1a' : '#0c1018';
-  const glyphOrder = ' .:-+=*#%@/\\|_;,!';
+  const spin = 0.6 + pulse * 0.085;
+  const tumble = 0.52 + pulse * 0.021;
+  const cs = Math.cos(spin), ss = Math.sin(spin), ct = Math.cos(tumble), st = Math.sin(tumble);
+  // World = tumble about X after spin about Y; the inverse takes rays into the cube's own frame.
+  const toObject = (x: number, y: number, z: number): [number, number, number] => {
+    const y1 = y * ct + z * st, z1 = z * ct - y * st;
+    return [x * cs - z1 * ss, y1, x * ss + z1 * cs];
+  };
+  const toWorld = (x: number, y: number, z: number): [number, number, number] => {
+    const x1 = x * cs + z * ss, z1 = z * cs - x * ss;
+    return [x1, y * ct - z1 * st, y * st + z1 * ct];
+  };
+  // Rows per unit: the cube spans two units a side, and a cell is about twice as tall as it is wide.
+  const cellAspect = 2.05;
+  const unit = Math.max(0.6, Math.min((height - 2) * 0.27, width / (cellAspect * 4.2)));
+  const camera = 5.4;
+  const eye = toObject(0, 0, -camera);
+  const light = [-0.47, 0.72, -0.51] as const;
+  const fills = ['.', ':', ';', '=', '*', '#', '%', '@'];
+  const edgeWidth = Math.min(0.3, 0.55 / unit);
 
   return Array.from({length: height}, (_, y) => {
     const cells: VisualCell[] = Array.from({length: width}, (_, x) => {
-      const ch = grid[y]![x] ?? ' ';
-      if (ch === ' ') {
+      const ray = toObject((x - (width - 1) / 2) / (unit * cellAspect), -(y - (height - 1) / 2) / unit, camera);
+      let enter = Number.NEGATIVE_INFINITY, exit = Number.POSITIVE_INFINITY, axis = 0;
+      for (let i = 0; i < 3; i += 1) {
+        const near = (-1 - eye[i]!) / ray[i]!, far = (1 - eye[i]!) / ray[i]!;
+        const first = Math.min(near, far);
+        if (first > enter) { enter = first; axis = i; }
+        exit = Math.min(exit, Math.max(near, far));
+      }
+      if (!(enter <= exit) || exit <= 0) {
         return {text: ' ', color: voidColor};
       }
-      // Brightness from glyph density + slight depth cue from row
-      const gi = Math.max(0, glyphOrder.indexOf(ch));
-      const density = gi <= 0 ? 0.35 : clampNumber(gi / Math.max(1, glyphOrder.length - 1), 0.15, 1);
-      const depthBoost = clampNumber(0.15 + (zBuffer[y]![x] ?? 0) * 0.35, 0, 0.35);
-      const lit = clampNumber(density * 0.75 + depthBoost + 0.15, 0.12, 1);
-      const colorIndex = Math.min(litRamp.length - 1, Math.floor(lit * (litRamp.length - 0.01)));
-      // Edges/corners punch to pure accent
-      const isEdge = /[/\\|_\-=]/.test(ch);
-      const color = isEdge ? accent : litRamp[colorIndex] ?? accent;
+
+      const hit = [eye[0] + ray[0] * enter, eye[1] + ray[1] * enter, eye[2] + ray[2] * enter];
+      const along = [(axis + 1) % 3, (axis + 2) % 3] as const;
+      const margins = [1 - Math.abs(hit[along[0]]!), 1 - Math.abs(hit[along[1]]!)] as const;
+      const onEdge = [margins[0] < edgeWidth, margins[1] < edgeWidth] as const;
+      if (onEdge[0] || onEdge[1]) {
+        if (onEdge[0] && onEdge[1]) {
+          return {text: '+', color: theme === 'mono' ? '#ffffff' : accent, bold: true};
+        }
+        // The edge runs along whichever axis is not pinned to the border; draw it with the stroke that leans the same way on screen.
+        const run = onEdge[0] ? along[1] : along[0];
+        const [dx, dy] = toWorld(run === 0 ? 1 : 0, run === 1 ? 1 : 0, run === 2 ? 1 : 0);
+        const text = Math.abs(dy) < Math.abs(dx) * 0.41 ? '-' : Math.abs(dx) < Math.abs(dy) * 0.41 ? '|' : dx * dy > 0 ? '/' : '\\';
+        return {text, color: accent, bold: true};
+      }
+
+      const sign = hit[axis]! > 0 ? 1 : -1;
+      const normal = toWorld(axis === 0 ? sign : 0, axis === 1 ? sign : 0, axis === 2 ? sign : 0);
+      const lit = clampNumber(0.16 + 0.84 * Math.max(0, normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]), 0, 1);
       return {
-        text: ch,
-        color: lit > 0.85 ? (theme === 'mono' ? '#ffffff' : accent) : color,
-        bold: lit > 0.8 || isEdge
+        text: fills[Math.round(lit * (fills.length - 1))]!,
+        color: litRamp[Math.min(litRamp.length - 1, Math.floor(lit * litRamp.length))] ?? accent,
+        bold: lit > 0.8
       };
     });
     return lineFromCells(cells, accent);
@@ -1017,58 +1021,72 @@ function buildAsciiFireworks(
   return grid.map(row => lineFromCells(row, accent));
 }
 
+/**
+ * The classic spinning torus, ray-marched per cell so the surface has no gaps
+ * and the hole stays a hole at every size. One tone: the shading is the glyphs.
+ */
 function buildAsciiDonut(
   pulse: number,
   width: number,
   height: number,
   theme: ThemeName
 ): VisualLine[] {
-  const grid = Array.from({length: height}, () => Array.from({length: width}, () => ' '));
-  const zBuffer = Array.from({length: height}, () => Array.from({length: width}, () => Number.NEGATIVE_INFINITY));
-  const chars = ['.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@'];
+  const chars = '.,-~:;=!*#$@';
   const angleA = pulse * 0.07;
-  const angleB = pulse * 0.043;
-  const cx = width / 2;
-  const cy = height / 2;
-  // Slightly zoomed out so the full torus stays in frame with margin
-  const scale = Math.min(width * 0.165, height * 0.88);
+  const angleB = pulse * 0.035;
+  const ca = Math.cos(angleA), sa = Math.sin(angleA), cb = Math.cos(angleB), sb = Math.sin(angleB);
+  // World = roll about Z after pitch about X; the torus lies in its own XY plane.
+  const toObject = (x: number, y: number, z: number): [number, number, number] => {
+    const x1 = x * cb + y * sb, y1 = y * cb - x * sb;
+    return [x1, y1 * ca + z * sa, z * ca - y1 * sa];
+  };
+  const toWorld = (x: number, y: number, z: number): [number, number, number] => {
+    const y1 = y * ca - z * sa, z1 = y * sa + z * ca;
+    return [x * cb - y1 * sb, x * sb + y1 * cb, z1];
+  };
+  const ring = 1, tube = 0.5, reach = ring + tube;
+  const cellAspect = 2.05;
+  // Rows per unit, leaving a row of air above and below the widest pose.
+  const unit = Math.max(0.5, Math.min((height - 1.5) / (reach * 2), width / (reach * 2 * cellAspect * 1.15)));
+  const camera = 5;
+  const eye = toObject(0, 0, -camera);
+  const light = [-0.41, 0.66, -0.63] as const;
+  const bound = (reach + 0.05) ** 2;
 
-  for (let theta = 0; theta < Math.PI * 2; theta += 0.1) {
-    for (let phi = 0; phi < Math.PI * 2; phi += 0.16) {
-      const circleX = 2 + Math.cos(theta);
-      const circleY = Math.sin(theta);
-      const x =
-        circleX * (Math.cos(angleB) * Math.cos(phi) + Math.sin(angleA) * Math.sin(angleB) * Math.sin(phi)) -
-        circleY * Math.cos(angleA) * Math.sin(angleB);
-      const y =
-        circleX * (Math.sin(angleB) * Math.cos(phi) - Math.sin(angleA) * Math.cos(angleB) * Math.sin(phi)) +
-        circleY * Math.cos(angleA) * Math.cos(angleB);
-      const z = Math.cos(angleA) * circleX * Math.sin(phi) + circleY * Math.sin(angleA) + 5;
-      const inverseZ = 1 / z;
-      const screenX = Math.round(cx + scale * inverseZ * x * 1.85);
-      const screenY = Math.round(cy + scale * inverseZ * y * 0.78);
-      const luminance =
-        Math.cos(phi) * Math.cos(theta) * Math.sin(angleB) -
-        Math.cos(angleA) * Math.cos(theta) * Math.sin(phi) -
-        Math.sin(angleA) * Math.sin(theta) +
-        Math.cos(angleB) * (Math.cos(angleA) * Math.sin(theta) - Math.cos(theta) * Math.sin(angleA) * Math.sin(phi));
-
-      if (screenX < 0 || screenX >= width || screenY < 0 || screenY >= height || inverseZ <= zBuffer[screenY]![screenX]!) {
-        continue;
+  const rows = Array.from({length: height}, (_, y) => {
+    let text = '';
+    for (let x = 0; x < width; x += 1) {
+      const sx = (x - (width - 1) / 2) / (unit * cellAspect), sy = -(y - (height - 1) / 2) / unit;
+      const length = Math.hypot(sx, sy, camera);
+      const ray = toObject(sx / length, sy / length, camera / length);
+      // Skip rays that never enter the sphere around the torus, and start the rest on its surface.
+      const toward = eye[0] * ray[0] + eye[1] * ray[1] + eye[2] * ray[2];
+      const inside = toward * toward - (camera * camera - bound);
+      let glyph = ' ';
+      if (inside > 0) {
+        let travelled = -toward - Math.sqrt(inside);
+        const limit = -toward + Math.sqrt(inside);
+        for (let step = 0; step < 48 && travelled < limit; step += 1) {
+          const px = eye[0] + ray[0] * travelled, py = eye[1] + ray[1] * travelled, pz = eye[2] + ray[2] * travelled;
+          const around = Math.hypot(px, py) || 1e-6;
+          const distance = Math.hypot(around - ring, pz) - tube;
+          if (distance < 0.012) {
+            const normal = toWorld((px - px / around * ring) / tube, (py - py / around * ring) / tube, pz / tube);
+            const lit = normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2];
+            glyph = chars[lit > 0 ? Math.min(chars.length - 1, 1 + Math.floor(lit * (chars.length - 1))) : 0]!;
+            break;
+          }
+          travelled += distance;
+        }
       }
-
-      const charIndex = Math.max(0, Math.min(chars.length - 1, Math.round((luminance + 1) * 0.5 * (chars.length - 1))));
-      grid[screenY]![screenX] = chars[charIndex]!;
-      zBuffer[screenY]![screenX] = inverseZ;
+      text += glyph;
     }
-  }
+    return text;
+  });
 
   // Single display-tone coloring — shading comes from the glyphs only, no white dual-tone.
   const accent = themeAccent(theme);
-  return grid.map(cells => ({
-    text: cells.join('').slice(0, width),
-    color: accent
-  }));
+  return rows.map(text => ({text, color: accent}));
 }
 
 function buildAsciiStarfield(
@@ -5139,170 +5157,6 @@ export function visualizerHeight(style: ReceiverStyle, availableRows: number, wi
   // Never claim more rows than the parent can provide. Individual builders
   // already degrade gracefully below their preferred minimums.
   return Math.min(safeAvailableRows, Math.max(metadata.minRows, maxRows));
-}
-
-type CubePoint = {
-  x: number;
-  y: number;
-  z: number;
-};
-
-function cubeVertices(): CubePoint[] {
-  return [
-    {x: -1, y: -1, z: -1},
-    {x: 1, y: -1, z: -1},
-    {x: -1, y: 1, z: -1},
-    {x: 1, y: 1, z: -1},
-    {x: -1, y: -1, z: 1},
-    {x: 1, y: -1, z: 1},
-    {x: -1, y: 1, z: 1},
-    {x: 1, y: 1, z: 1}
-  ];
-}
-
-type CubeFace = {
-  normal: CubePoint;
-  pointAt: (u: number, v: number) => CubePoint;
-};
-
-function cubeFaces(): CubeFace[] {
-  return [
-    {normal: {x: 0, y: 0, z: 1}, pointAt: (u, v) => ({x: u, y: v, z: 1})},
-    {normal: {x: 0, y: 0, z: -1}, pointAt: (u, v) => ({x: -u, y: v, z: -1})},
-    {normal: {x: 1, y: 0, z: 0}, pointAt: (u, v) => ({x: 1, y: v, z: -u})},
-    {normal: {x: -1, y: 0, z: 0}, pointAt: (u, v) => ({x: -1, y: v, z: u})},
-    {normal: {x: 0, y: 1, z: 0}, pointAt: (u, v) => ({x: u, y: 1, z: -v})},
-    {normal: {x: 0, y: -1, z: 0}, pointAt: (u, v) => ({x: u, y: -1, z: v})}
-  ];
-}
-
-function rotateCubePoint(point: CubePoint, angleX: number, angleY: number, angleZ: number): CubePoint {
-  const cosX = Math.cos(angleX);
-  const sinX = Math.sin(angleX);
-  const cosY = Math.cos(angleY);
-  const sinY = Math.sin(angleY);
-  const cosZ = Math.cos(angleZ);
-  const sinZ = Math.sin(angleZ);
-  const yRotatedX = point.y * cosX - point.z * sinX;
-  const zRotatedX = point.y * sinX + point.z * cosX;
-  const xRotatedY = point.x * cosY + zRotatedX * sinY;
-  const zRotatedY = -point.x * sinY + zRotatedX * cosY;
-
-  return {
-    x: xRotatedY * cosZ - yRotatedX * sinZ,
-    y: xRotatedY * sinZ + yRotatedX * cosZ,
-    z: zRotatedY
-  };
-}
-
-function projectRotatedCubePoint(rotated: CubePoint, scaleX: number, scaleY: number, width: number, height: number): CubePoint {
-  const perspective = 4.4 / (4.4 - rotated.z * 0.68);
-
-  return {
-    x: Math.round((width - 1) / 2 + rotated.x * scaleX * perspective),
-    y: Math.round((height - 1) / 2 - rotated.y * scaleY * perspective),
-    z: rotated.z
-  };
-}
-
-function drawCubeSurfaces(
-  grid: string[][],
-  zBuffer: number[][],
-  angleX: number,
-  angleY: number,
-  angleZ: number,
-  scaleX: number,
-  scaleY: number,
-  width: number,
-  height: number
-): void {
-  const light = normalizeCubePoint({x: -0.5, y: 0.72, z: 0.9});
-
-  for (const face of cubeFaces()) {
-    const normal = rotateCubePoint(face.normal, angleX, angleY, angleZ);
-    if (normal.z <= 0.04) {
-      continue;
-    }
-
-    const glyph = cubeSurfaceGlyph(clampNumber(dotCubePoint(normal, light) * 0.6 + 0.42, 0.08, 1));
-    for (let u = -1; u <= 1.001; u += 0.07) {
-      for (let v = -1; v <= 1.001; v += 0.07) {
-        const rotated = rotateCubePoint(face.pointAt(u, v), angleX, angleY, angleZ);
-        const projected = projectRotatedCubePoint(rotated, scaleX, scaleY, width, height);
-        writeCubeSurfaceGlyph(grid, zBuffer, projected.x, projected.y, projected.z, glyph);
-      }
-    }
-  }
-}
-
-function normalizeCubePoint(point: CubePoint): CubePoint {
-  const length = Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z) || 1;
-  return {
-    x: point.x / length,
-    y: point.y / length,
-    z: point.z / length
-  };
-}
-
-function dotCubePoint(left: CubePoint, right: CubePoint): number {
-  return left.x * right.x + left.y * right.y + left.z * right.z;
-}
-
-function cubeSurfaceGlyph(value: number): string {
-  const chars = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
-  return chars[Math.max(0, Math.min(chars.length - 1, Math.round(value * (chars.length - 1))))] ?? '+';
-}
-
-function writeCubeSurfaceGlyph(grid: string[][], zBuffer: number[][], x: number, y: number, z: number, glyph: string): void {
-  const width = grid[0]?.length ?? 0;
-  const height = grid.length;
-  if (x < 0 || x >= width || y < 0 || y >= height || z < (zBuffer[y]?.[x] ?? Number.NEGATIVE_INFINITY)) {
-    return;
-  }
-
-  grid[y]![x] = glyph;
-  zBuffer[y]![x] = z;
-}
-
-function drawCubeEdgeZ(grid: string[][], zBuffer: number[][], from: CubePoint, to: CubePoint): void {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
-
-  for (let step = 0; step <= steps; step += 1) {
-    const t = step / steps;
-    const z = from.z + (to.z - from.z) * t + 0.08;
-    writeCubeSurfaceGlyph(grid, zBuffer, Math.round(from.x + dx * t), Math.round(from.y + dy * t), z, cubeEdgeGlyph(dx, dy, z, step));
-  }
-}
-
-function cubeEdgeGlyph(dx: number, dy: number, depth: number, step: number): string {
-  if (Math.abs(dx) > Math.abs(dy) * 2.3) {
-    return depth > 0.62 ? '=' : '-';
-  }
-
-  if (Math.abs(dy) > Math.abs(dx) * 1.45) {
-    return '|';
-  }
-
-  const diagonal = dx * dy > 0 ? '\\' : '/';
-  return depth < -0.7 && step % 4 === 2 ? '.' : diagonal;
-}
-
-function cubeCornerGlyph(depth: number): string {
-  if (depth > 0.78) {
-    return '@';
-  }
-
-  if (depth > 0.28) {
-    return '#';
-  }
-
-  if (depth < -0.78) {
-    return '.';
-  }
-
-  return '+';
 }
 
 function hashNoise(x: number, y: number, pulse: number): number {

@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(112);
+    expect(receiverStyleNames).toHaveLength(136);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -255,7 +255,11 @@ describe('receiver visualizers', () => {
       'defrag', 'solitaire', 'maze-3d', 'tracker', 'teletext', 'vhs',
       'slime-mold', 'sand', 'galton-board', 'sheet-music', 'string-art', 'shortwave',
       'mondrian', 'starry-night', 'seurat', 'rothko', 'pollock', 'kandinsky',
-      'lichtenstein', 'haring', 'klimt', 'schotter', 'vasarely', 'zellige'
+      'lichtenstein', 'haring', 'klimt', 'schotter', 'vasarely', 'zellige',
+      'boing-ball', 'flying-toasters', 'minesweeper', 'tape-loading', 'steam-train', 'bonsai',
+      'dot-matrix', 'etch-a-sketch', 'lcd-pet', 'newtons-cradle', 'abacus', 'dominoes',
+      'rubens-tube', 'sound-field', 'epicycles', 'snowflake', 'moon-phases', 'circle-packing',
+      'flower-of-life', 'knotwork', 'tartan', 'fair-isle', 'infinity-mirror', 'ferris-wheel'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
@@ -451,6 +455,29 @@ describe('receiver visualizers', () => {
     expect((tallRows.match(/[─╱╲]/g) ?? []).length).toBeGreaterThan((compactRows.match(/[─╱╲]/g) ?? []).length);
   });
 
+  it('shades the ascii cube as flat faces of a rigid body', () => {
+    for (const pulse of [0, 7, 19, 40, 77, 123]) {
+      const text = frameText(buildVisualizer('cube', pulse, 64, 14, station, playback, 'green'));
+      const tones = new Set(text.replace(/[\s+\-|\\/]/g, ''));
+
+      // A convex solid shows at most three faces, and each face is one tone.
+      expect(tones.size, `pulse ${pulse}`).toBeGreaterThanOrEqual(1);
+      expect(tones.size, `pulse ${pulse}`).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('keeps the donut solid, with its hole open when seen face on', () => {
+    const rows = buildVisualizer('spinning-donut', 0, 64, 14, station, playback, 'green').map(row => row.text);
+    const middle = rows[Math.floor(rows.length / 2)]!;
+
+    // Face on, the middle row crosses tube, hole, tube.
+    expect(middle.trim()).toMatch(/^\S+\s+\S+$/);
+    for (const row of rows) {
+      // No stray gaps inside a run of surface: at most the hole splits a row in two.
+      expect((row.trim().match(/\S+/g) ?? []).length).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('animates the ascii cube receiver style', () => {
     const firstFrame = buildVisualizer('cube', 1, 64, 12, station, playback, 'green')
       .map(row => row.text)
@@ -485,8 +512,10 @@ describe('receiver visualizers', () => {
     expect(footprint.width).toBeGreaterThanOrEqual(14);
     expect(footprint.width).toBeLessThanOrEqual(30);
     expect(footprint.height).toBeGreaterThanOrEqual(8);
-    expect(text).toMatch(/[\\/]/);
+    // Every pose shows upright or leaning edges and at least one receding one, with corners where they meet.
+    expect(text).toMatch(/[\\/|]/);
     expect(text).toMatch(/[=-]/);
+    expect(text).toContain('+');
     expect(text).not.toMatch(/[╱╲─│═║]/);
   });
 

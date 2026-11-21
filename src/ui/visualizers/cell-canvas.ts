@@ -153,3 +153,41 @@ export function mulberry(seed: number): () => number {
     return ((n ^ n >>> 14) >>> 0) / 4294967296;
   };
 }
+
+export const smooth = (n: number): number => { const c = clamp(n); return c * c * (3 - 2 * c); };
+/** Smooth value noise in [0, 1]. */
+export const noise = (x: number, y: number, seed = 0): number => {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = smooth(x - ix), fy = smooth(y - iy);
+  const at = (dx: number, dy: number): number => hash(ix + dx + seed * 57, iy + dy);
+  return (at(0, 0) * (1 - fx) + at(1, 0) * fx) * (1 - fy) + (at(0, 1) * (1 - fx) + at(1, 1) * fx) * fy;
+};
+export type Pixels = ReturnType<typeof pixels>;
+/** A round-ended stroke in pixel space. */
+export const stroke = (p: Pixels, x0: number, y0: number, x1: number, y1: number, radius: number, color: string): void => {
+  const dx = x1 - x0, dy = y1 - y0, length = dx * dx + dy * dy || 1;
+  for (let y = Math.floor(Math.min(y0, y1) - radius); y <= Math.ceil(Math.max(y0, y1) + radius); y++) {
+    for (let x = Math.floor(Math.min(x0, x1) - radius); x <= Math.ceil(Math.max(x0, x1) + radius); x++) {
+      const along = clamp(((x - x0) * dx + (y - y0) * dy) / length);
+      if (Math.hypot(x - x0 - dx * along, y - y0 - dy * along) <= radius) p.px(x, y, color);
+    }
+  }
+};
+
+export type Run<State> = {epoch: number; step: number; state: State};
+
+/**
+ * Real simulations cannot be written as a function of the pulse, so they are
+ * replayed instead: each run restarts from a seed every epoch, and a frame is
+ * that run advanced to the requested step. Stepping forward is one tick; a
+ * jump backwards replays the epoch, which bounds the cost at one epoch.
+ */
+export function replay<State>(runs: Map<string, Run<State>>, key: string, epoch: number, step: number, start: (epoch: number) => State, tick: (state: State, step: number) => void): State {
+  let run = runs.get(key);
+  if (!run || run.epoch !== epoch || run.step > step) {
+    if (!run && runs.size >= 4) runs.delete(runs.keys().next().value!);
+    run = {epoch, step: 0, state: start(epoch)};
+    runs.set(key, run);
+  }
+  while (run.step < step) tick(run.state, run.step++);
+  return run.state;
+}

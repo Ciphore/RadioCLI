@@ -1,24 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, seconds, textPixel, tri, type Builder} from './cell-canvas.js';
-
-const smooth = (n: number): number => { const c = clamp(n); return c * c * (3 - 2 * c); };
-/** Smooth value noise in [0, 1]. */
-const noise = (x: number, y: number, seed = 0): number => {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = smooth(x - ix), fy = smooth(y - iy);
-  const at = (dx: number, dy: number): number => hash(ix + dx + seed * 57, iy + dy);
-  return (at(0, 0) * (1 - fx) + at(1, 0) * fx) * (1 - fy) + (at(0, 1) * (1 - fx) + at(1, 1) * fx) * fy;
-};
-type Pixels = ReturnType<typeof pixels>;
-/** A round-ended stroke in pixel space. */
-const stroke = (p: Pixels, x0: number, y0: number, x1: number, y1: number, radius: number, color: string): void => {
-  const dx = x1 - x0, dy = y1 - y0, length = dx * dx + dy * dy || 1;
-  for (let y = Math.floor(Math.min(y0, y1) - radius); y <= Math.ceil(Math.max(y0, y1) + radius); y++) {
-    for (let x = Math.floor(Math.min(x0, x1) - radius); x <= Math.ceil(Math.max(x0, x1) + radius); x++) {
-      const along = clamp(((x - x0) * dx + (y - y0) * dy) / length);
-      if (Math.hypot(x - x0 - dx * along, y - y0 - dy * along) <= radius) p.px(x, y, color);
-    }
-  }
-};
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, noise, pixels, seconds, smooth, stroke, textPixel, tri, type Builder} from './cell-canvas.js';
 
 type Panel = {x: number; y: number; w: number; h: number; tint: number};
 /** Split the canvas the way the painter did: unevenly, and stopping early more often than not. */
