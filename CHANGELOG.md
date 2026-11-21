@@ -6,6 +6,8 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Added
 
+- Added 51 encore receivers: second takes on the original styles, each
+  named after its original with an `-ii` suffix. The originals are unchanged.
 - Added twenty-four full-bleed graphic receivers, from Sound Ribbon, Demo
   Plasma and Flow Field to Kinetic Type, Test Card and Light Wall.
 - Added twelve receivers in the spirit of classic desktop media player
@@ -65,7 +67,7 @@ All notable changes to RadioCLI are documented in this file.
   Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,
   Music Box, Fresnel Lens, Tide Clock, Bonfire, Soda Fizz, Marching Band,
   Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call). The
-  collection now has 313 animated styles.
+  collection now has 364 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited

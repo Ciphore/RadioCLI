@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(313);
+    expect(receiverStyleNames).toHaveLength(364);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -289,7 +289,15 @@ describe('receiver visualizers', () => {
       'mosaic-drift', 'retro-stripes', 'arc-tiles', 'glyph-tide', 'pixel-sort', 'halftone-wave',
       'marbling', 'circuit-traces', 'sunburst', 'topo-map', 'riley-waves', 'aura',
       'kinetic-type', 'hypno-spiral', 'rule-110', 'dune-sea', 'swell', 'ink-bloom',
-      'sunrise-eq', 'test-card', 'light-wall'
+      'sunrise-eq', 'test-card', 'light-wall', 'ultracode-ii', 'pulse-grid-ii', 'hex-pulse-ii',
+      'moire-ii', 'galaxy-ii', 'cyclone-ii', 'nebula-ii', 'lava-lamp-ii', 'ribbon-ii',
+      'braille-wave-ii', 'silk-ii', 'lissajous-ii', 'harmonograph-ii', 'spirograph-ii', 'goniometer-ii',
+      'radial-eq-ii', 'spectrogram-ii', 'caustics-ii', 'leds-ii', 'matrix-ii', 'cascade-ii',
+      'ordered-dither-ii', 'xor-texture-ii', 'pixel-crush-ii', 'copper-bars-ii', 'rotozoomer-ii', 'mesh-ii',
+      'hologram-ii', 'tunnel-ii', 'kaleidoscope-ii', 'phosphene-ii', 'phyllotaxis-ii', 'chladni-ii',
+      'newton-ii', 'torus-knot-ii', 'twister-ii', 'lorenz-ii', 'fern-ii', 'fractal-tree-ii',
+      'julia-ii', 'neural-net-ii', 'fireworks-ii', 'fire-ii', 'stormfront-ii', 'planetarium-ii',
+      'sumi-ocean-ii', 'liftoff-ii', 'flyover-ii', 'alpine-ii', 'boat-lake-ii', 'crossfade-ii'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
