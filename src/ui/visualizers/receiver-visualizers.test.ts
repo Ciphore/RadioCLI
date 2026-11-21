@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(199);
+    expect(receiverStyleNames).toHaveLength(265);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -262,17 +262,26 @@ describe('receiver visualizers', () => {
       'flower-of-life', 'knotwork', 'tartan', 'fair-isle', 'infinity-mirror', 'ferris-wheel',
       'merry-christmas', 'santa-sleigh', 'christmas-tree', 'fireside', 'winter-village', 'sleigh-bells',
       'new-year', 'diwali', 'lunar-new-year', 'eid-night', 'menorah', 'holi',
-      'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
-      'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night',
-      'skyline-dawn', 'skyline-rain', 'skyline-synth',
-      'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
-      'santa-claus', 'chimney', 'snow-globe', 'gingerbread', 'candy-cane', 'advent-calendar',
-      'nutcracker', 'wreath', 'ornaments', 'snowman', 'workshop', 'christmas-lights',
-      'fireworks-skyline', 'head-unit', 'vfd-spectrum', 'winamp', 'vu-needles', 'tape-deck',
-      'segment-clock', 'graphic-eq', 'marquee', 'dial-scale', 'compact-disc', 'boombox',
-      'led-ladder', 'falling-blocks', 'serpent', 'paddle-ball', 'heartbeat', 'breathe',
-      'rain-window', 'night-drive', 'game-of-life', 'hourglass', 'metronome', 'progress-bars',
-      'typewriter'
+      'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad', 'golden-gate-fog',
+      'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge',
+      'manhattan-snow', 'manhattan-harbor', 'santa-claus', 'chimney', 'snow-globe', 'gingerbread',
+      'candy-cane', 'advent-calendar', 'nutcracker', 'wreath', 'ornaments', 'snowman',
+      'workshop', 'christmas-lights', 'fireworks-skyline', 'head-unit', 'vfd-spectrum', 'winamp',
+      'vu-needles', 'tape-deck', 'segment-clock', 'graphic-eq', 'marquee', 'dial-scale',
+      'compact-disc', 'boombox', 'led-ladder', 'falling-blocks', 'serpent', 'paddle-ball',
+      'heartbeat', 'breathe', 'rain-window', 'night-drive', 'game-of-life', 'hourglass',
+      'metronome', 'progress-bars', 'typewriter', 'space-invaders', 'brick-breaker', 'maze-chase',
+      'asteroids', 'lcd-game', 'drum-machine', 'turntable', 'boot-sequence', 'hex-dump',
+      'odometer', 'telegraph', 'radio-tower', 'train-window', 'city-windows', 'cat-nap',
+      'coffee-steam', 'laundromat', 'subway-map', 'weather-radar', 'sonar', 'seismograph',
+      'dandelion', 'kites', 'elevator', 'gta-vi-sunset', 'gta-vi-neon', 'gta-vi-postcard',
+      'oel-dolphins', 'oel-racer', 'oel-jet', 'oel-city-cruise', 'oel-dancers', 'car-tachometer',
+      'xplod-ring', 'reel-to-reel', 'cd-changer', 'nixie-deck', 'tube-amp', 'minidisc',
+      'bars-and-waves', 'energy-bliss', 'blazing-colors', 'trilogy-orbs', 'geiss-vortex', 'avs-superscope',
+      'sonique-ribbon', 'g-force-flow', 'scope-peaks', 'mirror-bars', 'sound-eclipse', 'win98-player',
+      'astrolabe', 'pinball', 'terrarium', 'loom-weave', 'sea-beacon', 'tourbillon',
+      'bathysphere', 'zen-garden', 'rose-window', 'switchboard', 'marble-run', 'chess-match',
+      'vice-radio-wheel', 'leonida-chase', 'vice-billboard'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);

@@ -5,9 +5,12 @@ import {buildVisualizer} from './receiver-visualizers.js';
 import {deckReceiverBuilders} from './deck-receivers.js';
 import {reverieReceiverBuilders} from './reverie-receivers.js';
 import {yuletideReceiverBuilders} from './yuletide-receivers.js';
+import {arcadeReceiverBuilders} from './arcade-receivers.js';
+import {everydayReceiverBuilders} from './everyday-receivers.js';
+import {gtaReceiverBuilders} from './gta-receivers.js';
 import {receiverStyleNames} from './receiver-style-registry.js';
 
-const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders};
+const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders};
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
 const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | 'ruby' = 'violet') => buildVisualizer(style, pulse, 80, 14, null, playback, theme);
 const text = (style: ReceiverStyle, pulse = 60): string => frame(style, pulse).map(row => row.text).join('\n');
@@ -16,7 +19,7 @@ describe.each(Object.entries(sets))('%s receivers', (_, builders) => {
   const styles = Object.keys(builders) as ReceiverStyle[];
 
   it('registers distinct, animated scenes', () => {
-    expect(styles.length).toBeGreaterThanOrEqual(12);
+    expect(styles.length).toBeGreaterThanOrEqual(3);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -82,6 +85,19 @@ describe('late receiver details', () => {
       frame(style, 2000); frame(style, 30);
       expect(JSON.stringify(frame(style, 120)), style).toBe(first);
     }
+  });
+
+  it('shows what the newest machines are for', () => {
+    expect(text('space-invaders')).toMatch(/SCORE \d{5}[\s\S]*WAVE \d\d/);
+    expect(text('drum-machine')).toMatch(/120 BPM[\s\S]*KICK[\s\S]*SNARE[\s\S]*HAT/);
+    expect(text('boot-sequence', 60)).toMatch(/Memory Test: \d{5}K OK/);
+    expect(text('boot-sequence', 200)).toMatch(/Starting RADIO-DOS[\s\S]*C:\\>radiocli/);
+    expect(text('hex-dump')).toMatch(/^[0-9A-F]{6}  ([0-9A-F]{2} ){8}/m);
+    expect(text('telegraph')).toMatch(/━[\s\S]*[A-Z]/);
+    expect(text('elevator')).toMatch(/01 +│/);
+    expect(text('weather-radar')).toMatch(/WX RADAR[\s\S]*AZ \d{3}°/);
+    expect(text('sonar')).toMatch(/PING \d{3}[\s\S]*◆/);
+    expect(text('seismograph')).toMatch(/SEISMO +M \d\.\d/);
   });
 
   it('keeps Christmas in its own colours and greys it on mono', () => {

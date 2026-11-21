@@ -39,7 +39,25 @@ All notable changes to RadioCLI are documented in this file.
   Boombox, and LED Ladder.
 - Added twelve quieter loops: Falling Blocks, Serpent, Paddle Ball, Heartbeat,
   Breathe, Rain Window, Night Drive, Game of Life, Hourglass, Metronome,
-  Progress Bars, and Typewriter. The collection now has 199 animated styles.
+  Progress Bars, and Typewriter.
+- Added twelve arcade and machine-room receivers: Space Invaders, Brick
+  Breaker, Maze Chase, Asteroids, LCD Game, Drum Machine, Turntable, Boot
+  Sequence, Hex Dump, Odometer, Telegraph, and Radio Tower.
+- Added twelve everyday scenes: Train Window, City Windows, Cat Nap, Coffee
+  Steam, Laundromat, Subway Map, Weather Radar, Sonar, Seismograph, Dandelion,
+  Kites, and Elevator.
+- Added twelve car head-unit OEL and vintage hi-fi deck receivers: OEL
+  Dolphins, OEL Racer, OEL Jet, OEL City Cruise, OEL Dancers, Car Tachometer,
+  Xplod Ring, Reel to Reel, CD Changer, Nixie Deck, Tube Amp, and MiniDisc.
+- Added twelve classic Windows and desktop media player visualizers: Bars and
+  Waves, Energy Bliss, Blazing Colors, Trilogy Orbs, Geiss Vortex, AVS
+  Superscope, Sonique Ribbon, G-Force Flow, Scope Peaks, Mirror Bars, Sound
+  Eclipse, and Win98 Player.
+- Added twelve bespoke atelier receivers: Astrolabe, Pinball, Terrarium, Loom
+  Weave, Sea Beacon, Tourbillon, Bathysphere, Zen Garden, Rose Window,
+  Switchboard, Marble Run, and Chess Match.
+- Added three GTA VI collaboration receivers: Vice Radio Wheel, Leonida Chase,
+  and Vice Billboard. The collection now has 265 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited

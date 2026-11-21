@@ -13,6 +13,13 @@ import {festiveReceiverBuilders} from './festive-receivers.js';
 import {yuletideReceiverBuilders} from './yuletide-receivers.js';
 import {deckReceiverBuilders} from './deck-receivers.js';
 import {reverieReceiverBuilders} from './reverie-receivers.js';
+import {oelReceiverBuilders} from './oel-receivers.js';
+import {playervizReceiverBuilders} from './playerviz-receivers.js';
+import {atelierReceiverBuilders} from './atelier-receivers.js';
+import {viceCollabReceiverBuilders} from './vice-collab-receivers.js';
+import {arcadeReceiverBuilders} from './arcade-receivers.js';
+import {everydayReceiverBuilders} from './everyday-receivers.js';
+import {gtaReceiverBuilders} from './gta-receivers.js';
 import {aurora, constellation, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
 import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
@@ -45,6 +52,13 @@ type VisualizerBuilder = (
 ) => VisualLine[];
 
 const receiverStyleBuilders = {
+  ...viceCollabReceiverBuilders,
+  ...gtaReceiverBuilders,
+  ...atelierReceiverBuilders,
+  ...playervizReceiverBuilders,
+  ...oelReceiverBuilders,
+  ...everydayReceiverBuilders,
+  ...arcadeReceiverBuilders,
   ...reverieReceiverBuilders,
   ...deckReceiverBuilders,
   ...yuletideReceiverBuilders,
@@ -191,6 +205,13 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(yuletideReceiverBuilders) as (keyof typeof yuletideReceiverBuilders)[],
   ...Object.keys(deckReceiverBuilders) as (keyof typeof deckReceiverBuilders)[],
   ...Object.keys(reverieReceiverBuilders) as (keyof typeof reverieReceiverBuilders)[],
+  ...Object.keys(oelReceiverBuilders) as (keyof typeof oelReceiverBuilders)[],
+  ...Object.keys(playervizReceiverBuilders) as (keyof typeof playervizReceiverBuilders)[],
+  ...Object.keys(atelierReceiverBuilders) as (keyof typeof atelierReceiverBuilders)[],
+  ...Object.keys(viceCollabReceiverBuilders) as (keyof typeof viceCollabReceiverBuilders)[],
+  ...Object.keys(arcadeReceiverBuilders) as (keyof typeof arcadeReceiverBuilders)[],
+  ...Object.keys(everydayReceiverBuilders) as (keyof typeof everydayReceiverBuilders)[],
+  ...Object.keys(gtaReceiverBuilders) as (keyof typeof gtaReceiverBuilders)[],
   'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora',
   'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
   'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
