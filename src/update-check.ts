@@ -17,7 +17,7 @@ type CheckForUpdateOptions = {
   timeoutMs?: number;
 };
 
-type InstallMethod = 'homebrew' | 'npm' | 'pnpm' | 'bun' | 'unknown';
+type InstallMethod = 'homebrew' | 'npm' | 'pnpm' | 'bun' | 'yarn' | 'npx' | 'unknown';
 
 type UpdateShell = {
   command: string;
@@ -129,11 +129,25 @@ export function updateCommandForInstall(entryPath = process.argv[1]): UpdateComm
     return {method: 'bun', command: 'bun add -g @ciphore/radiocli@latest'};
   }
 
+  if (/[\\/]_npx[\\/]/.test(haystack)) {
+    return {method: 'npx', command: 'npx @ciphore/radiocli@latest'};
+  }
+
+  if (/[\\/]\.?yarn[\\/](?:Data[\\/])?global[\\/]/i.test(haystack)) {
+    return {method: 'yarn', command: 'yarn global add @ciphore/radiocli@latest'};
+  }
+
   if (/[\\/]node_modules[\\/]@ciphore[\\/]radiocli[\\/]/.test(haystack)) {
     return {method: 'npm', command: 'npm install -g @ciphore/radiocli@latest'};
   }
 
   return {method: 'unknown', command: 'npm install -g @ciphore/radiocli@latest'};
+}
+
+export const npxUpdateMessage = 'This copy was started by npx, which keeps no installation to upgrade. Run npx @ciphore/radiocli@latest for the newest release, or install it with npm install -g @ciphore/radiocli.';
+
+export function updateMethodLabel(method: InstallMethod): string {
+  return method === 'homebrew' ? 'Homebrew' : method === 'unknown' ? 'npm' : method;
 }
 
 export function installUpdate(command = updateCommandForInstall().command): Promise<UpdateInstallResult> {

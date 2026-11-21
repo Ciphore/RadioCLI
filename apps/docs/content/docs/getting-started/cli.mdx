@@ -47,8 +47,10 @@ and mute depend on backend capabilities; `mpv` provides full controls.
 Station selection accepts a saved preset, a station name, or an exact
 `provider:id`. Saved presets and names are checked before the public directory.
 A unique match plays immediately; multiple matches offer a numbered chooser in
-an interactive terminal. In scripts, ambiguous names fail with matching IDs so
-you can select the exact station. `play` with no argument resumes a paused
+an interactive terminal. In scripts and with `--no-input`, `play` starts the
+top match, says how many matched, and queues the rest so `next` moves through
+them. `favorite` and `preset save` still fail with the matching IDs, because
+saving the wrong station is harder to notice than hearing it. `play` with no argument resumes a paused
 station, leaves playing audio uninterrupted, or restarts the selected station
 after stopping. It preserves that station's queue. When no station is selected,
 it starts your most recent station.
@@ -145,7 +147,7 @@ Listener commands support consistent output options:
 | `--json` | One structured JSON result, with no terminal decoration. |
 | `--plain` | Tab-separated output, even in an interactive terminal. |
 | `--quiet`, `-q` | Suppress successful output; errors still fail. |
-| `--no-input` | Never prompt; ambiguous matches require an exact ID. |
+| `--no-input` | Never prompt. `play` starts the top match; saving commands require an exact ID. |
 | `--no-color` | Disable terminal colors. `NO_COLOR` is also respected. |
 | `--help`, `-h` | Command-specific usage and examples without playback or network access. |
 

@@ -125,6 +125,20 @@ describe('alarm TUI screens', () => {
     expect(frame).toContain('ALARM ACTIVE'); expect(frame).toContain('Morning radio'); expect(frame).toContain('SPACE  SNOOZE 15 MIN'); expect(frame).toContain('ENTER  KEEP PLAYING'); expect(frame).toContain('Enter opens Playing');expect(frame).not.toContain('[ / ]');expect(frame).not.toContain('█');
   });
 
+  it('keeps a ringing alarm answerable and the editor usable in a five-row window', () => {
+    const active = {key: 'one', status: {alarmId: 'morning', scheduledAt: new Date().toISOString(), stationName: 'KEXP', startedAt: new Date().toISOString(), state: 'playing' as const}, dismiss: vi.fn(), snooze: vi.fn(), keepPlaying: vi.fn()};
+    const ringing = (render(<DisplayContext.Provider value={display}><AlarmRingingScreen sessions={[active]} alarms={[alarm]} selected={0} snoozeMinutes={10} theme="green" width={40} height={5} /></DisplayContext.Provider>).lastFrame() ?? '').split('\n');
+    expect(ringing[0]).toContain('ALARM ACTIVE');
+    expect(ringing[1]).toContain('KEXP');
+    expect(ringing[2]).toContain('Enter keep playing · Space snooze 10m');
+    const draft = defaultAlarmDraft(station);
+    const editor = (render(<DisplayContext.Provider value={display}><AlarmEditorScreen draft={draft} field="label" editing={false} error={null} theme="green" width={40} height={5} /></DisplayContext.Provider>).lastFrame() ?? '').split('\n');
+    expect(editor).toHaveLength(5);
+    expect(editor.slice(1).every(line => line.trim().length > 0)).toBe(true);
+    const invalid = render(<DisplayContext.Provider value={display}><AlarmEditorScreen draft={draft} field="label" editing={false} error="Choose a station." theme="green" width={40} height={5} /></DisplayContext.Provider>).lastFrame() ?? '';
+    expect(invalid.split('\n')[1]).toContain('Choose a station.');
+  });
+
   it.each([{width: 90, height: 22}, {width: 48, height: 10}, {width: 26, height: 7}])('bounds editor, picker, and ringing at $width x $height', ({width, height}) => {
     const active = {key: 'one', status: {alarmId: 'morning', scheduledAt: new Date().toISOString(), stationName: 'KEXP', startedAt: new Date().toISOString(), state: 'playing' as const}, dismiss: vi.fn(), snooze: vi.fn(), keepPlaying: vi.fn()};
     const choices = alarmPickerChoices([alarm], [station], [], [], station, true);

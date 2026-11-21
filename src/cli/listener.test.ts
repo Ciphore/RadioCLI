@@ -221,14 +221,20 @@ describe('listener command workflows', () => {
     expect(status).toMatchObject({station: second, queue: [second]});
   });
 
-  it('resolves a unique remote result and rejects ambiguous names in scripts', async () => {
+  it('resolves a unique remote result, plays the top match of several, and still refuses to save an ambiguous name', async () => {
     await session();
     await runCommand(['play', 'remote', '--no-input']);
     expect(status.station).toEqual(remote);
     vi.mocked(ProviderManager.prototype.search).mockResolvedValue([first, second]);
     const previousPlays = seen.filter(item => item.command.type === 'play').length;
-    await expect(runCommand(['play', 'jazz', '--no-input'])).rejects.toThrow(/Several stations match[\s\S]*playlist:first[\s\S]*playlist:second/);
+    await expect(runCommand(['favorite', 'jazz', '--no-input'])).rejects.toThrow(/Several stations match[\s\S]*playlist:first[\s\S]*playlist:second/);
     expect(seen.filter(item => item.command.type === 'play')).toHaveLength(previousPlays);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await runCommand(['play', 'jazz', '--no-input']);
+    expect(status.station).toEqual(first);
+    expect(seen.filter(item => item.command.type === 'play').at(-1)?.command).toMatchObject({station: first, queue: [first, second]});
+    expect(log.mock.calls.flat().join('\n')).toContain('Top match of 2');
+    log.mockRestore();
   });
 
   it('preserves discovery order so next follows the selected station in its queue', async () => {

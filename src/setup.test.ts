@@ -146,7 +146,52 @@ describe('RadioCLI setup', () => {
       installed: nothingInstalled,
       selected: ['mpv']
     });
-    expect(apt.commands[0]).toMatchObject({program: 'sudo', args: ['apt-get', 'install', '-y', 'mpv']});
+    expect(apt.commands.map(command => command.display)).toEqual(['sudo apt-get update', 'sudo apt-get install -y mpv']);
+    expect(apt.commands[0]).toMatchObject({optional: true, component: null});
+
+    const port = createSetupPlan({platform: 'darwin', packageManager: 'port', installed: nothingInstalled, selected: ['mpv', 'ffmpeg']});
+    expect(port.commands.map(command => command.display)).toEqual(['sudo port -N install mpv', 'sudo port -N install ffmpeg']);
+    expect(detectPackageManager('darwin', '', command => command === 'port')).toBe('port');
+    expect(detectPackageManager('darwin', '', command => command === 'port' || command === 'brew')).toBe('brew');
+    expect(() => createSetupPlan({platform: 'linux', packageManager: 'port', installed: nothingInstalled, selected: ['mpv']})).toThrow('No verified port playback package recipe');
+  });
+
+  it('still configures the agent integration and verifies playback when no package manager exists', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const {configureMcpIntegrations} = await import('./agent/mcp-install.js');
+    const configure = vi.mocked(configureMcpIntegrations);
+    const rehearsal = vi.mocked(verifyLocalPlayback);
+    configure.mockClear(); rehearsal.mockClear();
+    await expect(runSetup({platform: 'darwin', args: ['--yes', '--only=mpv', '--no-mcp'], input: new PassThrough(), output, hasCommand: () => false}))
+      .rejects.toThrow('No supported system package manager was found');
+    expect(configure).toHaveBeenCalledWith(false, expect.anything(), output);
+    expect(rehearsal).toHaveBeenCalledOnce();
+    expect(text).toContain('https://brew.sh');
+    expect(text).toContain('Verification');
+  });
+
+  it('continues past a failed package and an unavailable package index, then reports the failure', async () => {
+    const output = new PassThrough();
+    let text = '';
+    output.on('data', chunk => {text += String(chunk);});
+    const executed: string[] = [];
+    const rehearsal = vi.mocked(verifyLocalPlayback);
+    rehearsal.mockClear();
+    await expect(runSetup({platform: 'linux', osRelease: 'ID=ubuntu', args: ['--yes', '--only=mpv,vlc'], input: new PassThrough(), output,
+      hasCommand: command => command === 'apt' || command === 'sudo', getUid: () => 1000,
+      runCommand: async command => {
+        executed.push(command.display);
+        if (command.display.endsWith('update')) throw new Error('one repository is unreachable');
+        if (command.display.endsWith('mpv')) throw new Error('mpv: held broken packages');
+      }
+    })).rejects.toThrow('mpv: mpv: held broken packages');
+    expect(executed).toEqual(['sudo apt-get update', 'sudo apt-get install -y mpv', 'sudo apt-get install -y vlc']);
+    expect(text).toContain('apt package index was not updated (one repository is unreachable). Continuing.');
+    expect(text).toContain('1 of 2 installation steps failed.');
+    expect(text).not.toContain('Setup complete');
+    expect(rehearsal).toHaveBeenCalledOnce();
   });
 
   it('skips installed components and normalizes --only selections', () => {

@@ -449,6 +449,21 @@ export class PlayerController {
     return this.setVolume(this.state.volume + delta);
   }
 
+  async fadeOut(durationMs: number, signal?: AbortSignal): Promise<void> {
+    const steps = Math.max(1, Math.round(durationMs / 500));
+    let lowered = false;
+    for (let step = 1; step <= steps && durationMs > 0 && !signal?.aborted; step += 1) {
+      await abortableDelay(durationMs / steps, signal);
+      if (signal?.aborted) break;
+      if (this.backend !== 'mpv' || !this.process || !this.state.ready || this.state.state !== 'playing' || this.state.muted) continue;
+      lowered = true;
+      await this.sendMpv({command: ['set_property', 'volume', Math.round(this.state.volume * (1 - step / steps))]}).catch(() => undefined);
+    }
+    if (signal?.aborted && lowered && this.backend === 'mpv') {
+      await this.sendMpv({command: ['set_property', 'volume', this.state.volume]}).catch(() => undefined);
+    }
+  }
+
   async toggleMute(): Promise<PlaybackControlResult> {
     const muted = !this.state.muted;
     const unsupported = this.unsupportedFfplayControl();
@@ -1508,6 +1523,16 @@ function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs: numb
       resolve(false);
     }, timeoutMs);
     child.once('exit', onExit);
+  });
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    if (signal?.aborted) { resolve(); return; }
+    const finish = (): void => { clearTimeout(timer); signal?.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    timer.unref();
+    signal?.addEventListener('abort', finish, {once: true});
   });
 }
 

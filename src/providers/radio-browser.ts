@@ -56,12 +56,18 @@ const locationSchema = z
     city: z.string().optional(),
     region: z.string().optional(),
     country_name: z.string().optional(),
+    country: z.string().optional(),
+    success: z.boolean().optional(),
     country_code: z.string().optional(),
     latitude: z.number().optional(),
     longitude: z.number().optional()
   })
   .passthrough();
 
+const locationSources = [
+  {url: 'https://ipapi.co/json/', source: 'ipapi.co'},
+  {url: 'https://ipwho.is/', source: 'ipwho.is'}
+] as const;
 const geoAtlasLimit = 100_000;
 const geoAtlasMaxBytes = 32 * 1024 * 1024;
 const geoAtlasMaxAgeMs = 6 * 60 * 60 * 1000;
@@ -415,28 +421,32 @@ export class RadioBrowserProvider {
 
   async detectLocation(options: {signal?: AbortSignal} = {}): Promise<LocationGuess | null> {
     options.signal?.throwIfAborted();
-    try {
-      return await withExternalResponse('https://ipapi.co/json/', {
-        timeoutMs: 5000,
-        init: {headers: {'User-Agent': userAgent()}, signal: options.signal}
-      }, async response => {
-        if (!response.ok) return null;
-        const parsed = locationSchema.parse(await response.json());
-        if (typeof parsed.latitude !== 'number' || typeof parsed.longitude !== 'number') return null;
-        return {
-          city: parsed.city,
-          region: parsed.region,
-          country: parsed.country_name,
-          countryCode: parsed.country_code,
-          latitude: parsed.latitude,
-          longitude: parsed.longitude,
-          source: 'ipapi.co'
-        };
-      });
-    } catch {
-      options.signal?.throwIfAborted();
-      return null;
+    for (const {url, source} of locationSources) {
+      try {
+        const location = await withExternalResponse(url, {
+          timeoutMs: 5000,
+          init: {headers: {'User-Agent': userAgent()}, signal: options.signal}
+        }, async response => {
+          if (!response.ok) return null;
+          const parsed = locationSchema.parse(await response.json());
+          if (parsed.success === false || typeof parsed.latitude !== 'number' || typeof parsed.longitude !== 'number') return null;
+          return {
+            city: parsed.city,
+            region: parsed.region,
+            country: parsed.country_name ?? parsed.country,
+            countryCode: parsed.country_code,
+            latitude: parsed.latitude,
+            longitude: parsed.longitude,
+            source
+          };
+        });
+        if (location) return location;
+      } catch {
+        options.signal?.throwIfAborted();
+        if (networkPolicy().offline) return null;
+      }
     }
+    return null;
   }
 
   private normalizeStations(rows: unknown[]): Station[] {

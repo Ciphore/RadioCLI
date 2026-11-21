@@ -19,7 +19,8 @@ information, or unexpected command execution.
 
 - Nearby location is enabled by default for new libraries, but no location
   request is made until the Nearby screen is opened.
-- Location lookup uses approximate IP-based location from `ipapi.co`; disable it
+- Location lookup uses approximate IP-based location from `ipapi.co`, falling
+  back to `ipwho.is` when that service is unavailable; disable it
   with `l`, Settings, or `:location off`.
 - The app stores recents, favorites, settings, imports, and provider cache data
   locally under the user data directory.

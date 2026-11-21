@@ -398,7 +398,8 @@ export function useAppInput({
       }
     }
 
-    if (input === '!' || (input === 'A' && screen !== 'explore')) {
+    const editingTextField = screen === 'airplay-code' || ((screen === 'countries' || screen === 'map') && editingCountryFilter);
+    if (!editingTextField && (input === '!' || (input === 'A' && screen !== 'explore'))) {
       openActiveAlarms();
       return;
     }
@@ -545,7 +546,7 @@ export function useAppInput({
       return;
     }
 
-    if (input === 'g') {
+    if (input === 'g' && screen === 'settings') {
       toggleRadioGarden();
       return;
     }
@@ -555,7 +556,7 @@ export function useAppInput({
       return;
     }
 
-    if (input === 'x') {
+    if (input === 'x' && screen === 'settings') {
       toggleSkipBrokenStreams();
       return;
     }

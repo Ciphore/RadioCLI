@@ -63,6 +63,20 @@ scroll after a short pause in compact and micro layouts. Enable Reduce Motion to
 keep those lines truncated instead. ASCII mode substitutes plain characters for
 the map's decorative glyphs.
 
+Compact and micro Playing keep the track and volume in view. When the window is
+too short for a separate track row, the track joins the station line, which
+scrolls if it does not fit. A state that needs attention, such as paused or
+loading, is shown before the track.
+
+On a library with nothing played, saved, or imported, Overview invites you to
+press `space`, which tunes the directory's most popular station and opens
+Playing. After that first station, `space` is pause and resume as usual.
+
+The sleep timer spends its last 30 seconds fading the sound out, then stops at
+the time shown. The fade needs the `mpv` backend; other backends stop without
+it. Your saved volume is not changed, and cancelling the timer during the fade
+brings the sound straight back.
+
 Press `?` from any screen to open Help, a full reference of keybindings and
 `:` commands. In the command palette, `Tab` completes the command name.
 

@@ -1,4 +1,4 @@
-import type {AppSettings, Country, DiscoverySourceStatus, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
+import type {AppSettings, Country, DiscoverySourceStatus, LibraryState, MediaKeyBindings, PlaybackState, Screen, Station} from '../types.js';
 import {isPlaybackOutputError} from '../player/player-controller.js';
 import {isProviderUnavailableError} from '../providers/radio-browser.js';
 import type {TopTab} from './components/TopTabs.js';
@@ -51,6 +51,15 @@ export type PlaybackQueue = {
   sourceContextKey: StationContextKey | null;
   stations: Station[];
 };
+
+export function isNewListener(library: Pick<LibraryState, 'recent' | 'favorites' | 'imported'>): boolean {
+  return library.recent.length === 0 && library.favorites.length === 0 && library.imported.length === 0;
+}
+
+export function newListenerHint(width: number): string {
+  const variants = ['New here? Press space to hear a popular station.', 'New here? Press space to listen.', 'Space to listen'];
+  return variants.find(variant => variant.length <= width) ?? '';
+}
 
 export type MediaTransportAction = 'previous' | 'playPause' | 'next';
 export type SleepTimerMinutes = 15 | 30 | 60 | null;

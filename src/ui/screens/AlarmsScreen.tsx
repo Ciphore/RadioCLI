@@ -86,10 +86,11 @@ export function AlarmEditorScreen({draft, field, editing, control = null, timeSe
   const {ascii} = useDisplay(); const a = (value:string) => ascii ? toAsciiSafe(value) : value;
   const rows = editorRows(draft);
   const selectableIndex = rows.findIndex(row => row.field === field);
-  const viewportHeight=Math.max(1,height-5);const window = visibleWindow(rows, Math.max(0, selectableIndex), viewportHeight);
+  const tight=height<8;const tightNotice=saving?'Saving…':error??undefined;
+  const viewportHeight=Math.max(1,tight?height-(tightNotice?2:1):height-5);const window = visibleWindow(rows, Math.max(0, selectableIndex), viewportHeight);
   return <Box flexDirection="column" height={height} width={width} overflow="hidden">
-    <ScreenHeader title={draft.id ? 'Edit alarm' : 'New alarm'} subtitle={saving ? 'Saving locally and synchronizing the native scheduler…' : error ?? 'Local-first · native OS job installed on save · terminal may close afterward'} theme={theme} width={width} />
-    <Box marginTop={1} flexDirection="column" height={viewportHeight} overflow="hidden">
+    <ScreenHeader title={draft.id ? 'Edit alarm' : 'New alarm'} subtitle={tight ? tightNotice : saving ? 'Saving locally and synchronizing the native scheduler…' : error ?? 'Local-first · native OS job installed on save · terminal may close afterward'} theme={theme} width={width} />
+    <Box marginTop={tight?0:1} flexDirection="column" height={viewportHeight} overflow="hidden">
       {control === 'weekdays' ? <WeekdayControl draft={draft} selected={weekdayIndex} accent={accent} ascii={ascii} height={viewportHeight} /> : window.items.map(row => row.section
         ? <Text key={row.section} color={accent} bold>{a(row.section)}</Text>
         : row.field === 'time' && row.field === field && control === 'time'
@@ -100,11 +101,11 @@ export function AlarmEditorScreen({draft, field, editing, control = null, timeSe
 }
 
 export function AlarmPickerScreen({choices, selected, fallback, theme, width, height}: {choices: AlarmPickerChoice[]; selected: number; fallback: boolean; theme: ThemeName; width: number; height: number}): React.ReactElement {
-  const window = visibleWindow(choices, selected, Math.max(1, height - 5)); const accent = themeAccent(theme);
+  const tight = height < 8; const window = visibleWindow(choices, selected, Math.max(1, height - (tight ? 1 : 5))); const accent = themeAccent(theme);
   const {ascii} = useDisplay(); const a = (value:string) => ascii ? toAsciiSafe(value) : value;
   return <Box flexDirection="column" height={height} width={width} overflow="hidden">
-    <ScreenHeader title={fallback ? 'Fallback station' : 'Primary station'} subtitle="Favorites, imports, recents, current station, and alarm stations" theme={theme} width={width} />
-    <Box marginTop={1} flexDirection="column">
+    <ScreenHeader title={fallback ? 'Fallback station' : 'Primary station'} subtitle={tight ? undefined : 'Favorites, imports, recents, current station, and alarm stations'} theme={theme} width={width} />
+    <Box marginTop={tight ? 0 : 1} flexDirection="column">
       {window.items.map((choice, offset) => { const index = window.start + offset; return <Text key={choice.key} color={index === selected ? accent : undefined} bold={index === selected}>
         {a(`${index === selected ? '› ' : '  '}${truncate(`${choice.station?.name ?? 'None'} · ${choice.source}`, Math.max(1, width - 2))}`)}
       </Text>; })}
@@ -119,6 +120,17 @@ export function AlarmRingingScreen({sessions, alarms = [], selected, snoozeMinut
   const roomy = width >= 42 && height >= 12;
   const clockText=session?formatClock(new Date(session.status.scheduledAt)):'';
   const displayClock=roomy&&!ascii?fullwidthClock(clockText):clockText;
+  if (session && height < 8) {
+    const keep = `Enter ${starting ? 'wait' : 'keep playing'}`; const snooze = `Space snooze ${snoozeMinutes}m`;
+    const stacked = `${keep} · ${snooze}`.length > width && height >= 4;
+    return <Box flexDirection="column" height={height} width={width} overflow="hidden">
+      <Text backgroundColor={accent} color="black" bold>{a(staticAlarmMessage([` ${starting ? 'ALARM STARTING' : 'ALARM ACTIVE'} · ${clockText} `, ` ALARM · ${clockText} `, clockText], width))}</Text>
+      {height >= 3 ? <Text color={accent} bold>{a(truncate(label ? `${session.status.stationName} · ${label}` : session.status.stationName, width))}</Text> : null}
+      {stacked ? <><Text>{a(truncate(keep, width))}</Text><Text>{a(truncate(snooze, width))}</Text></>
+        : height >= 2 ? <Text>{a(staticAlarmMessage([`${keep} · ${snooze}`, `Enter keep · Space snooze`, 'Enter · Space'], width))}</Text> : null}
+      {sessions.length > 1 && height >= (stacked ? 5 : 4) ? <Text color={textMuted}>{a(truncate(`↑/↓ alarm ${selected + 1}/${sessions.length}`, width))}</Text> : null}
+    </Box>;
+  }
   return <Box flexDirection="column" height={height} width={width} overflow="hidden">
     <ScreenHeader title="Alarm ringing" subtitle={sessions.length > 1 ? `${selected + 1} of ${sessions.length} active alarms` : starting ? 'Wake radio · preparing station' : 'Wake radio · playing now'} theme={theme} width={width} />
     {session ? <Box flexDirection="column" alignItems="center" width={width}>

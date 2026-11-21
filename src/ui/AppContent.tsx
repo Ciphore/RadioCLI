@@ -112,7 +112,7 @@ export function AppContent({
   airPlaySupported = true
 }: AppContentProps): React.ReactElement {
   if (layout.compact) {
-    if (screen === 'alarms') return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
+    if (screen === 'alarms' || (screen === 'alarm-editor' && !alarmTui.draft)) return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
     if (screen === 'alarm-editor' && alarmTui.draft) return <AlarmEditorScreen draft={alarmTui.draft} field={alarmTui.editorField} editing={alarmTui.editingField} control={alarmTui.editorControl} timeSegment={alarmTui.timeSegment} weekdayIndex={alarmTui.weekdayIndex} error={alarmTui.validationError} saving={alarmTui.saving} theme={theme} width={frameWidth} height={layout.contentRows} />;
     if (screen === 'alarm-picker') return <AlarmPickerScreen choices={alarmTui.pickerChoices} selected={selected} fallback={alarmTui.pickerFallback} theme={theme} width={frameWidth} height={layout.contentRows} />;
     if (screen === 'alarm-ringing') return <AlarmRingingScreen sessions={alarmTui.activeAlarms} alarms={library.alarms} selected={alarmTui.activeSelected} snoozeMinutes={alarmTui.snoozeMinutes} theme={theme} width={frameWidth} height={layout.contentRows} />;
@@ -155,7 +155,7 @@ export function AppContent({
     );
   }
 
-  if (screen === 'alarms') return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
+  if (screen === 'alarms' || (screen === 'alarm-editor' && !alarmTui.draft)) return <AlarmsScreen alarms={library.alarms} selected={selected} runtime={alarmTui.runtime} verification={alarmTui.verification} deletingId={alarmTui.deletingId} busyAlarmIds={alarmTui.busyAlarmIds} theme={theme} width={frameWidth} height={layout.contentRows} mode={layout.mode} />;
   if (screen === 'alarm-editor' && alarmTui.draft) return <AlarmEditorScreen draft={alarmTui.draft} field={alarmTui.editorField} editing={alarmTui.editingField} control={alarmTui.editorControl} timeSegment={alarmTui.timeSegment} weekdayIndex={alarmTui.weekdayIndex} error={alarmTui.validationError} saving={alarmTui.saving} theme={theme} width={frameWidth} height={layout.contentRows} />;
   if (screen === 'alarm-picker') return <AlarmPickerScreen choices={alarmTui.pickerChoices} selected={selected} fallback={alarmTui.pickerFallback} theme={theme} width={frameWidth} height={layout.contentRows} />;
   if (screen === 'alarm-ringing') return <AlarmRingingScreen sessions={alarmTui.activeAlarms} alarms={library.alarms} selected={alarmTui.activeSelected} snoozeMinutes={alarmTui.snoozeMinutes} theme={theme} width={frameWidth} height={layout.contentRows} />;

@@ -4,7 +4,7 @@ import {identifyPlatform, readLinuxOsRelease, type PlatformProfile} from './runt
 import {identifyOmarchy, type OmarchyProfile} from './omarchy.js';
 
 export type SetupComponent = 'mpv' | 'ffmpeg' | 'vlc';
-export const packageManagers = ['brew', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'] as const;
+export const packageManagers = ['brew', 'port', 'winget', 'scoop', 'choco', 'apt', 'dnf', 'pacman', 'apk', 'zypper', 'pkg', 'pkg_add', 'pkgin', 'termux-pkg', 'pkgman'] as const;
 export type SetupPackageManager = typeof packageManagers[number];
 
 export type SetupCommand = {
@@ -13,6 +13,7 @@ export type SetupCommand = {
   program: string;
   args: string[];
   display: string;
+  optional?: boolean;
 };
 
 /** FreeBSD pkg and Termux pkg have distinct recipes and privilege models. */
@@ -43,7 +44,7 @@ export function detectPackageManager(
 ): SetupPackageManager | null {
   const host = identifyPlatform({platform, osRelease, env});
   if (host.id === 'termux') return hasCommand('pkg') ? 'termux-pkg' : null;
-  if (platform === 'darwin') return hasCommand('brew') ? 'brew' : null;
+  if (platform === 'darwin') return firstAvailable(['brew', 'port'], hasCommand);
   if (platform === 'win32') return firstAvailable(['winget', 'scoop', 'choco'], hasCommand);
   if (platform === 'freebsd') return hasCommand('pkg') ? 'pkg' : null;
   if (platform === 'openbsd') return hasCommand('pkg_add') ? 'pkg_add' : null;
@@ -74,6 +75,7 @@ export function packageInstallCommand(
 ): SetupCommand | null {
   const packages: Partial<Record<SetupPackageManager, Partial<Record<SetupComponent, string>>>> = {
     winget: {mpv: 'shinchiro.mpv', ffmpeg: 'Gyan.FFmpeg', vlc: 'VideoLAN.VLC'},
+    port: {mpv: 'mpv', ffmpeg: 'ffmpeg'},
     // pkgsrc FFmpeg/ffplay packages and executables carry a major version.
     // Choose an available matching pair manually instead of guessing a catalog.
     pkgin: {mpv: 'mpv', vlc: 'vlc'},
@@ -88,6 +90,7 @@ export function packageInstallCommand(
   let args: string[];
 
   if (manager === 'brew') args = ['install', component === 'vlc' ? '--cask' : packageName, ...(component === 'vlc' ? [packageName] : [])];
+  else if (manager === 'port') args = ['-N', 'install', packageName];
   else if (manager === 'winget') args = ['install', '--id', packageName, '-e', '--accept-package-agreements', '--accept-source-agreements'];
   else if (manager === 'scoop') args = ['install', packageName];
   else if (manager === 'choco') args = ['install', packageName, '-y'];
@@ -126,6 +129,7 @@ export function packageManagerNotes(manager: SetupPackageManager | null, host: P
   ];
   if (host.id === 'aix') return ['There is no verified AIX mpv or ffplay package recipe. Provision a working native player manually and set RADIOCLI_MPV_PATH or RADIOCLI_FFPLAY_PATH; IBM Toolbox DNF availability does not establish a playback package.'];
   if (manager === 'pkg') return ['FreeBSD ffmpeg provides ffplay only when built with SDL; verify the executable separately.'];
+  if (manager === 'dnf') return ['If dnf cannot find mpv or ffmpeg, the release needs an extra repository: RPM Fusion on Fedora, or EPEL with RPM Fusion on RHEL-compatible systems. Enable it, then run setup again.'];
   if (manager === 'pkgin' || host.id === 'sunos') return [
     ...(host.id === 'sunos' ? ['Solaris/illumos setup uses an existing pkgsrc/pkgin installation. IPS pkg is a different tool and is not used by this recipe.'] : []),
     'pkgsrc uses versioned FFmpeg/ffplay packages. Choose a matching available pair and set RADIOCLI_FFPLAY_PATH to the absolute ffplay executable.'
@@ -183,9 +187,23 @@ export function packageManagerElevation(hasCommand: (command: string) => boolean
   return isRoot ? null : firstAvailable(['sudo', 'doas'], hasCommand);
 }
 
-export function packageInstallPrerequisites(manager: SetupPackageManager, components: SetupComponent[]): SetupCommand[] {
+export function packageInstallPrerequisites(manager: SetupPackageManager, components: SetupComponent[], {elevation = null}: {elevation?: 'sudo' | 'doas' | null} = {}): SetupCommand[] {
+  if (manager === 'apt' && components.length > 0) {
+    const args = elevation ? ['apt-get', 'update'] : ['update'];
+    const program = elevation ?? 'apt-get';
+    return [{component: null, label: 'apt package index', program, args, display: [program, ...args].join(' '), optional: true}];
+  }
   if (manager !== 'scoop' || !components.some(component => component === 'mpv' || component === 'vlc')) return [];
-  return [{component: null, label: 'Scoop extras bucket', program: 'scoop', args: ['bucket', 'add', 'extras'], display: 'scoop bucket add extras'}];
+  return [{component: null, label: 'Scoop extras bucket', program: 'scoop', args: ['bucket', 'add', 'extras'], display: 'scoop bucket add extras', optional: true}];
+}
+
+export function manualInstallGuidance(platform: NodeJS.Platform): string[] {
+  if (platform === 'darwin') return [
+    'Install Homebrew from https://brew.sh or MacPorts from https://www.macports.org, then run radiocli setup again.',
+    'A standalone mpv build is also listed at https://mpv.io/installation/.'
+  ];
+  if (platform === 'win32') return ['Install mpv with WinGet, Scoop or Chocolatey, or use a build listed at https://mpv.io/installation/.'];
+  return ['Install mpv with your system package manager (see https://mpv.io/installation/). If it is outside PATH, set RADIOCLI_MPV_PATH to its absolute path.'];
 }
 
 export function mpvInstallCommand(platform: NodeJS.Platform = process.platform, osRelease = readLinuxOsRelease(platform), env: NodeJS.ProcessEnv = process.env, options: PackageHintOptions = {}): string {
@@ -214,7 +232,7 @@ function playbackInstallHint(component: 'mpv' | 'ffmpeg', platform: NodeJS.Platf
   if (packageManagerNeedsRoot(manager) && !isRoot && !elevation) notes.unshift('run as root; sudo/doas unavailable');
   if (manager === 'pkgin') notes.push('requires configured pkgsrc');
   if (manager === 'termux-pkg' && isRoot) notes.push('run as the normal Termux app user, without root');
-  const prerequisites = packageInstallPrerequisites(manager, [component]);
+  const prerequisites = manager === 'scoop' ? packageInstallPrerequisites(manager, [component]) : [];
   for (const prerequisite of prerequisites) notes.push(`first run ${prerequisite.display}`);
   return command.display + (notes.length ? ` (${notes.join('; ')})` : '');
 }

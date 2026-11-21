@@ -1,4 +1,5 @@
 import {PlayerController} from '../player/player-controller.js';
+import {startSleepTimer} from '../player/sleep-timer.js';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import {LibraryRepository} from '../storage/repository.js';
@@ -23,17 +24,13 @@ export async function runHeadlessAgentHost(options: {store?: JsonLibraryStore; w
   let terminalProtocol = false;
   let focusNowPlaying = 0;
   let sleepUntil: number | null = null;
-  let sleepTimer: NodeJS.Timeout | undefined;
+  let cancelSleep: (() => void) | undefined;
   const scheduleSleep = () => {
     if (sleepUntil === null) return;
-    const remaining = sleepUntil - Date.now();
-    if (remaining <= 0) {
+    cancelSleep = startSleepTimer(sleepUntil, player, () => {
       sleepUntil = null;
       void dispatch({type: 'stop', retainSelection: true}).catch(() => undefined);
-    } else {
-      sleepTimer = setTimeout(scheduleSleep, Math.min(2_147_483_647, remaining));
-      sleepTimer.unref();
-    }
+    });
   };
   const tuiPresent = () => {
     if (!tui) return false;
@@ -92,7 +89,7 @@ export async function runHeadlessAgentHost(options: {store?: JsonLibraryStore; w
     }
     if (command.type === 'tui-cancel') { engine.cancel(); return result('Canceled pending tune.'); }
     if (command.type === 'tui-sleep') {
-      clearTimeout(sleepTimer);
+      cancelSleep?.();
       sleepUntil = command.until;
       scheduleSleep();
       return result('Sleep timer updated.');
@@ -234,7 +231,7 @@ export async function runHeadlessAgentHost(options: {store?: JsonLibraryStore; w
   const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
   const shutdown = () => shutdownPromise ??= (async () => {
     shuttingDown = true;
-    clearTimeout(sleepTimer);
+    cancelSleep?.();
     desktopSuspended = true;
     for (const signal of signals) process.removeListener(signal, onShutdown);
     media?.close();

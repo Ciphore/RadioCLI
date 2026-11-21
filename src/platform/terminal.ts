@@ -31,7 +31,7 @@ export function resolveTerminalCapabilities(env: NodeJS.ProcessEnv = process.env
       : unicodeOverride === true ? true
         : asciiOverride === false ? true
           : unicodeOverride === false ? false
-            : locale === 'C' || locale === 'POSIX' ? false : !evidence.asciiMode;
+            : locale === 'C' || locale === 'POSIX' || env.TERM === 'linux' ? false : !evidence.asciiMode;
   const colorLevel = dumb || screenReader || Boolean(env.NO_COLOR) ? 0 : resolveColorLevel(env, evidence);
   return {
     unicode,

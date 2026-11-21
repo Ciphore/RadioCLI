@@ -86,7 +86,7 @@ to start playback.
 | `↑` / `↓`, then `Enter` | Select and tune a station |
 | `space` | Pause or resume |
 | `f` | Toggle a favorite |
-| `v` / `t` | Change receiver style / color theme on Playing |
+| `v` / `t` | Change receiver style / color theme |
 | `?` / `q` | Show shortcuts / quit |
 
 The footer shows controls for the current screen. See the

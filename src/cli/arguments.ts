@@ -63,7 +63,8 @@ const help: Record<ListenerCommand, string> = {
   the current station or play your most recent station when nothing is selected.
   Paused playback resumes; playing audio continues uninterrupted.
   Exact saved names and presets work offline.
-  Ambiguous names open a numbered chooser only in an interactive terminal.
+  Several matching names open a numbered chooser in an interactive terminal.
+  Scripts and --no-input play the top match and queue the rest for next.
 
   --favorites              Play from your favorites
   --recent                 Play from your recently played stations

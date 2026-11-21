@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {isDirectRun, runCommand} from './cli.js';
+import {isDirectRun, runCommand, unsupportedNodeMessage} from './cli.js';
 import {detectPlaybackBackends} from './player/backend-install.js';
 import {JsonLibraryStore} from './storage/store.js';
 import {defaultAgentControlSettings} from './types.js';
@@ -357,6 +357,12 @@ describe('CLI command dispatch', () => {
     symlinkSync(moduleFile, linkedFile);
 
     expect(isDirectRun(linkedFile, pathToFileURL(moduleFile).href)).toBe(true);
+  });
+
+  it('explains the Node.js requirement instead of failing later on an older runtime', () => {
+    expect(unsupportedNodeMessage('18.19.1', '/usr/bin/node')).toContain('RadioCLI needs Node.js 22 or newer. This is Node.js 18.19.1 (/usr/bin/node).');
+    expect(unsupportedNodeMessage('v20.11.0')).toContain('https://nodejs.org');
+    for (const supported of ['22.0.0', 'v24.3.0', '26.13.1']) expect(unsupportedNodeMessage(supported)).toBeNull();
   });
 
   it('rejects malformed agent values without corrupting persisted settings', async () => {

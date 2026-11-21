@@ -36,10 +36,12 @@ export async function runListenerCommand(command: ListenerCommand, args: string[
     output.result(result, background);
     if (!result.ok) process.exitCode = 1;
   };
-  const select = async (stations: Station[], forcePick = options.has('--pick')): Promise<Station> => {
+  let topMatchOf = 0;
+  const select = async (stations: Station[], forcePick = options.has('--pick'), playTopMatch = false): Promise<Station> => {
     if (!stations.length) throw new Error('No stations found. Try radiocli search with a broader query, or radiocli favorites.');
     if (stations.length === 1 && !forcePick) return stations[0]!;
     if (process.stdin.isTTY && process.stdout.isTTY && output.mode === 'human' && !flags.noInput && !flags.quiet) return pickStation(stations, output, state.favorites);
+    if (playTopMatch) { topMatchOf = stations.length; return stations[0]!; }
     const target = command === 'preset' ? 'preset save <name>' : command === 'search' ? 'play' : command;
     throw new Error(`Several stations match. Use an exact provider:id with radiocli ${target}:\n${stations.slice(0, 20).map(station => `  ${clean(stationKey(station))}  ${clean(station.name)}`).join('\n')}`);
   };
@@ -66,7 +68,7 @@ export async function runListenerCommand(command: ListenerCommand, args: string[
     const stations = local.length ? local : await providers.search(text, state.settings, filters);
     const remoteExact = stations.filter(station => normalize(station.name) === normalize(text));
     const candidates = remoteExact.length && !options.has('--pick') ? remoteExact : stations;
-    const station = options.has('--random') && stations.length ? stations[randomInt(stations.length)]! : await select(candidates);
+    const station = options.has('--random') && stations.length ? stations[randomInt(stations.length)]! : await select(candidates, undefined, command === 'play');
     return {station, queue: stations};
   };
   const currentStation = async (): Promise<Station> => {
@@ -105,7 +107,8 @@ export async function runListenerCommand(command: ListenerCommand, args: string[
       const station = options.has('--pick') ? await select(queue, true) : queue[options.has('--random') ? randomInt(queue.length) : 0]!;
       selection = {station, queue};
     }
-    finish(await service.playStation(selection.station, selection.queue, {openUi: false, ifPlaying: options.has('--keep-playing') ? 'keep' : 'replace'}), true);
+    const played = await service.playStation(selection.station, selection.queue, {openUi: false, ifPlaying: options.has('--keep-playing') ? 'keep' : 'replace'});
+    finish(played.ok && topMatchOf ? {...played, message: `${played.message} Top match of ${topMatchOf}; radiocli next plays the following one, and radiocli search lists them all.`} : played, true);
     return;
   }
   if (['pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute', 'volume'].includes(command)) {

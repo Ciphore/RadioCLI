@@ -133,7 +133,9 @@ keep their own background.
 
 If ASCII appeared unexpectedly, check `LC_ALL`, `LC_CTYPE`, and `LANG`, in that
 order. The first non-empty value determines the locale check: bare `C` and
-`POSIX` select ASCII decoration, while UTF-8 locales retain Unicode. An explicit
+`POSIX` select ASCII decoration, while UTF-8 locales retain Unicode. The Linux
+virtual console (`TERM=linux`) also selects ASCII, because its fonts have no
+Braille glyphs. An explicit
 `RADIOCLI_ASCII=1` also selects ASCII; `RADIOCLI_UNICODE=1` restores Unicode when
 ASCII is not explicitly enabled and the terminal is not `dumb`. SSH alone does
 not select ASCII or reduced motion.
@@ -218,6 +220,22 @@ You can set `RADIOCLI_HOME` to a private writable directory. This selects a
 separate data location; it does not move the existing library automatically.
 Preserve your existing data before changing locations, and restart RadioCLI
 after correcting the path or permissions.
+
+## Library Is Busy After A Crash
+
+Every library write takes a short-lived lock, stored as a `.lock` folder beside
+the library file. RadioCLI releases a lock whose owner has exited, but it never
+expires one by age. If the computer lost power during a write and the old
+process ID now belongs to another program, saves report that the library is
+busy. Close every RadioCLI window and MCP client, run `radiocli check` to print
+the `store=` path, and delete the `.lock` folder next to that file.
+
+## RadioCLI Needs Node.js 22 Or Newer
+
+npm prints only a warning when a package's Node requirement is not met, so an
+older distribution Node can install RadioCLI. Starting it then prints the
+detected version and its path. Install Node.js 22 or newer and run `radiocli`
+again; see [Install](getting-started/install.mdx).
 
 ## Optional Native Features Need Attention
 

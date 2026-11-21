@@ -169,6 +169,15 @@ describe('update checks', () => {
       method: 'pnpm',
       command: 'pnpm add -g @ciphore/radiocli@latest'
     });
+    expect(updateCommandForInstall('/Users/test/.npm/_npx/0a1b2c3d/node_modules/@ciphore/radiocli/dist/cli.js')).toEqual({
+      method: 'npx',
+      command: 'npx @ciphore/radiocli@latest'
+    });
+    expect(updateCommandForInstall('/home/test/.config/yarn/global/node_modules/@ciphore/radiocli/dist/cli.js')).toEqual({
+      method: 'yarn',
+      command: 'yarn global add @ciphore/radiocli@latest'
+    });
+    expect(updateCommandForInstall('C:\\Users\\test\\AppData\\Local\\Yarn\\Data\\global\\node_modules\\@ciphore\\radiocli\\dist\\cli.js').method).toBe('yarn');
     expect(updateCommandForInstall('/tmp/radiocli/dist/cli.js')).toEqual({
       method: 'unknown',
       command: 'npm install -g @ciphore/radiocli@latest'

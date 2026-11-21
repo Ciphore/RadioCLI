@@ -736,3 +736,78 @@ describe('Output setting cancellation', () => {
     expect(playback.state).toBe('stopped');
   });
 });
+
+describe('First listen', () => {
+  const popular: Station[] = [
+    {id: 'popular-one', provider: 'radio-browser', name: 'Popular One', tags: [], streamUrl: 'https://example.test/one'},
+    {id: 'popular-two', provider: 'radio-browser', name: 'Popular Two', tags: [], streamUrl: 'https://example.test/two'}
+  ];
+
+  it('plays a popular station on space for an empty library and opens Playing', async () => {
+    const list = vi.spyOn(ProviderManager.prototype, 'popular').mockResolvedValue(popular);
+    vi.spyOn(ProviderManager.prototype, 'resolve').mockImplementation(async item => ({url: item.streamUrl!}));
+    let playback: PlaybackState = {backend: 'mpv', state: 'idle', volume: 70, muted: false, ready: false};
+    vi.spyOn(PlayerController.prototype, 'getState').mockImplementation(() => ({...playback}));
+    const play = vi.spyOn(PlayerController.prototype, 'play').mockImplementation(async (item, url) => {
+      playback = {...playback, state: 'playing', ready: true, stationName: item.name, streamUrl: url};
+    });
+    const pause = vi.spyOn(PlayerController.prototype, 'togglePause').mockResolvedValue({ok: true});
+    const app = await open({favorites: []});
+    expect(app.frame()).toContain('New here? Press space to hear a popular station.');
+    await app.input(' ');
+    expect(list).toHaveBeenCalledOnce();
+    expect(play).toHaveBeenCalledOnce();
+    expect(play.mock.calls[0]![0]).toMatchObject({id: 'popular-one'});
+    expect(app.state().screen).toBe('now-playing');
+    expect(pause).not.toHaveBeenCalled();
+    await app.input(' ');
+    expect(list).toHaveBeenCalledOnce();
+    expect(pause).toHaveBeenCalledOnce();
+  });
+
+  it('leaves space as pause for a library that already has stations', async () => {
+    const list = vi.spyOn(ProviderManager.prototype, 'popular').mockResolvedValue(popular);
+    const pause = vi.spyOn(PlayerController.prototype, 'togglePause').mockResolvedValue({ok: false});
+    const app = await open();
+    expect(app.frame()).not.toContain('New here?');
+    await app.input(' ');
+    expect(list).not.toHaveBeenCalled();
+    expect(pause).toHaveBeenCalledOnce();
+  });
+
+  it('reports an unavailable directory and lets the listener try again', async () => {
+    const list = vi.spyOn(ProviderManager.prototype, 'popular').mockRejectedValueOnce(new Error('RadioCLI is offline (RADIOCLI_OFFLINE=1).')).mockResolvedValue([]);
+    const app = await open({favorites: []});
+    await app.input(' ');
+    expect(app.frame()).toContain('RadioCLI is offline');
+    await app.input(' ');
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(app.frame()).toContain('No popular stations are available right now.');
+  });
+});
+
+describe('Settings shortcuts', () => {
+  it('changes provider and skip preferences with g and x only from Settings', async () => {
+    const app = await open();
+    const original = app.store.snapshot().settings;
+    await app.input(':library\r');
+    await app.input('g'); await app.input('x');
+    expect(app.state().library.settings).toMatchObject({enableRadioGarden: original.enableRadioGarden, skipBrokenStreams: original.skipBrokenStreams});
+    await app.input(':settings\r');
+    await app.input('g'); await app.input('x');
+    expect(app.state().library.settings).toMatchObject({enableRadioGarden: !original.enableRadioGarden, skipBrokenStreams: !original.skipBrokenStreams});
+  });
+});
+
+describe('Text fields own their keystrokes', () => {
+  it('keeps capital A and ! in the country filter instead of opening alarm controls', async () => {
+    vi.spyOn(ProviderManager.prototype, 'countries').mockResolvedValue([country, {name: 'Argentina', code: 'AR', stationCount: 2}]);
+    const app = await open();
+    await app.input(':map\r');
+    await app.input('/');
+    for (const character of 'A!r') await app.input(character);
+    expect(app.state().screen).toBe('map');
+    expect(app.state().editingCountryFilter).toBe(true);
+    expect(app.state().countryFilter).toBe('A!r');
+  });
+});

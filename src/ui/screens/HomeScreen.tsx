@@ -4,6 +4,7 @@ import {Logo} from '../components/Logo.js';
 import {Menu, Pointer} from '../components/Menu.js';
 import {textMuted, themeAccent} from '../theme.js';
 import {homeItems} from '../screen-items.js';
+import {isNewListener, newListenerHint} from '../app-state.js';
 import type {LibraryState, ThemeName} from '../../types.js';
 import {displayWidth} from '../format.js';
 import {useDisplay} from '../display-context.js';
@@ -17,7 +18,8 @@ type HomeProps = {
 
 export function HomeScreen({selected, theme, library}: HomeProps): React.ReactElement {
   const {ascii} = useDisplay();
-  const summary = `${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`;
+  const newListener = isNewListener(library);
+  const summary = newListener ? newListenerHint(80) : `${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`;
   const titleWidth = Math.max(...homeItems.map(item => displayWidth(item.label))) + 2;
   return (
     <Box flexDirection="column">
@@ -42,7 +44,7 @@ export function HomeScreen({selected, theme, library}: HomeProps): React.ReactEl
         />
       </Box>
       <Box marginTop={1}>
-        <Text color={textMuted}>
+        <Text color={newListener ? themeAccent(theme) : textMuted}>
           {ascii ? toAsciiSafe(summary) : summary}
         </Text>
       </Box>

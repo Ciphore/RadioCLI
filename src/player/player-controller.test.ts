@@ -816,6 +816,39 @@ describe('PlayerController lifecycle', () => {
     await mpvServer.close();
   });
 
+  it('fades mpv to silence without changing the reported volume, and restores it when cancelled', async () => {
+    commandExistsMock.mockImplementation(command => command === 'mpv');
+    const child = fakeChildProcess();
+    const mpv = {current: null as FakeMpvIpc | null};
+    spawnMock.mockImplementation((_command, args) => {
+      mpv.current = fakeMpvIpc(mpvIpcPath(args));
+      return child as never;
+    });
+    const controller = new PlayerController(() => settings({preferredBackend: 'mpv', volume: 80}));
+    await controller.play(station(), 'https://streams.example.com/live.mp3');
+    await controller.setVolume(80);
+    const mpvServer = expectFakeMpv(mpv.current);
+    const before = mpvServer.volumeCommands().length;
+
+    await controller.fadeOut(1000);
+    expect(mpvServer.volumeCommands().slice(before)).toEqual([40, 0]);
+    expect(controller.getState().volume).toBe(80);
+
+    const abort = new AbortController();
+    const fading = controller.fadeOut(60_000, abort.signal);
+    await waitUntil(() => mpvServer.volumeCommands().at(-1) !== 0);
+    abort.abort();
+    await fading;
+    expect(mpvServer.volume()).toBe(80);
+    expect(controller.getState().volume).toBe(80);
+
+    await controller.stop();
+    await mpvServer.close();
+    const started = Date.now();
+    await controller.fadeOut(200);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+  });
+
   it('rolls back an optimistic mpv volume change when the backend rejects it', async () => {
     commandExistsMock.mockImplementation(command => command === 'mpv');
     const child = fakeChildProcess();

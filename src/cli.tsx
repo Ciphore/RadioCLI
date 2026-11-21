@@ -9,6 +9,11 @@ import {sanitizeTerminalText} from './safety.js';
 const runtime = {nodePath: process.execPath, cliPath: fileURLToPath(import.meta.url)};
 
 if (isDirectRun(process.argv[1], import.meta.url)) {
+  const unsupportedNode = unsupportedNodeMessage(process.versions.node);
+  if (unsupportedNode) {
+    console.error(unsupportedNode);
+    process.exit(1);
+  }
   const args = process.argv.slice(2);
   process.stdout.on('error', error => {
     if ((error as NodeJS.ErrnoException).code === 'EPIPE') process.exit(0);
@@ -146,7 +151,7 @@ export async function runCommand(args: string[]): Promise<void> {
   if (command === 'update') {
     const unknown = rest.filter(arg => arg !== '--install');
     if (unknown.length > 0) throw new Error('Usage: radiocli update [--install]');
-    const {checkForUpdate, installUpdate, updateCommandForInstall} = await import('./update-check.js');
+    const {checkForUpdate, installUpdate, npxUpdateMessage, updateCommandForInstall} = await import('./update-check.js');
     const updateCheck = await checkForUpdate();
     const updateCommand = updateCommandForInstall();
     if (updateCheck.error) {
@@ -158,6 +163,7 @@ export async function runCommand(args: string[]): Promise<void> {
     }
     console.log(`command=${updateCommand.command}`);
     if (rest.includes('--install')) {
+      if (updateCommand.method === 'npx') throw new Error(npxUpdateMessage);
       const result = await installUpdate(updateCommand.command);
       if (!result.ok) throw new Error(`Update install failed. Run manually: ${result.command}${result.output ? `\n${result.output}` : ''}`);
       console.log('updated=yes');
@@ -282,7 +288,7 @@ Setup and integrations:
   radiocli agent <command> Scriptable radio controls for local agents
 ` : ''}
 Examples:
-  radiocli play jazz               Find a station and listen
+  radiocli play jazz               Search, pick a match, and listen
   radiocli play                    Continue the current or last station
   radiocli play --favorites        Listen from your favorites
 
@@ -318,6 +324,12 @@ function suggestCommand(input: string): string | undefined {
   return candidates.map(word => ({word, distance: distance(word)})).filter(item => item.distance <= (input.length > 3 ? 2 : 1)).sort((a, b) => a.distance - b.distance)[0]?.word;
 }
 
+export function unsupportedNodeMessage(version: string, execPath = process.execPath): string | null {
+  const major = Number.parseInt(version.replace(/^v/, ''), 10);
+  if (!Number.isFinite(major) || major >= 22) return null;
+  return `RadioCLI needs Node.js 22 or newer. This is Node.js ${version.replace(/^v/, '')} (${execPath}).\nInstall a current release from https://nodejs.org or your version manager, then run radiocli again.`;
+}
+
 export function isDirectRun(entryPath: string | undefined, moduleUrl: string): boolean {
   if (!entryPath) {
     return false;
@@ -348,7 +360,7 @@ Usage:
   radiocli setup --mcp --agent-ui        Open a terminal TUI for agent playback (default)
   radiocli setup --mcp --headless-agent  Opt out of external terminal windows
   radiocli setup --no-mcp                Disable and remove agent MCP entries
-${process.platform === 'linux' && isAirPlayPlatformSupported() ? '  radiocli setup --airplay               Enable experimental Linux AirPlay and set up prerequisites\n  radiocli setup --no-airplay            Disable Linux AirPlay; keep shared services and packages\n' : ''}  radiocli setup --package-manager <pm>  Use brew, winget, scoop, choco,
+${process.platform === 'linux' && isAirPlayPlatformSupported() ? '  radiocli setup --airplay               Enable experimental Linux AirPlay and set up prerequisites\n  radiocli setup --no-airplay            Disable Linux AirPlay; keep shared services and packages\n' : ''}  radiocli setup --package-manager <pm>  Use brew, port (MacPorts), winget, scoop, choco,
                                          apt, dnf, pacman, apk, zypper,
                                          pkg (FreeBSD), pkg_add, pkgin,
                                          termux-pkg (Termux), or pkgman (Haiku)

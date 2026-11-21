@@ -27,7 +27,7 @@ import {buildVisualizer, visualizerHeight} from './visualizers/receiver-visualiz
 import {Logo} from './components/Logo.js';
 import {useReceiverPulse} from './receiver-animation.js';
 import type {ExploreCursor} from './app-state.js';
-import {formatExploreCursor} from './app-state.js';
+import {formatExploreCursor, isNewListener, newListenerHint} from './app-state.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from './cosmo-world-map.js';
 import {adaptiveExploreFrameMetrics, computeAdaptiveExploreLayout} from './adaptive-explore-layout.js';
 import {AdaptiveMarquee} from './components/AdaptiveMarquee.js';
@@ -538,8 +538,8 @@ function AdaptiveHome({
         })}
       </Box>
       {showSummary ? (
-        <Text color={textMuted}>
-          {a(truncate(`${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`, width))}
+        <Text color={isNewListener(library) ? accent : textMuted}>
+          {a(isNewListener(library) ? newListenerHint(width) : truncate(`${library.recent.length} recent · ${library.favorites.length} favorites · ${library.imported.length} imported`, width))}
         </Text>
       ) : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
@@ -632,7 +632,13 @@ function AdaptiveNowPlaying({
   const {screenReader, app: appBackground} = useDisplay();
   const accent = themeAccent(theme);
   const stationName = station?.name ?? 'No station tuned';
-  const showMetadata = Boolean(metadata?.title) && (screenReader || mode === 'compact' && height >= 9);
+  const showMetadata = Boolean(metadata?.title) && (screenReader || height >= (mode === 'compact' ? 9 : 8));
+  const foldedTrack = metadata?.title && !showMetadata ? metadata.title : '';
+  const summary = [
+    ...(playback.state === 'playing' ? [] : [playback.state]),
+    ...(foldedTrack ? [foldedTrack] : playback.state === 'playing' ? ['playing'] : []),
+    playback.muted ? 'muted' : `vol ${playback.volume}`
+  ].join(' · ');
   const headerRows = mode === 'compact' ? 2 : 1;
   const metadataRows = showMetadata ? 1 : 0;
   const gapRows = height >= 5 ? 1 : 0;
@@ -649,18 +655,18 @@ function AdaptiveNowPlaying({
     mode === 'micro' ? 'micro' : 'standard'
   );
   const header = mode === 'micro'
-    ? `${stationName} · ${playback.state}`
+    ? `${stationName} · ${summary}`
     : 'RADIOCLI  Now playing';
-  const status = `${stationName}  ${playback.state}${playback.muted ? ' · muted' : ` · vol ${playback.volume}`}`;
+  const status = `${stationName}  ${summary}`;
 
   return (
     <Box flexDirection="column" height={height} width={width} overflow="hidden">
-      <Text color={accent} bold aria-label={mode === 'micro' ? `Now playing. Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}` : undefined}>
+      <Text color={accent} bold aria-label={mode === 'micro' ? `Now playing. Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}${foldedTrack ? `. Track: ${metadata?.title}` : ''}` : undefined}>
         {mode === 'micro'
           ? <AdaptiveMarquee text={header} width={width} active reduceMotion={reduceMotion} />
           : truncate(header, width)}
       </Text>
-      {mode === 'compact' ? <Text color={textMuted} aria-label={`Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}`}>{ascii ? toAsciiSafe(truncate(status, width)) : truncate(status, width)}</Text> : null}
+      {mode === 'compact' ? <Text color={textMuted} aria-label={`Station: ${stationName}. Playback: ${playback.state}, ${playback.muted ? 'muted' : `volume ${playback.volume}`}${foldedTrack ? `. Track: ${metadata?.title}` : ''}`}><AdaptiveMarquee text={status} width={width} active reduceMotion={reduceMotion} /></Text> : null}
       {gapRows ? <Box height={gapRows} flexShrink={0} /> : null}
       {!screenReader ? <Box flexDirection="column" height={availableVisualRows} overflow="hidden" aria-hidden>
         {visualRows.map((row, index) => (

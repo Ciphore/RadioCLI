@@ -1,4 +1,4 @@
-import {componentLabel, detectPackageManager, packageCommandInvocation, packageInstallCommand, packageInstallPrerequisites, packageManagerElevation, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
+import {componentLabel, detectPackageManager, manualInstallGuidance, packageCommandInvocation, packageInstallCommand, packageInstallPrerequisites, packageManagerElevation, packageManagerNeedsRoot, packageManagerNotes, packageManagerProgram, packageManagers, platformLabel, type SetupCommand, type SetupComponent, type SetupPackageManager} from './platform/packages.js';
 export type {SetupComponent};
 import {spawn, type SpawnOptions} from 'node:child_process';
 import {realpathSync} from 'node:fs';
@@ -92,7 +92,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   }
   let mcp = parsed.mcp;
   if (mcp === null && !parsed.yes && isInteractive(input, output)) {
-    mcp = await prompt('  Agent control via MCP (detected coding agents)', true);
+    mcp = await prompt('  Agent control via MCP (adds RadioCLI to detected Codex, Claude Code, Cursor, Gemini CLI, OpenCode, and Copilot configs)', false);
   }
   let agentUi = parsed.agentUi;
   if (mcp === true && agentUi === null && !parsed.yes && isInteractive(input, output)) {
@@ -134,13 +134,21 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
     return;
   }
 
+  const finishWithout = async (error: Error): Promise<never> => {
+    await finishMcpSetup(mcp, agentUi, false, output);
+    await verify();
+    throw error;
+  };
+
   if (!plan.packageManager && missing.length > 0) {
+    output.write('\nNo supported system package manager was found.\n');
+    for (const line of manualInstallGuidance(platform)) output.write(`  ${line}\n`);
     if (parsed.dryRun) {
       output.write('\nDry run complete. Install the missing components manually; no system packages were changed.\n');
       await finishMcpSetup(mcp, agentUi, true, output);
       return;
     }
-    throw new Error('No supported system package manager was found. Install mpv manually, then run radiocli doctor.');
+    return finishWithout(new Error('No supported system package manager was found. Install mpv manually, then run radiocli doctor.'));
   }
 
   if (parsed.dryRun) {
@@ -164,7 +172,9 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
   if (!parsed.yes && isInteractive(input, output)) {
     const confirmed = await prompt(airplay === null ? '\nInstall these components?' : '\nApply this setup plan and Linux AirPlay preference?', true);
     if (!confirmed) {
-      output.write('Setup cancelled. No system packages were changed.\n');
+      output.write('Package installation skipped. No system packages were changed.\n');
+      await finishMcpSetup(mcp, agentUi, false, output);
+      await verify();
       return;
     }
   } else if (!parsed.yes) {
@@ -178,11 +188,22 @@ export async function runSetup(options: SetupOptions = {}): Promise<void> {
 
   const execute = options.runCommand ?? ((command, destination) => runInstallCommand(command, destination, platform));
   if (plan.commands.length) output.write('\nInstalling\n');
+  const failures: string[] = [];
   for (const command of plan.commands) {
-    await execute(command, output);
+    try { await execute(command, output); }
+    catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (command.optional) output.write(`  Note: ${command.label} was not updated (${detail.split('\n')[0]}). Continuing.\n`);
+      else failures.push(`${command.label}: ${detail}`);
+    }
   }
 
   clearCommandCache();
+  if (failures.length > 0) {
+    output.write(`\n${failures.length} of ${plan.commands.filter(command => !command.optional).length} installation steps failed.\n`);
+    if (airplay !== null) output.write('Linux AirPlay preference was not changed.\n');
+    return finishWithout(new Error(failures.join('\n')));
+  }
   if (airplay !== null) {
     if (options.saveLinuxAirPlayEnabled) options.saveLinuxAirPlayEnabled(airplay);
     else new JsonLibraryStore(libraryPath()).updateSettings({linuxAirPlayEnabled: airplay});
@@ -218,7 +239,7 @@ export function createSetupPlan({
   const uniqueSelected = components.filter(component => selected.includes(component));
   const missing = uniqueSelected.filter(component => !installed[component]);
   const commands = packageManager ? missing.map(component => packageInstallCommand(packageManager, component, {elevation})).filter((command): command is SetupCommand => command !== null) : [];
-  if (packageManager) commands.unshift(...packageInstallPrerequisites(packageManager, missing));
+  if (packageManager && commands.length > 0) commands.unshift(...packageInstallPrerequisites(packageManager, missing, {elevation: packageManagerNeedsRoot(packageManager) ? elevation : null}));
 
   return {
     platform,
@@ -236,6 +257,7 @@ function validateNativePackageManager(manager: SetupPackageManager, host: Platfo
     || (manager === 'termux-pkg' && host.id !== 'termux')
     || (manager === 'pkgman' && host.id !== 'haiku')
     || (manager === 'pkg' && host.id !== 'freebsd')
+    || (manager === 'port' && host.id !== 'darwin')
     || ['aix', 'android', 'unknown'].includes(host.id)) {
     throw new Error(`No verified ${manager} playback package recipe for ${host.id}.${required ? ` Use --package-manager=${required}.` : ' Install a native player manually and run radiocli doctor.'}`);
   }
@@ -387,7 +409,8 @@ function printPlan(plan: SetupPlan, output: Writable): void {
 
 async function runInstallCommand(command: SetupCommand, output: Writable, platform: NodeJS.Platform): Promise<void> {
   const terminal = setupTerminal(output);
-  const interactive = terminal.interactive && !terminal.reduceMotion;
+  const visible = command.program === 'doas';
+  const interactive = terminal.interactive && !terminal.reduceMotion && !visible;
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
   let frame = 0;
@@ -405,7 +428,7 @@ async function runInstallCommand(command: SetupCommand, output: Writable, platfo
   try {
     await new Promise<void>((resolve, reject) => {
       const invocation = packageCommandInvocation(command, platform, resolveCommand);
-      const child = spawn(invocation.program, invocation.args, {shell: false, stdio: ['inherit', 'pipe', 'pipe']} satisfies SpawnOptions);
+      const child = spawn(invocation.program, invocation.args, {shell: false, stdio: visible ? 'inherit' : ['ignore', 'pipe', 'pipe']} satisfies SpawnOptions);
       child.stdout?.on('data', chunk => { stdout = tail(`${stdout}${String(chunk)}`); });
       child.stderr?.on('data', chunk => { stderr = tail(`${stderr}${String(chunk)}`); });
       child.once('error', reject);
@@ -417,6 +440,7 @@ async function runInstallCommand(command: SetupCommand, output: Writable, platfo
   } catch (error) {
     if (timer) clearInterval(timer);
     if (interactive) output.write(`\r${clearLine()}  ${failureMark(output)} ${command.label} failed ${formatElapsed(Date.now() - startedAt)}\n`);
+    else output.write(`  failed ${command.label} ${formatElapsed(Date.now() - startedAt)}\n`);
     throw error;
   }
 }
@@ -430,7 +454,8 @@ function progressFrame(label: string, frame: number, elapsedMs: number, output: 
   const start = offset <= travel ? offset : cycle - offset;
   const unicode = setupTerminal(output).unicode;
   const bar = Array.from({length: width}, (_, index) => index >= start && index < start + segment ? (unicode ? '█' : '#') : (unicode ? '░' : '.')).join('');
-  return `  ${accent(output, unicode ? '◒' : '*')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}`;
+  const patience = elapsedMs >= 45_000 ? ` ${unicode ? '·' : '-'} still working, large packages can take several minutes` : '';
+  return `${clearLine()}  ${accent(output, unicode ? '◒' : '*')} ${accent(output, `[${bar}]`)} Installing ${label} ${formatElapsed(elapsedMs)}${patience}`;
 }
 
 async function printVerification(output: Writable, {platform, osRelease, env, release, hasCommand, getUid, linuxAirPlayEnabled, verifyPlayback = verifyLocalPlayback}: {

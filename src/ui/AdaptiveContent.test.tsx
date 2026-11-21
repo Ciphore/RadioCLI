@@ -239,6 +239,15 @@ describe('AdaptiveContent', () => {
     expect(search.at(-1)).toBe('');
   });
 
+  it('keeps the track and volume visible in micro and short compact Now Playing', () => {
+    expect(renderAdaptive('now-playing', 'micro', 120, 7).split('\n')[0]).toBe(`${station.name} · Artist — Track · vol 70`);
+    const tallMicro = renderAdaptive('now-playing', 'micro', 120, 9).split('\n');
+    expect(tallMicro[0]).toBe(`${station.name} · playing · vol 70`);
+    expect(tallMicro.some(line => line.trim() === 'Artist — Track')).toBe(true);
+    expect(renderAdaptive('now-playing', 'compact', 120, 8).split('\n')[1]).toBe(`${station.name}  Artist — Track · vol 70`);
+    expect(renderAdaptive('now-playing', 'compact', 120, 10).split('\n')[1]).toBe(`${station.name}  playing · vol 70`);
+  });
+
   it.each(receiverStyleNames)('renders the %s receiver style inside a 20x7 micro screen', receiverStyle => {
     const frame = renderAdaptive('now-playing', 'micro', 20, 7, receiverStyle);
     const lines = frame.split('\n');

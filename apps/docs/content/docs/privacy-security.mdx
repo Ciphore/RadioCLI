@@ -45,8 +45,9 @@ external terminal windows or app-control prompts.
 
 - Nearby location is enabled by default for new libraries, but no location
   request is made until you open Nearby; offline mode blocks that request.
-- Location lookup uses approximate IP-based location from `ipapi.co`. Disable it
-  with `l`, Settings, or `:location off`.
+- Location lookup uses approximate IP-based location from `ipapi.co`. If that
+  service is rate limited or unreachable, RadioCLI asks `ipwho.is` instead.
+  Disable lookups with `l`, Settings, or `:location off`.
 - Explore uses only the cursor coordinate you move in the terminal.
 - Recents, favorites, settings, imports, listening activity, alarm definitions,
   and provider cache data are stored locally on your machine.
@@ -160,7 +161,8 @@ for the separation between portable library data and machine-local records.
 
 Nearby stations are useful, but IP-based location lookup is privacy-sensitive.
 For new libraries the feature is on, and opening Nearby requests an approximate
-location from `ipapi.co` unless offline mode is active. RadioCLI uses the
+location from `ipapi.co`, or from `ipwho.is` when the first service does not
+answer, unless offline mode is active. RadioCLI uses the
 returned city, region, country, latitude, and longitude to sort the local
 geotagged station atlas. Turn it off before opening Nearby with Settings or
 `:location off` if you do not want that request; the choice is stored locally.

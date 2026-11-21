@@ -4949,7 +4949,7 @@ exports[`receiver baseline / full / unicode > xor-texture 1`] = `
 `;
 
 exports[`receiver baseline / micro / ascii > braille-wave 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 
 .--::--:. +.--..-:.  :-:
@@ -4959,7 +4959,7 @@ exports[`receiver baseline / micro / ascii > braille-wave 1`] = `
 `;
 
 exports[`receiver baseline / micro / ascii > gallop-fine 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
              --+.
         .-+:..*.
@@ -4969,7 +4969,7 @@ exports[`receiver baseline / micro / ascii > gallop-fine 1`] = `
 `;
 
 exports[`receiver baseline / micro / ascii > manhattan 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 ##  . oo    o    |o@o.
 #### #||#. /|.. ###@..##
@@ -4979,7 +4979,7 @@ exports[`receiver baseline / micro / ascii > manhattan 1`] = `
 `;
 
 exports[`receiver baseline / micro / ascii > pulse-grid 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 . o @ o o o o o o @ o .
 . o @ o o @ @ o o o o o
@@ -4989,7 +4989,7 @@ exports[`receiver baseline / micro / ascii > pulse-grid 1`] = `
 `;
 
 exports[`receiver baseline / micro / ascii > ultracode 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 
 
@@ -4999,7 +4999,7 @@ exports[`receiver baseline / micro / ascii > ultracode 1`] = `
 `;
 
 exports[`receiver baseline / micro / unicode > braille-wave 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 
 ⢀⡤⠲⠤⣀⣠⢤⣀⡀ ⣰⢀⡤⣄⡀⢀⣠⣀⡀  ⣀⡤⠤
@@ -5009,7 +5009,7 @@ exports[`receiver baseline / micro / unicode > braille-wave 1`] = `
 `;
 
 exports[`receiver baseline / micro / unicode > gallop-fine 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
              ⣠⠖⣢⡀
         ⠠⠴⣊⠉⠁⠁⣴⢀
@@ -5019,7 +5019,7 @@ exports[`receiver baseline / micro / unicode > gallop-fine 1`] = `
 `;
 
 exports[`receiver baseline / micro / unicode > manhattan 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 ▀▀  ˙ ••    •    │•●•˙
 ██▀▀ ▀││▀░ ╱│░░ ▀▀▀●░˙▀▀
@@ -5029,7 +5029,7 @@ exports[`receiver baseline / micro / unicode > manhattan 1`] = `
 `;
 
 exports[`receiver baseline / micro / unicode > pulse-grid 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 · ∘ ● ◉ ◉ ◉ ◉ ◉ ◉ ● • ·
 · ∘ ● ◉ ◉ ● ● ◉ ◉ ◉ • ∘
@@ -5039,7 +5039,7 @@ exports[`receiver baseline / micro / unicode > pulse-grid 1`] = `
 `;
 
 exports[`receiver baseline / micro / unicode > ultracode 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 
 
@@ -11758,81 +11758,81 @@ exports[`screen baseline / micro / ascii > 'airplay-settings' 1`] = `
 
 exports[`screen baseline / micro / ascii > 'alarm-editor' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
 BASICS
 > Label: Morning radio
-
-"
+  Enabled: Yes
+  Station: KEXP 90.3 FM
+  Schedule: Recurring
+  Time (24h): 06 : 30"
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-editor/save' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Request OS wake: Yes
+  Alarm Guard: On
+  Test-tune station now.
 REVIEW
 > Save alarm . next Mon.
-
-"
+  Cancel"
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-editor/time' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Enabled: Yes
+  Station: KEXP 90.3 FM
   Schedule: Recurring
 > Time:  06  :  30
-
-"
+  Repeat: weekdays
+  Timezone: America/Los."
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-editor/volume' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Repeat: weekdays
+  Timezone: America/Los.
 PLAYBACK
 > Volume: 70%  [#######.
-
-"
+  Fade in: 30s (mpv onl.
+  Stop after: 60m"
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-editor/weekdays' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  @ Monday
   @ Tuesday
 > @ Wednesday
-
-"
+Select one or more days.
+ At least one day must
+remain checked."
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-picker' 1`] = `
 "Primary station -------
-Favorites, imports, rec.
-
 > KEXP 90.3 FM . Now pl.
   KCRW 89.9 FM - A deli.
+
+
 
 "
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-picker/fallback' 1`] = `
 "Fallback station ------
-Favorites, imports, rec.
-
 > None . No fallback
   KEXP 90.3 FM . Now pl.
+  KCRW 89.9 FM - A deli.
+
 
 "
 `;
 
 exports[`screen baseline / micro / ascii > 'alarm-ringing' 1`] = `
-"Alarm ringing ---------
-Wake radio . playing now
-      ALARM ACTIVE
-        11:59 AM
+" ALARM . 11:59 AM
 KEXP 90.3 FM . Morning .
-  SPACE  SNOOZE 10 MIN
+Enter keep playing
+Space snooze 10m
+
+
 "
 `;
 
@@ -11967,7 +11967,7 @@ exports[`screen baseline / micro / ascii > 'nearby' 1`] = `
 `;
 
 exports[`screen baseline / micro / ascii > 'now-playing' 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 . o @ o o o o o o @ o .
 . o @ o o @ @ o o o o o
@@ -11977,7 +11977,7 @@ exports[`screen baseline / micro / ascii > 'now-playing' 1`] = `
 `;
 
 exports[`screen baseline / micro / ascii > 'now-playing/diagnostics' 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 . o @ o o o o o o @ o .
 . o @ o o @ @ o o o o o
@@ -12138,81 +12138,81 @@ exports[`screen baseline / micro / ascii-no-color > 'airplay-settings' 1`] = `
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-editor' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
 BASICS
 > Label: Morning radio
-
-"
+  Enabled: Yes
+  Station: KEXP 90.3 FM
+  Schedule: Recurring
+  Time (24h): 06 : 30"
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-editor/save' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Request OS wake: Yes
+  Alarm Guard: On
+  Test-tune station now.
 REVIEW
 > Save alarm . next Mon.
-
-"
+  Cancel"
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-editor/time' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Enabled: Yes
+  Station: KEXP 90.3 FM
   Schedule: Recurring
 > Time:  06  :  30
-
-"
+  Repeat: weekdays
+  Timezone: America/Los."
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-editor/volume' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  Repeat: weekdays
+  Timezone: America/Los.
 PLAYBACK
 > Volume: 70%  [#######.
-
-"
+  Fade in: 30s (mpv onl.
+  Stop after: 60m"
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-editor/weekdays' 1`] = `
 "Edit alarm ------------
-Local-first . native OS.
-
+  @ Monday
   @ Tuesday
 > @ Wednesday
-
-"
+Select one or more days.
+ At least one day must
+remain checked."
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-picker' 1`] = `
 "Primary station -------
-Favorites, imports, rec.
-
 > KEXP 90.3 FM . Now pl.
   KCRW 89.9 FM - A deli.
+
+
 
 "
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-picker/fallback' 1`] = `
 "Fallback station ------
-Favorites, imports, rec.
-
 > None . No fallback
   KEXP 90.3 FM . Now pl.
+  KCRW 89.9 FM - A deli.
+
 
 "
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'alarm-ringing' 1`] = `
-"Alarm ringing ---------
-Wake radio . playing now
-      ALARM ACTIVE
-        11:59 AM
+" ALARM . 11:59 AM
 KEXP 90.3 FM . Morning .
-  SPACE  SNOOZE 10 MIN
+Enter keep playing
+Space snooze 10m
+
+
 "
 `;
 
@@ -12347,7 +12347,7 @@ exports[`screen baseline / micro / ascii-no-color > 'nearby' 1`] = `
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'now-playing' 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 . o @ o o o o o o @ o .
 . o @ o o @ @ o o o o o
@@ -12357,7 +12357,7 @@ exports[`screen baseline / micro / ascii-no-color > 'now-playing' 1`] = `
 `;
 
 exports[`screen baseline / micro / ascii-no-color > 'now-playing/diagnostics' 1`] = `
-"KEXP 90.3 FM . playing
+"KEXP 90.3 FM . Bjork - J
 
 . o @ o o o o o o @ o .
 . o @ o o @ @ o o o o o
@@ -12518,81 +12518,81 @@ exports[`screen baseline / micro / unicode > 'airplay-settings' 1`] = `
 
 exports[`screen baseline / micro / unicode > 'alarm-editor' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
 BASICS
 › Label: Morning radio
-
-"
+  Enabled: Yes
+  Station: KEXP 90.3 FM
+  Schedule: Recurring
+  Time (24h): 06 : 30"
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-editor/save' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Request OS wake: Yes
+  Alarm Guard: On
+  Test-tune station now…
 REVIEW
 › Save alarm · next Mon…
-
-"
+  Cancel"
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-editor/time' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Enabled: Yes
+  Station: KEXP 90.3 FM
   Schedule: Recurring
 › Time:  06  :  30
-
-"
+  Repeat: weekdays
+  Timezone: America/Los…"
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-editor/volume' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Repeat: weekdays
+  Timezone: America/Los…
 PLAYBACK
 › Volume: 70%  [███████…
-
-"
+  Fade in: 30s (mpv onl…
+  Stop after: 60m"
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-editor/weekdays' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  ● Monday
   ● Tuesday
 › ● Wednesday
-
-"
+Select one or more days.
+ At least one day must
+remain checked."
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-picker' 1`] = `
 "Primary station ───────
-Favorites, imports, rec…
-
 › KEXP 90.3 FM · Now pl…
   KCRW 89.9 FM — A deli…
+
+
 
 "
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-picker/fallback' 1`] = `
 "Fallback station ──────
-Favorites, imports, rec…
-
 › None · No fallback
   KEXP 90.3 FM · Now pl…
+  KCRW 89.9 FM — A deli…
+
 
 "
 `;
 
 exports[`screen baseline / micro / unicode > 'alarm-ringing' 1`] = `
-"Alarm ringing ─────────
-Wake radio · playing now
-      ALARM ACTIVE
-        11:59 AM
+" ALARM · 11:59 AM
 KEXP 90.3 FM · Morning …
-  SPACE  SNOOZE 10 MIN
+Enter keep playing
+Space snooze 10m
+
+
 "
 `;
 
@@ -12727,7 +12727,7 @@ exports[`screen baseline / micro / unicode > 'nearby' 1`] = `
 `;
 
 exports[`screen baseline / micro / unicode > 'now-playing' 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 · ∘ ● ◉ ◉ ◉ ◉ ◉ ◉ ● • ·
 · ∘ ● ◉ ◉ ● ● ◉ ◉ ◉ • ∘
@@ -12737,7 +12737,7 @@ exports[`screen baseline / micro / unicode > 'now-playing' 1`] = `
 `;
 
 exports[`screen baseline / micro / unicode > 'now-playing/diagnostics' 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 · ∘ ● ◉ ◉ ◉ ◉ ◉ ◉ ● • ·
 · ∘ ● ◉ ◉ ● ● ◉ ◉ ◉ • ∘
@@ -12898,81 +12898,81 @@ exports[`screen baseline / micro / unicode-no-color > 'airplay-settings' 1`] = `
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-editor' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
 BASICS
 › Label: Morning radio
-
-"
+  Enabled: Yes
+  Station: KEXP 90.3 FM
+  Schedule: Recurring
+  Time (24h): 06 : 30"
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-editor/save' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Request OS wake: Yes
+  Alarm Guard: On
+  Test-tune station now…
 REVIEW
 › Save alarm · next Mon…
-
-"
+  Cancel"
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-editor/time' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Enabled: Yes
+  Station: KEXP 90.3 FM
   Schedule: Recurring
 › Time:  06  :  30
-
-"
+  Repeat: weekdays
+  Timezone: America/Los…"
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-editor/volume' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  Repeat: weekdays
+  Timezone: America/Los…
 PLAYBACK
 › Volume: 70%  [███████…
-
-"
+  Fade in: 30s (mpv onl…
+  Stop after: 60m"
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-editor/weekdays' 1`] = `
 "Edit alarm ────────────
-Local-first · native OS…
-
+  ● Monday
   ● Tuesday
 › ● Wednesday
-
-"
+Select one or more days.
+ At least one day must
+remain checked."
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-picker' 1`] = `
 "Primary station ───────
-Favorites, imports, rec…
-
 › KEXP 90.3 FM · Now pl…
   KCRW 89.9 FM — A deli…
+
+
 
 "
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-picker/fallback' 1`] = `
 "Fallback station ──────
-Favorites, imports, rec…
-
 › None · No fallback
   KEXP 90.3 FM · Now pl…
+  KCRW 89.9 FM — A deli…
+
 
 "
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'alarm-ringing' 1`] = `
-"Alarm ringing ─────────
-Wake radio · playing now
-      ALARM ACTIVE
-        11:59 AM
+" ALARM · 11:59 AM
 KEXP 90.3 FM · Morning …
-  SPACE  SNOOZE 10 MIN
+Enter keep playing
+Space snooze 10m
+
+
 "
 `;
 
@@ -13107,7 +13107,7 @@ exports[`screen baseline / micro / unicode-no-color > 'nearby' 1`] = `
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'now-playing' 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 · ∘ ● ◉ ◉ ◉ ◉ ◉ ◉ ● • ·
 · ∘ ● ◉ ◉ ● ● ◉ ◉ ◉ • ∘
@@ -13117,7 +13117,7 @@ exports[`screen baseline / micro / unicode-no-color > 'now-playing' 1`] = `
 `;
 
 exports[`screen baseline / micro / unicode-no-color > 'now-playing/diagnostics' 1`] = `
-"KEXP 90.3 FM · playing
+"KEXP 90.3 FM · Bjork - J
 
 · ∘ ● ◉ ◉ ◉ ◉ ◉ ◉ ● • ·
 · ∘ ● ◉ ◉ ● ● ◉ ◉ ◉ • ∘

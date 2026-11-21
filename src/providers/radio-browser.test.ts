@@ -323,6 +323,26 @@ describe('RadioBrowserProvider', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('falls back to a second location service when the first is rate limited or unusable', async () => {
+    const answers: Record<string, () => Response> = {
+      'ipapi.co': () => jsonResponse({error: true, reason: 'RateLimited'}, {status: 429}),
+      'ipwho.is': () => jsonResponse({success: true, city: 'Lagos', region: 'Lagos', country: 'Nigeria', country_code: 'NG', latitude: 6.45, longitude: 3.39})
+    };
+    const fetch = mockFetch(url => answers[url.hostname]!());
+    const provider = new RadioBrowserProvider(['https://primary.example'], cacheForTest());
+    expect(await provider.detectLocation()).toEqual({city: 'Lagos', region: 'Lagos', country: 'Nigeria', countryCode: 'NG', latitude: 6.45, longitude: 3.39, source: 'ipwho.is'});
+    expect(fetch.mock.calls.map(([input]) => new URL(String(input)).hostname)).toEqual(['ipapi.co', 'ipwho.is']);
+
+    answers['ipapi.co'] = () => jsonResponse({city: 'Paris', country_name: 'France', country_code: 'FR', latitude: 48.85, longitude: 2.35});
+    fetch.mockClear();
+    expect(await provider.detectLocation()).toMatchObject({country: 'France', source: 'ipapi.co'});
+    expect(fetch).toHaveBeenCalledOnce();
+
+    answers['ipapi.co'] = () => {throw new Error('connection reset');};
+    answers['ipwho.is'] = () => jsonResponse({success: false, message: 'Reserved range'});
+    expect(await provider.detectLocation()).toBeNull();
+  });
+
   it('does not vote, locate, or resolve externally when offline and retains a supplied stream URL', async () => {
     vi.stubEnv('RADIOCLI_OFFLINE', '1');
     const fetch = mockFetch(() => {throw new Error('Network must not be attempted.');});

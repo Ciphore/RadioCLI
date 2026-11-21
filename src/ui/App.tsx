@@ -3,6 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {Box, Text, useApp, useIsScreenReaderEnabled, useStdin, useStdout, useWindowSize} from 'ink';
 import {ProviderManager} from '../providers/provider-manager.js';
 import {PlaybackOutputError, PlayerController, type PlaybackControlResult} from '../player/player-controller.js';
+import {startSleepTimer} from '../player/sleep-timer.js';
 import {airPlayLocalDeviceLabel, playbackBackendInstallHint, playbackBackendLabel} from '../player/backend-install.js';
 import {JsonLibraryStore, stationKey} from '../storage/store.js';
 import {LibraryRepository} from '../storage/repository.js';
@@ -28,7 +29,7 @@ import {audioOutputLabel, resolvedAudioOutput} from './audio-output.js';
 import {copyToClipboard, openExternal} from './system-actions.js';
 import {safeExternalHttpUrl, safeMediaTarget, sanitizeTerminalText} from '../safety.js';
 import {appVersion} from '../version.js';
-import {automaticUpdateChecksAllowed, checkForUpdate, installUpdate, shouldCheckForUpdate, updateAvailableForVersion, updateCommandForInstall} from '../update-check.js';
+import {automaticUpdateChecksAllowed, checkForUpdate, installUpdate, npxUpdateMessage, shouldCheckForUpdate, updateAvailableForVersion, updateCommandForInstall, updateMethodLabel} from '../update-check.js';
 import {airPlayPolicy, airPlaySetupRequiredMessage} from '../player/airplay-policy.js';
 import {helpItemCountForAirPlay} from './help-content.js';
 import {EXIT_CONFIRMATION_MS, ctrlCExitDecision} from './exit-confirmation.js';
@@ -53,6 +54,7 @@ import {
   mediaActionLabel,
   moveExploreCursor as shiftExploreCursor,
   nextSleepTimerMinutes,
+  isNewListener,
   stationApproximateTime,
   stationContextKeyForScreen,
   topTabs,
@@ -494,27 +496,21 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     setSelected(value => clamp(value, currentItemCount(screen) - 1));
   }, [availableAirPlayDevices.length, displayStations.length, filteredCountries.length, screen]);
 
+  const sleepStopRef = useRef(() => {});
+  sleepStopRef.current = () => {
+    cancelPendingTune();
+    void engine.stop({retainSelection: true}).catch(reportActionError);
+    setSleepUntil(null);
+  };
+
   useEffect(() => {
     if (playbackSession) return;
     if (!sleepUntil) {
       return;
     }
 
-    const delayMs = sleepUntil - Date.now();
-    if (delayMs <= 0) {
-      cancelPendingTune();
-      void engine.stop({retainSelection: true}).catch(reportActionError);
-      setSleepUntil(null);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      cancelPendingTune();
-      void engine.stop({retainSelection: true}).catch(reportActionError);
-      setSleepUntil(null);
-    }, delayMs);
-    return () => clearTimeout(timer);
-  }, [cancelPendingTune, engine, reportActionError, sleepUntil, playbackSession, setSleepUntil]);
+    return startSleepTimer(sleepUntil, player, () => sleepStopRef.current());
+  }, [player, sleepUntil, playbackSession]);
 
   useEffect(() => {
     const backends = player.refreshDetectedBackends();
@@ -1433,9 +1429,24 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     void player.toggleMute().then(showControlResult).catch(reportActionError);
   }, [player, reportActionError, showControlResult]);
 
+  const startingFirstStationRef = useRef(false);
   const togglePause = useCallback(() => {
+    if (!['playing', 'paused', 'loading'].includes(player.getState().state) && isNewListener(store.getSnapshot())) {
+      if (startingFirstStationRef.current) return;
+      startingFirstStationRef.current = true;
+      setMessage('Finding a popular station...');
+      void providers.popular(20).then(async stations => {
+        const station = stations[0];
+        if (!station) {
+          setMessage('No popular stations are available right now. Open Search to find one.');
+          return;
+        }
+        await playStation(station, {openNowPlaying: screenRef.current === 'home', queue: {title: 'Popular stations', sourceScreen: 'home', sourceContextKey: null, stations}});
+      }).catch(reportActionError).finally(() => { startingFirstStationRef.current = false; });
+      return;
+    }
     void player.togglePause().then(showControlResult).catch(reportActionError);
-  }, [player, reportActionError, showControlResult]);
+  }, [player, playStation, providers, reportActionError, showControlResult, store]);
 
   const cycleDisplayColor = useCallback(() => {
     void updateSettings(current => ({theme: nextTheme(current.theme)}))
@@ -1777,8 +1788,7 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const copied = await copyToClipboard(command.command);
     const latestVersion = store.snapshot().updateCheck?.latestVersion ?? updateCheck?.latestVersion;
     const prefix = latestVersion ? `Latest v${latestVersion}. ` : '';
-    const method = command.method === 'homebrew' ? 'Homebrew' : command.method === 'npm' ? 'npm' : 'your install method';
-    setMessage(`${prefix}${copied ? 'Copied' : 'Run'} ${method} update: ${command.command}`);
+    setMessage(`${prefix}${copied ? 'Copied' : 'Run'} ${updateMethodLabel(command.method)} update: ${command.command}`);
   }, [library.updateCheck, refreshUpdateCheck, store]);
 
   const updateFromSettings = useCallback(async () => {
@@ -1806,8 +1816,12 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     }
 
     const command = updateCommandForInstall();
+    if (command.method === 'npx') {
+      setMessage(npxUpdateMessage);
+      return;
+    }
     installingUpdateRef.current = true;
-    setMessage(`Installing update with ${command.method === 'homebrew' ? 'Homebrew' : 'npm'}...`);
+    setMessage(`Installing update with ${updateMethodLabel(command.method)}...`);
     const result = await installUpdate(command.command);
     installingUpdateRef.current = false;
     if (result.ok) {

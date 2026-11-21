@@ -126,9 +126,17 @@ Choose components (installed items will be skipped):
   mpv      Full playback controls (Y/n)
   FFmpeg   AirPlay + ffplay fallback (Y/n)
   VLC      Additional playback fallback (y/N)
-  Agent control via MCP (detected coding agents) (Y/n)
+  Agent control via MCP (adds RadioCLI to detected Codex, Claude Code, Cursor, Gemini CLI, OpenCode, and Copilot configs) (y/N)
   Open the RadioCLI TUI for agent playback (macOS will ask the agent app to control Terminal on first use) (Y/n)
 ```
+
+Agent control is off unless you answer yes or pass `--mcp`, because enabling it
+edits the configuration of other applications. That choice and the final
+playback check are applied even when a package step is declined, fails, or has
+no package manager to run; setup then exits with the package error. A failed
+package does not stop the remaining ones. On apt systems setup refreshes the
+package index first, and on macOS it uses MacPorts (`sudo port -N install mpv`)
+when Homebrew is absent.
 
 For automation or to inspect the plan first:
 

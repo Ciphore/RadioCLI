@@ -232,3 +232,19 @@ describe('app state helpers', () => {
     expect(shouldResetReceiverPulse(null, {...activeLiftoff, receiverStyle: 'fire'})).toBe(false);
   });
 });
+
+describe('first listen hint', () => {
+  it('applies only to a library with nothing played, saved, or imported', async () => {
+    const {isNewListener, newListenerHint} = await import('./app-state.js');
+    const station = {id: 'one', provider: 'radio-browser' as const, name: 'One', tags: []};
+    expect(isNewListener({recent: [], favorites: [], imported: []})).toBe(true);
+    expect(isNewListener({recent: [{station, playedAt: '2026-11-20T00:00:00.000Z'}], favorites: [], imported: []})).toBe(false);
+    expect(isNewListener({recent: [], favorites: [station], imported: []})).toBe(false);
+    expect(isNewListener({recent: [], favorites: [], imported: [station]})).toBe(false);
+    expect(newListenerHint(66)).toBe('New here? Press space to hear a popular station.');
+    expect(newListenerHint(34)).toBe('New here? Press space to listen.');
+    expect(newListenerHint(20)).toBe('Space to listen');
+    expect(newListenerHint(10)).toBe('');
+    for (const width of [66, 34, 20, 10]) expect(newListenerHint(width)).toMatch(/^[\x20-\x7e]*$/);
+  });
+});

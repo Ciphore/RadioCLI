@@ -2,6 +2,50 @@
 
 All notable changes to RadioCLI are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
+  and prints where to get a player when no package manager is available.
+- Nearby falls back to a second location service when the first is rate limited
+  or unreachable.
+- RadioCLI explains its Node.js 22 requirement when started on an older runtime.
+- `radiocli update` recognizes Yarn global and npx installations.
+- The sleep timer fades playback out over its final 30 seconds on mpv.
+- On a new library, Overview offers a popular station on `space`, so the first
+  launch can go straight to sound.
+
+### Changed
+
+- Setup asks before enabling agent control and no longer selects it by default,
+  because enabling it edits other applications' configuration.
+- Setup applies the agent-control choice and runs its playback check even when a
+  package step is declined, fails, or cannot run, and continues past a failed
+  package instead of stopping at the first one.
+- Setup refreshes the apt package index before installing, shows the `doas`
+  password prompt on its own line, and reports a package manager that stops to
+  ask a question instead of waiting on it.
+- Compact and micro Playing show the current track and volume at every size.
+  The alarm editor, station picker, and ringing controls use the full height of
+  short windows.
+- The `g` and `x` shortcuts for Radio Garden and skipping broken streams apply
+  only in Settings, as documented.
+- The Linux virtual console uses ASCII decoration by default.
+- `radiocli play <name>` in scripts and with `--no-input` now plays the top
+  match when several stations match, instead of failing with their IDs. The
+  other matches are queued for `next`. `favorite` and `preset save` still
+  require an exact station.
+- Linux installs skip the optional native AirPlay build when no compiler is
+  present or npm is offline. `RADIOCLI_SKIP_NATIVE_BUILD=1` skips it explicitly.
+
+### Fixed
+
+- Capital `A` and `!` can be typed in the country filter and the AirPlay code
+  field instead of opening alarm controls.
+- A Scoop extras bucket that was already added no longer aborts setup.
+- An alarm editor without a draft returns to the alarm list.
+
 ## [0.2.6] - 2026-10-28
 
 ### Added

@@ -33,6 +33,12 @@ describe('terminal capabilities', () => {
     expect(resolveTerminalCapabilities({SSH_TTY: '/dev/pts/2', SSH_CONNECTION: 'host 1 host 2', LANG: 'C.UTF-8'}).unicode).toBe(true);
   });
 
+  it('uses ASCII on the Linux virtual console, whose fonts carry no Braille glyphs, unless Unicode is requested', () => {
+    expect(resolveTerminalCapabilities({TERM: 'linux', LANG: 'en_US.UTF-8'}).unicode).toBe(false);
+    expect(resolveTerminalCapabilities({TERM: 'linux', RADIOCLI_UNICODE: '1'}).unicode).toBe(true);
+    expect(resolveTerminalCapabilities({TERM: 'xterm-256color', LANG: 'en_US.UTF-8'}).unicode).toBe(true);
+  });
+
   it('does not treat malformed glyph overrides as enabling a mode', () => {
     expect(resolveTerminalCapabilities({RADIOCLI_ASCII: 'maybe', RADIOCLI_UNICODE: 'later'}, {asciiMode: true}).unicode).toBe(false);
   });

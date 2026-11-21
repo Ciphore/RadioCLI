@@ -1075,7 +1075,7 @@ class LibraryStorageError extends Error {
     const code = (cause as NodeJS.ErrnoException | undefined)?.code;
     const detail = typeof code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(code) ? ` (${code})` : '';
     super(code === 'EBUSY'
-      ? 'The RadioCLI library is busy. Retry after the other writer finishes, or set RADIOCLI_HOME to a private writable directory.'
+      ? 'The RadioCLI library is busy. Retry after the other writer finishes, or set RADIOCLI_HOME to a private writable directory. If no RadioCLI process is running, a crash left its lock behind: run radiocli check for the library location and remove the .lock folder beside it.'
       : `Unable to ${operation}${detail}. Check storage permissions or set RADIOCLI_HOME to a private writable directory.`, {cause});
     this.name = 'LibraryStorageError';
     this.code = code;
