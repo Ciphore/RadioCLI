@@ -1012,7 +1012,7 @@ describe('JsonLibraryStore', () => {
       store.updateSettings({receiverStyle});
       expect(new JsonLibraryStore(file).snapshot().settings.receiverStyle).toBe(receiverStyle);
     }
-  });
+  }, 20_000);
 
   // This matrix performs durable filesystem commits for every receiver.
   it('preserves every supported receiver and favorites through background writes', () => {
@@ -1025,7 +1025,7 @@ describe('JsonLibraryStore', () => {
     for (const receiverStyle of receiverStyleNames) {
       store.updateSettings({receiverStyle});
       const legacy = JSON.parse(readFileSync(file, 'utf8'));
-      expect(legacy.settings.receiverStyle).toBe(receiverStyle === 'boat-lake' ? 'ultracode' : receiverStyle);
+      expect(legacy.settings.receiverStyle).toBe(receiverStyleNames.indexOf(receiverStyle) < receiverStyleNames.indexOf('boat-lake') || receiverStyle === 'crossfade' ? receiverStyle : 'ultracode');
       expect(existsSync(`${file}.receiver.json`)).toBe(false);
       // Old stores rewrite only the fields they know, leaving the sidecar alone.
       legacy.settings.volume = 39;

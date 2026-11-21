@@ -162,9 +162,9 @@ async function tuneLibrary(app: ReturnType<typeof render>): Promise<void> {
 }
 
 describe('Receiver style cycling', () => {
-  it('wraps directly from Crossfade to Ultracode', async () => {
+  it('wraps directly from the last receiver to Ultracode', async () => {
     const {store, service} = fixture();
-    store.updateSettings({receiverStyle: 'crossfade'});
+    store.updateSettings({receiverStyle: 'zellige'});
     simulatedPlayer();
     const app = render(<App store={store} alarmService={service} />);
     await settle();

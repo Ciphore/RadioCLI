@@ -245,8 +245,18 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(64);
-    expect(receiverStyleNames.slice(-3)).toEqual(['alpine', 'boat-lake', 'crossfade']);
+    expect(receiverStyleNames).toHaveLength(112);
+    expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
+    expect(receiverStyleNames.slice(64)).toEqual([
+      'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
+      'musical-colors', 'milkdrop', 'laser-show', 'disco', 'ridgeline', 'afterglow',
+      'pipes', 'mystify', 'split-flap', 'sine-scroller', 'bounce', 'gem',
+      'piano-roll', 'quilt', 'gyroscope', 'wind-map', 'aquarium', 'spin-text',
+      'defrag', 'solitaire', 'maze-3d', 'tracker', 'teletext', 'vhs',
+      'slime-mold', 'sand', 'galton-board', 'sheet-music', 'string-art', 'shortwave',
+      'mondrian', 'starry-night', 'seurat', 'rothko', 'pollock', 'kandinsky',
+      'lichtenstein', 'haring', 'klimt', 'schotter', 'vasarely', 'zellige'
+    ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
     expect(receiverStyleNames.indexOf('braille-wave')).toBe(receiverStyleNames.indexOf('ribbon') + 1);

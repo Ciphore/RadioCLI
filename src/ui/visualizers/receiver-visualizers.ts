@@ -3,6 +3,10 @@ import {themeAccent, themeContributionColors} from '../theme.js';
 import {buildBoatLake} from './boat-lake.js';
 import {buildSumiOcean} from './sumi-ocean.js';
 import {retroReceiverBuilders} from './retro-receivers.js';
+import {mediaPlayerReceiverBuilders} from './media-player-receivers.js';
+import {screensaverReceiverBuilders} from './screensaver-receivers.js';
+import {nostalgiaReceiverBuilders} from './nostalgia-receivers.js';
+import {galleryReceiverBuilders} from './gallery-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
 type VisualLine = {
@@ -34,6 +38,10 @@ type VisualizerBuilder = (
 
 const receiverStyleBuilders = {
   ...retroReceiverBuilders,
+  ...mediaPlayerReceiverBuilders,
+  ...screensaverReceiverBuilders,
+  ...nostalgiaReceiverBuilders,
+  ...galleryReceiverBuilders,
   'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
@@ -145,6 +153,10 @@ function buildMicroVisualizer(
 // supersampled fit path below.
 const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(retroReceiverBuilders) as (keyof typeof retroReceiverBuilders)[],
+  ...Object.keys(mediaPlayerReceiverBuilders) as (keyof typeof mediaPlayerReceiverBuilders)[],
+  ...Object.keys(screensaverReceiverBuilders) as (keyof typeof screensaverReceiverBuilders)[],
+  ...Object.keys(nostalgiaReceiverBuilders) as (keyof typeof nostalgiaReceiverBuilders)[],
+  ...Object.keys(galleryReceiverBuilders) as (keyof typeof galleryReceiverBuilders)[],
   'pulse-grid',
   'hex-pulse',
   'galaxy',

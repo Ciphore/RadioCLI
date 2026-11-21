@@ -6,6 +6,20 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Added
 
+- Added twelve receivers in the spirit of classic desktop media player
+  visualizations: Ambience, Alchemy, Ocean Mist, Battery, Plenoptic, Spikes,
+  Musical Colors, Milkdrop, Laser Show, Disco, Ridgeline, and Afterglow.
+- Added twelve screensaver-era receivers, each drawn a different way: Pipes,
+  Mystify, Split Flap, Sine Scroller, Bounce, Gem, Piano Roll, Quilt,
+  Gyroscope, Wind Map, Aquarium, and Spin Text.
+- Added twelve receivers from the family computer and the things beside it:
+  Defrag, Solitaire, Maze 3D, Tracker, Teletext, VHS, Slime Mold, Sand, Galton
+  Board, Sheet Music, String Art, and Shortwave. Slime Mold and Sand are real
+  simulations.
+- Added a gallery of twelve receivers after painters and movements: Mondrian,
+  Starry Night, Seurat, Rothko, Pollock, Kandinsky, Lichtenstein, Haring,
+  Klimt, Schotter, Vasarely, and Zellige. The collection now has 112 animated
+  styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
