@@ -128,9 +128,9 @@ export async function runUpgradeSmoke(tarball, {baseline, source = null, evidenc
     assert.equal(rendered.defaultStyle, 'ultracode');
     assert.equal(registry[0], 'ultracode');
     assert.equal(registry[8], 'gallop-fine');
-    assert.equal(registry.length, 136);
+    assert.equal(registry.length, 148);
     assert.deepEqual(registry.slice(61, 64), ['alpine', 'boat-lake', 'crossfade']);
-    assert.deepEqual(registry.slice(-3), ['fair-isle', 'infinity-mirror', 'ferris-wheel']);
+    assert.deepEqual(registry.slice(-3), ['eid-night', 'menorah', 'holi']);
     assert.equal(rendered.hashes.length, registry.length);
     for (const receiverStyle of registry) {
       await candidate.call('updateSettings', {receiverStyle});

@@ -136,6 +136,18 @@ export const receiverStyleRegistry = [
   {id: 'fair-isle', maxRows: 14, minRows: 7},
   {id: 'infinity-mirror', maxRows: 14, minRows: 7},
   {id: 'ferris-wheel', maxRows: 14, minRows: 7},
+  {id: 'merry-christmas', maxRows: 14, minRows: 7},
+  {id: 'santa-sleigh', maxRows: 14, minRows: 7},
+  {id: 'christmas-tree', maxRows: 14, minRows: 7},
+  {id: 'fireside', maxRows: 14, minRows: 7},
+  {id: 'winter-village', maxRows: 14, minRows: 7},
+  {id: 'sleigh-bells', maxRows: 14, minRows: 7},
+  {id: 'new-year', maxRows: 14, minRows: 7},
+  {id: 'diwali', maxRows: 14, minRows: 7},
+  {id: 'lunar-new-year', maxRows: 14, minRows: 7},
+  {id: 'eid-night', maxRows: 14, minRows: 7},
+  {id: 'menorah', maxRows: 14, minRows: 7},
+  {id: 'holi', maxRows: 14, minRows: 7},
 ] as const;
 
 export type ReceiverStyleId = (typeof receiverStyleRegistry)[number]['id'];

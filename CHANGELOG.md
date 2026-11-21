@@ -24,8 +24,11 @@ All notable changes to RadioCLI are documented in this file.
   Newton's Cradle, Abacus, and Dominoes.
 - Added a cabinet of twelve curiosities: Rubens Tube, Sound Field, Epicycles,
   Snowflake, Moon Phases, Circle Packing, Flower of Life, Knotwork, Tartan,
-  Fair Isle, Infinity Mirror, and Ferris Wheel. The collection now has 136
-  animated styles.
+  Fair Isle, Infinity Mirror, and Ferris Wheel.
+- Added twelve festive receivers: Merry Christmas, Santa Sleigh, Christmas
+  Tree, Fireside, Winter Village, Sleigh Bells, New Year, Diwali, Lunar New
+  Year, Eid Night, Menorah, and Holi. These keep their own seasonal colours.
+  The collection now has 148 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited

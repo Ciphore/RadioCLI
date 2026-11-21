@@ -9,6 +9,7 @@ import {nostalgiaReceiverBuilders} from './nostalgia-receivers.js';
 import {galleryReceiverBuilders} from './gallery-receivers.js';
 import {playroomReceiverBuilders} from './playroom-receivers.js';
 import {cabinetReceiverBuilders} from './cabinet-receivers.js';
+import {festiveReceiverBuilders} from './festive-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
 
 type VisualLine = {
@@ -46,6 +47,7 @@ const receiverStyleBuilders = {
   ...galleryReceiverBuilders,
   ...playroomReceiverBuilders,
   ...cabinetReceiverBuilders,
+  ...festiveReceiverBuilders,
   'boat-lake': buildBoatLake,
   ultracode: buildUltracode,
   'motion-contour': buildMotionContour,
@@ -163,6 +165,7 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(galleryReceiverBuilders) as (keyof typeof galleryReceiverBuilders)[],
   ...Object.keys(playroomReceiverBuilders) as (keyof typeof playroomReceiverBuilders)[],
   ...Object.keys(cabinetReceiverBuilders) as (keyof typeof cabinetReceiverBuilders)[],
+  ...Object.keys(festiveReceiverBuilders) as (keyof typeof festiveReceiverBuilders)[],
   'pulse-grid',
   'hex-pulse',
   'galaxy',
