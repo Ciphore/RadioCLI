@@ -4,22 +4,22 @@ import {disc, lettering, season, snowfall, starlight, tree, wash} from './festiv
 // More places and patterns in the manner of the skyline, bridge and Christmas scenes: fixed palettes, greys on mono.
 type Tone = (hex: string) => string;
 type Scene = (p: Pixels, t: number, c: Tone, accent: string) => void;
-const scene = (f: Scene): Builder => (pulse, width, height, theme) => { const g = grid(width, height, theme), p = pixels(g); f(p, seconds(pulse), season(theme), g.paint.accent); p.flush(); return g.finish(); };
-const ramp = (stops: string[], at: number): string => { const s = clamp(at) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(s)); return mix(stops[i]!, stops[i + 1]!, s - i); };
+export const scene = (f: Scene): Builder => (pulse, width, height, theme) => { const g = grid(width, height, theme), p = pixels(g); f(p, seconds(pulse), season(theme), g.paint.accent); p.flush(); return g.finish(); };
+export const ramp = (stops: string[], at: number): string => { const s = clamp(at) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(s)); return mix(stops[i]!, stops[i + 1]!, s - i); };
 /** A run of towers along a baseline; the painter gets the tower number, column, row, roof row and width. */
-const towers = (p: Pixels, base: number, seed: number, low: number, high: number, paint: (n: number, dx: number, y: number, top: number, w: number) => string | undefined, shift = 0): void => {
+export const towers = (p: Pixels, base: number, seed: number, low: number, high: number, paint: (n: number, dx: number, y: number, top: number, w: number) => string | undefined, shift = 0): void => {
   for (let x = -shift % 40 - 40, n = Math.floor(shift / 40) * 7; x < p.pw; n++) {
     const w = 4 + Math.floor(hash(seed + n, 1) * 7), top = base - Math.round(p.ph * (low + (high - low) * hash(seed + n, 2) ** 1.5));
     for (let dx = 0; dx < w; dx++) for (let y = Math.max(0, top); y < base; y++) { const tone = paint(n, dx, y, top, w); if (tone && x + dx >= 0) p.px(x + dx, y, tone); }
     x += w + (hash(seed + n, 3) > 0.6 ? 1 : 0);
   }
 };
-const lit = (n: number, dx: number, y: number, base: number, share: number): boolean => dx % 2 === 1 && (base - y) % 2 === 0 && hash(n * 13 + dx, y) < share;
+export const lit = (n: number, dx: number, y: number, base: number, share: number): boolean => dx % 2 === 1 && (base - y) % 2 === 0 && hash(n * 13 + dx, y) < share;
 /** Water below a waterline: whatever is above, repeated upside down, stretched and broken by ripples. */
-const mirror = (p: Pixels, line: number, t: number, water: string, strength = 0.5): void => {
+export const mirror = (p: Pixels, line: number, t: number, water: string, strength = 0.5): void => {
   for (let y = line; y < p.ph; y++) for (let x = 0; x < p.pw; x++) { const src = p.at(x + Math.round(Math.sin(y * 2.1 + t * 2.4 + x * 0.3) * (0.6 + (y - line) * 0.15)), line - 1 - (y - line) * 2); p.px(x, y, mix(water, src ?? water, (noise(x * 0.4 + t, y * 1.8, 6) > 0.5 ? strength : strength * 0.45) * (1 - (y - line) / (p.ph - line) * 0.5))); }
 };
-const rain = (p: Pixels, t: number, tone: string): void => { for (let d = 0; d < p.pw * p.ph / 12; d++) { const fall = fract(hash(d, 6) + t * (1.2 + 0.6 * hash(d, 7))), x = Math.floor(hash(d, 8) * (p.pw + 10) - fall * 6), y = Math.floor(fall * p.ph), u = p.at(x, y); if (u) p.px(x, y, mix(u, tone, 0.4)); } };
+export const rain = (p: Pixels, t: number, tone: string): void => { for (let d = 0; d < p.pw * p.ph / 12; d++) { const fall = fract(hash(d, 6) + t * (1.2 + 0.6 * hash(d, 7))), x = Math.floor(hash(d, 8) * (p.pw + 10) - fall * 6), y = Math.floor(fall * p.ph), u = p.at(x, y); if (u) p.px(x, y, mix(u, tone, 0.4)); } };
 
 // Tokyo in the rain: stacked signs in every colour, a train crossing on its viaduct, and the whole street doubled in the wet.
 const tokyoRain = scene((p, t, c, accent) => {

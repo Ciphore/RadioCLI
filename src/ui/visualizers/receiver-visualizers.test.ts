@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(376);
+    expect(receiverStyleNames).toHaveLength(400);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -299,7 +299,11 @@ describe('receiver visualizers', () => {
       'julia-ii', 'neural-net-ii', 'fireworks-ii', 'fire-ii', 'stormfront-ii', 'planetarium-ii',
       'sumi-ocean-ii', 'liftoff-ii', 'flyover-ii', 'alpine-ii', 'boat-lake-ii', 'crossfade-ii',
       'tokyo-rain', 'paris-dawn', 'london-night', 'brooklyn-sunset', 'miami-synth', 'chicago-snow',
-      'sydney-harbor', 'candy-lane', 'argyle', 'pop-panels', 'quilt-stars', 'bounce-party'
+      'sydney-harbor', 'candy-lane', 'argyle', 'pop-panels', 'quilt-stars', 'bounce-party',
+      'hong-kong-harbor', 'venice-dusk', 'times-square', 'seattle-drizzle', 'dubai-dusk', 'rio-sunset',
+      'amsterdam-canal', 'shanghai-neon', 'cairo-dusk', 'santorini', 'moscow-snow', 'vegas-strip',
+      'istanbul-dusk', 'havana-sunset', 'kyoto-lanterns', 'aurora-cabin', 'storm-lighthouse', 'houndstooth',
+      'kilim', 'pop-city', 'log-cabin-quilt', 'drive-in', 'pier-lights', 'harbor-cranes'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);

@@ -164,7 +164,7 @@ async function tuneLibrary(app: ReturnType<typeof render>): Promise<void> {
 describe('Receiver style cycling', () => {
   it('wraps directly from the last receiver to Ultracode', async () => {
     const {store, service} = fixture();
-    store.updateSettings({receiverStyle: 'bounce-party'});
+    store.updateSettings({receiverStyle: 'harbor-cranes'});
     simulatedPlayer();
     const app = render(<App store={store} alarmService={service} />);
     await settle();
