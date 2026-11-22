@@ -245,7 +245,7 @@ describe('receiver visualizers', () => {
     ]);
     expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
     expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(400);
+    expect(receiverStyleNames).toHaveLength(424);
     expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
     expect(receiverStyleNames.slice(64)).toEqual([
       'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
@@ -303,7 +303,11 @@ describe('receiver visualizers', () => {
       'hong-kong-harbor', 'venice-dusk', 'times-square', 'seattle-drizzle', 'dubai-dusk', 'rio-sunset',
       'amsterdam-canal', 'shanghai-neon', 'cairo-dusk', 'santorini', 'moscow-snow', 'vegas-strip',
       'istanbul-dusk', 'havana-sunset', 'kyoto-lanterns', 'aurora-cabin', 'storm-lighthouse', 'houndstooth',
-      'kilim', 'pop-city', 'log-cabin-quilt', 'drive-in', 'pier-lights', 'harbor-cranes'
+      'kilim', 'pop-city', 'log-cabin-quilt', 'drive-in', 'pier-lights', 'harbor-cranes',
+      'ripple-code', 'dot-lattice', 'hive-pulse', 'moire-lines', 'spiral-arms', 'eye-wall',
+      'star-nursery', 'wax-flow', 'contour-stack', 'twin-ribbons', 'wave-braid', 'silk-fold',
+      'lissajous-tube', 'harmonograph-ink', 'spiro-rose', 'phase-scope', 'radial-spectrum', 'spectrum-fall',
+      'pool-light', 'led-field', 'wave-interference', 'orbit-rings', 'weave-lines', 'sound-bloom'
     ]);
     expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
     expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);

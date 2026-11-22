@@ -13,10 +13,11 @@ import {boldReceiverBuilders} from './bold-receivers.js';
 import {encoreReceiverBuilders} from './encore-receivers.js';
 import {cityscapeReceiverBuilders} from './cityscape-receivers.js';
 import {worldtourReceiverBuilders} from './worldtour-receivers.js';
+import {finespunReceiverBuilders} from './finespun-receivers.js';
 import {wonderReceiverBuilders} from './wonder-receivers.js';
 import {receiverStyleNames} from './receiver-style-registry.js';
 
-const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders, muse: museReceiverBuilders, bold: boldReceiverBuilders, encore: encoreReceiverBuilders, cityscape: cityscapeReceiverBuilders, worldtour: worldtourReceiverBuilders, wonder: wonderReceiverBuilders};
+const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders, muse: museReceiverBuilders, bold: boldReceiverBuilders, encore: encoreReceiverBuilders, cityscape: cityscapeReceiverBuilders, worldtour: worldtourReceiverBuilders, finespun: finespunReceiverBuilders, wonder: wonderReceiverBuilders};
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
 const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | 'ruby' = 'violet') => buildVisualizer(style, pulse, 80, 14, null, playback, theme);
 const text = (style: ReceiverStyle, pulse = 60): string => frame(style, pulse).map(row => row.text).join('\n');

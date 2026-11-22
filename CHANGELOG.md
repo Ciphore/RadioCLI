@@ -6,6 +6,9 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Added
 
+- Added twenty-four finespun receivers: medium-weight braille drawings in the
+  spirit of the first styles, from Ripple Code and Dot Lattice to Weave Lines
+  and Sound Bloom.
 - Added twenty-four world-tour receivers, from Hong Kong Harbor, Venice Dusk
   and Times Square to Drive-In, Pier Lights and Harbor Cranes.
 - Added twelve cityscape and pattern receivers: Tokyo Rain, Paris Dawn, London
@@ -72,7 +75,7 @@ All notable changes to RadioCLI are documented in this file.
   Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,
   Music Box, Fresnel Lens, Tide Clock, Bonfire, Soda Fizz, Marching Band,
   Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call). The
-  collection now has 400 animated styles.
+  collection now has 424 animated styles.
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
