@@ -34,6 +34,7 @@ export function baseOptions(): BaseLayoutProps {
       title: <Brand />,
     },
     links: [
+      { text: 'Site styles', url: '/previews/index.html', active: 'none' },
       { text: 'Receivers', url: '/receivers', active: 'url' },
       {
         text: 'Docs',

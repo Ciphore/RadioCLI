@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RadioCLI — Internet radio player for your terminal (TUI + CLI)</title>
+<meta name="description" content="Open-source internet radio player for the terminal. Explore a world map of stations, search by genre or country, save favorites, track listening stats, set alarms, and control playback from your shell or AI assistant. No account. macOS, Linux, Windows.">
+<meta name="keywords" content="terminal radio player, internet radio CLI, TUI radio, command line radio, mpv radio, radio browser, MCP radio">
+<meta name="robots" content="noindex"><!-- prototype only; the real page keeps index,follow + canonical -->
+<meta property="og:type" content="website"><meta property="og:site_name" content="RadioCLI">
+<meta property="og:title" content="RadioCLI — Internet radio player for your terminal (TUI + CLI)"><meta property="og:description" content="Open-source internet radio player for the terminal. Explore a world map of stations, search by genre or country, save favorites, track listening stats, set alarms, and control playback from your shell or AI assistant. No account. macOS, Linux, Windows.">
+<meta property="og:image" content="/demo/radiocli-fullscreen.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": ["SoftwareApplication", "SoftwareSourceCode"], "name": "RadioCLI", "description": "Open-source internet radio player for the terminal. Explore a world map of stations, search by genre or country, save favorites, track listening stats, set alarms, and control playback from your shell or AI assistant. No account. macOS, Linux, Windows.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Internet radio player", "operatingSystem": ["macOS", "Linux", "Windows"], "softwareVersion": "0.2.6", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "isAccessibleForFree": true, "codeRepository": "https://github.com/Ciphore/RadioCLI", "downloadUrl": "https://www.npmjs.com/package/@ciphore/radiocli", "featureList": ["Interactive world map station discovery", "Search by name, genre, country, language, codec, bitrate", "424 receiver visualizer styles and 48 color themes", "Listening stats with 52-week activity graph", "Radio alarms and sleep timer", "MCP server for AI assistants", "Scriptable CLI with JSON output", "M3U, PLS, XSPF import", "AirPlay output (experimental)"]}, {"@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What is RadioCLI?", "acceptedAnswer": {"@type": "Answer", "text": "RadioCLI is a free, open-source internet radio player that runs in your terminal. It has a full-screen terminal interface (TUI) for browsing and listening, and a scriptable command line for starting, pausing, and switching stations from your shell."}}, {"@type": "Question", "name": "How do I install RadioCLI?", "acceptedAnswer": {"@type": "Answer", "text": "With Node.js 22 or newer: npm install -g @ciphore/radiocli, then radiocli setup. On macOS, brew install ciphore/tap/radiocli also installs Node.js, mpv, and FFmpeg. To try it without installing, run npx @ciphore/radiocli."}}, {"@type": "Question", "name": "Do I need an account or subscription?", "acceptedAnswer": {"@type": "Answer", "text": "No. There is no account, no sign-in, and no cloud library. Favorites, recent stations, settings, track history, and listening stats are stored on your machine, with JSON backup and restore."}}, {"@type": "Question", "name": "Which operating systems are supported?", "acceptedAnswer": {"@type": "Answer", "text": "macOS (Apple silicon and Intel), Ubuntu Linux (x64 and arm64), and Windows (x64 and arm64) are tested in CI on Node.js 22 and 24. FreeBSD, OpenBSD, and NetBSD are supported for the core package route. Other platforms such as Alpine, WSL, and Termux are experimental."}}, {"@type": "Question", "name": "What do I need for audio playback?", "acceptedAnswer": {"@type": "Answer", "text": "RadioCLI plays streams through mpv, which provides pause, volume, mute, media keys, and live track metadata. ffplay and VLC work as playback-only fallbacks. radiocli setup shows a plan and helps install the tools for your system; radiocli doctor checks what is available."}}, {"@type": "Question", "name": "Where do the stations come from?", "acceptedAnswer": {"@type": "Answer", "text": "Station discovery uses the public Radio Browser directory, with cached results that stay available during provider outages. You can also add any direct HTTP(S) stream URL and import M3U, PLS, or XSPF playlists."}}, {"@type": "Question", "name": "Can an AI assistant control RadioCLI?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, if you opt in. radiocli setup --mcp registers a local Model Context Protocol (MCP) server with typed tools for discovery, playback, favorites, stats, alarms, AirPlay, and appearance. It runs over stdio on your machine, and agents can only play stations from your library or from RadioCLI's own search results."}}, {"@type": "Question", "name": "Can RadioCLI wake me up with a radio station?", "acceptedAnswer": {"@type": "Answer", "text": "Alarms are in beta. You can schedule one-time or recurring alarms with timezones, fade-in, fallback stations, snooze, and auto-stop. They register with launchd, Task Scheduler, or a systemd user timer, so the terminal does not need to stay open. Use a second device for anything critical."}}, {"@type": "Question", "name": "What does RadioCLI send over the network?", "acceptedAnswer": {"@type": "Answer", "text": "It resolves public stream URLs and hands playback to your local player; it does not proxy audio. Nearby uses an approximate IP-based location lookup only when you open that screen, and you can turn it off in Settings. Explore uses only the map cursor you move."}}, {"@type": "Question", "name": "Is RadioCLI free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. RadioCLI is MIT licensed and the source is on GitHub at Ciphore/RadioCLI."}}]}]}</script>
+<style>@font-face{font-family:VT323;src:url(/previews/VT323-Regular.ttf);font-display:swap}</style>
+<style>
+:root{--paper:#f3efe3;--k:#121212;--pink:#ff3d8b;--yel:#ffe500;--blue:#2b46ff;
+  --disp:Impact,Haettenschweiler,"Arial Narrow Bold","Franklin Gothic Bold","Arial Black",sans-serif;--body:"Helvetica Neue",Helvetica,Arial,sans-serif;--mono:"SF Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .13 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:1rem}
+body{margin:0;background:var(--paper) var(--grain);color:var(--k);font:500 17px/1.5 var(--body);overflow-x:hidden}
+a{color:inherit;text-decoration-thickness:.14em;text-underline-offset:.15em}a:hover{background:var(--yel)}
+h1,h2,h3,p,figure{margin:0}code,kbd,pre{font-family:var(--mono);font-size:.86em}code{background:var(--k);color:var(--yel);padding:.05em .35em}kbd{border:2px solid var(--k);padding:0 .3em;background:#fff;white-space:nowrap}
+.wrap{max-width:1240px;margin:0 auto;padding:0 clamp(1rem,4vw,2.5rem)}
+.d{font-family:var(--disp);font-weight:400;text-transform:uppercase;line-height:.86;letter-spacing:-.005em}
+/* ticker */
+.tick{background:var(--k);color:var(--yel);overflow:hidden;white-space:nowrap;font:400 1.25rem/2.3rem var(--disp);letter-spacing:.06em;text-transform:uppercase;border-block:3px solid var(--k)}
+.tick div{display:inline-block;animation:tk 38s linear infinite}@keyframes tk{to{transform:translateX(-50%)}}.tick.pk{background:var(--pink);color:var(--k)}.tick.pk div{animation-direction:reverse}
+nav.top{display:flex;gap:1.4rem;align-items:center;padding:1rem 0;font:400 1.15rem var(--disp);text-transform:uppercase;letter-spacing:.05em}nav.top b{font-weight:400;font-size:1.6rem;margin-right:auto}nav.top a{text-decoration:none}
+nav.top .go{background:var(--k);color:var(--yel);padding:.3rem .9rem;transform:rotate(-2deg)}nav.top .go:hover{background:var(--pink);color:var(--k)}
+/* hero */
+.hero{position:relative;display:grid;grid-template-columns:minmax(0,6fr) minmax(0,5fr);gap:clamp(1.5rem,4vw,3.5rem);align-items:center;padding:clamp(1rem,3vw,2.5rem) 0 clamp(3rem,6vw,5rem)}
+.hero>div:first-child{container-type:inline-size}
+h1{font-size:clamp(3rem,20.5cqw,8.6rem)}h1 span{display:block}
+h1 .a{color:var(--pink);text-shadow:.045em .045em 0 var(--blue)}
+.lede{font-size:clamp(1.05rem,1.6vw,1.3rem);max-width:44ch;margin-top:1.4rem;font-weight:600}.lede mark{background:var(--yel);padding:0 .2em}
+.cta{display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.8rem;align-items:center}
+.big{font:400 1.7rem/1 var(--disp);text-transform:uppercase;letter-spacing:.03em;text-decoration:none;background:var(--k);color:var(--paper);padding:.8rem 1.4rem;box-shadow:7px 7px 0 var(--pink);transition:transform .1s,box-shadow .1s;display:inline-block;cursor:pointer;border:0}
+.big:hover{background:var(--k);transform:translate(4px,4px);box-shadow:3px 3px 0 var(--pink)}.big.alt{background:var(--yel);color:var(--k);box-shadow:7px 7px 0 var(--k)}.big.alt:hover{box-shadow:3px 3px 0 var(--k);background:var(--yel)}
+.shot{position:relative;border:5px solid var(--k);background:var(--k);box-shadow:14px 14px 0 var(--sh,var(--blue));transform:rotate(var(--rot,1.6deg))}.shot video,.shot img{display:block;width:100%;height:auto}
+.tape{position:absolute;width:7.5rem;height:2rem;background:rgba(255,229,0,.82);top:-1.1rem;left:50%;transform:translateX(-50%) rotate(-3deg);box-shadow:0 2px 3px rgba(0,0,0,.25);z-index:2}
+.badge{position:absolute;right:-2.2rem;bottom:-3.4rem;width:clamp(7.5rem,13vw,11rem);aspect-ratio:1;z-index:3;animation:spin 22s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.badge text{font:400 13.4px var(--disp);letter-spacing:.07em;text-transform:uppercase}
+.dots{position:absolute;width:38%;aspect-ratio:1;left:-9%;bottom:-6%;background:radial-gradient(var(--pink) 34%,transparent 36%) 0 0/14px 14px;-webkit-mask:radial-gradient(circle,#000,transparent 70%);mask:radial-gradient(circle,#000,transparent 70%);z-index:-1;opacity:.75}
+/* blocks */
+.blk{padding:clamp(3rem,7vw,6rem) 0;position:relative}.blk.k{background:var(--k) var(--grain);color:var(--paper)}.blk.y{background:var(--yel) var(--grain)}.blk.p{background:var(--pink) var(--grain)}.blk.b{background:var(--blue) var(--grain);color:#fff}
+h2{font-size:clamp(3rem,9.5vw,8rem);margin-bottom:.25em}h2 em{font-style:normal;-webkit-text-stroke:.035em var(--k);color:transparent}
+.blk.k h2 i{font-style:normal;color:var(--yel)}
+.nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.nums b{display:block;font:400 clamp(3.4rem,9vw,7.5rem)/.85 var(--disp)}.nums span{font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:.82rem}
+/* flyer */
+.flyer{background:#fff var(--grain);color:var(--k);border:5px solid var(--k);box-shadow:14px 14px 0 var(--pink);transform:rotate(-.6deg);max-width:980px;margin:0 auto}
+.flyer .in{padding:clamp(1.2rem,3vw,2.2rem)}
+.flyer h3{font:400 clamp(2rem,5vw,3.6rem)/.9 var(--disp);text-transform:uppercase;margin-bottom:.6rem}
+.ways{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1.4rem;margin-top:1.2rem}.ways h4{margin:0 0 .3rem;font:400 1.3rem var(--disp);text-transform:uppercase;letter-spacing:.04em;background:var(--yel);display:inline-block;padding:0 .4rem}
+.ways pre{margin:0;white-space:pre-wrap;word-break:break-word;font-weight:700;line-height:1.7}.ways p{font-size:.9rem;margin-top:.4rem}
+.tabs{display:flex;border-top:3px dashed var(--k)}
+.tab{all:unset;cursor:pointer;flex:1;border-left:3px dashed var(--k);height:17rem;display:grid;place-items:center;overflow:hidden}.tab:first-child{border-left:0}
+.tab span{writing-mode:vertical-rl;font:700 .74rem var(--mono);white-space:nowrap}.tab:hover{background:var(--yel)}.tab:active{background:var(--pink)}
+/* feature cards */
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(2.5rem,5vw,4.5rem) clamp(2rem,4vw,4rem);margin-top:1.5rem}
+.card{position:relative}.card:nth-child(odd){--rot:-1.2deg;--sh:var(--pink)}.card:nth-child(even){--rot:1deg;--sh:var(--blue);margin-top:clamp(0rem,5vw,4rem)}.card:nth-child(3n){--sh:var(--yel)}
+.card .n{position:absolute;right:0;top:-.42em;font:400 clamp(5rem,10vw,8.5rem)/1 var(--disp);-webkit-text-stroke:3px var(--k);color:var(--paper);z-index:2;pointer-events:none}
+.card h3{font:400 clamp(1.9rem,3.6vw,2.9rem)/.92 var(--disp);text-transform:uppercase;margin:1.6rem 0 .6rem}
+.card ul{list-style:none;padding:0;margin:.9rem 0;font-weight:700;font-size:.95rem}.card li{padding:.3rem 0 .3rem 1.6rem;border-top:2px solid var(--k);position:relative}.card li::before{content:"✦";position:absolute;left:.1rem;color:var(--pink)}
+.card a.go{font:400 1.25rem var(--disp);text-transform:uppercase;letter-spacing:.04em}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2rem clamp(2rem,5vw,4rem)}
+table{width:100%;border-collapse:collapse}td{padding:.5rem 1rem .5rem 0;border-top:2px solid currentColor;vertical-align:top;font-weight:600}td:first-child{white-space:nowrap}
+.blk.k code{background:var(--yel);color:var(--k)}.blk.k kbd{color:var(--k)}
+.stick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1.4rem;margin-top:3rem}
+.more{background:var(--paper);color:var(--k);border:4px solid var(--k);padding:1.1rem 1.2rem;box-shadow:7px 7px 0 var(--pink)}.more:nth-child(2n){transform:rotate(.8deg);box-shadow:7px 7px 0 var(--yel)}.more:nth-child(3n){transform:rotate(-.9deg);box-shadow:7px 7px 0 var(--blue)}
+.more h3{font:400 1.5rem var(--disp);text-transform:uppercase;margin-bottom:.3rem}.more p{font-size:.92rem}.more code{background:var(--k);color:var(--yel)}
+.tier{font:400 1.15rem var(--disp);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.faq{border-top:4px solid var(--k);padding:.9rem 0}.faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:1rem;align-items:center}.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font:400 2.4rem/.6 var(--disp);background:var(--k);color:var(--yel);padding:.5rem .7rem;flex:none}.faq[open] summary::after{content:"–";background:var(--pink);color:var(--k)}
+.faq h3{font:400 clamp(1.4rem,2.8vw,2.1rem)/1 var(--disp);text-transform:uppercase}.faq p{margin-top:.6rem;max-width:72ch}
+.end{text-align:center}.end h2{font-size:clamp(4rem,17vw,15rem);margin:0 0 .15em}
+footer{background:var(--k);color:var(--paper);padding:1.4rem 0;font-weight:700;font-size:.85rem;text-transform:uppercase;letter-spacing:.06em}footer .wrap{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}footer a{margin-left:1.2rem}footer a:hover{color:var(--k)}
+@media (max-width:900px){.hero,.cards,.two{grid-template-columns:minmax(0,1fr)}.card:nth-child(even){margin-top:0}.ways,.stick{grid-template-columns:minmax(0,1fr)}.nums{grid-template-columns:repeat(2,minmax(0,1fr));gap:1.6rem 1rem}.badge{right:-.6rem}.tab:nth-child(n+7){display:none}nav.top .hide{display:none}.shot{box-shadow:9px 9px 0 var(--sh,var(--blue))}.flyer{box-shadow:9px 9px 0 var(--pink)}}
+@media (max-width:520px){body{font-size:16px}.tab:nth-child(n+5){display:none}.tab{height:16rem}td:first-child{white-space:normal}footer a{margin:0 1.2rem 0 0}.big{font-size:1.4rem}}
+@media (prefers-reduced-motion:reduce){.tick div,.badge{animation:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="tick" aria-hidden="true"><div>On air ✦ No account ✦ No cloud library ✦ 424 receiver styles ✦ 48 color themes ✦ World map ✦ Alarms ✦ MCP ✦ Free &amp; open source ✦ macOS · Linux · Windows ✦ On air ✦ No account ✦ No cloud library ✦ 424 receiver styles ✦ 48 color themes ✦ World map ✦ Alarms ✦ MCP ✦ Free &amp; open source ✦ macOS · Linux · Windows ✦ </div></div>
+<div class="wrap">
+<nav class="top"><b>RadioCLI</b><a class="hide" href="#features">Features</a><a class="hide" href="#shell">Shell</a><a class="hide" href="#faq">FAQ</a><a href="/docs">Docs</a><a href="https://github.com/Ciphore/RadioCLI">GitHub</a><a class="go" href="#install">Install</a></nav>
+<header class="hero">
+  <div><h1 class="d"><span>The world’s</span><span>radio.</span><span class="a">At your</span><span class="a">command.</span></h1>
+    <p class="lede">RadioCLI is an open-source internet radio player with a full-screen terminal interface and a scriptable CLI. Discover and stream stations from around the world without leaving your terminal. <mark>No account. No cloud library.</mark></p>
+    <div class="cta"><a class="big" href="#install">Install it</a><a class="big alt" href="https://github.com/Ciphore/RadioCLI">GitHub ↗</a></div></div>
+  <div style="position:relative"><div class="dots"></div>
+    <figure class="shot"><i class="tape"></i><video muted loop playsinline autoplay preload="metadata" poster="/demo/radiocli-fullscreen.png" src="/demo/radiocli-now-playing.webm" aria-label="RadioCLI now playing, cycling through receiver styles"></video></figure>
+    <svg class="badge" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="59" fill="#ffe500" stroke="#121212" stroke-width="2"/><path id="c" d="M60 60m-45 0a45 45 0 1 1 90 0a45 45 0 1 1-90 0" fill="none"/><text><textPath href="#c">Free ✦ open source ✦ MIT ✦ no sign-up ✦</textPath></text><text x="60" y="71" text-anchor="middle" style="font-size:34px;letter-spacing:0">$0</text></svg></div>
+</header>
+</div>
+
+<section class="blk k"><div class="wrap nums"><div><b style="color:var(--yel)">424</b><span>receiver styles</span></div><div><b style="color:var(--pink)">48</b><span>color themes</span></div><div><b>0</b><span>accounts required</span></div><div><b style="color:var(--yel)">3</b><span>layouts: full, compact, micro</span></div></div></section>
+
+<section class="blk" id="install"><div class="wrap">
+  <h2 class="d">Get <em>on air</em></h2>
+  <div class="flyer"><div class="in"><h3>Take one. Paste it in a terminal.</h3><p>Free and open source for macOS, Linux, and Windows. Setup shows a plan before it installs any playback tools, and <code>radiocli doctor</code> reports what your machine can do.</p>
+    <div class="ways"><div><h4>npm · Node.js 22+</h4><pre>npm install -g @ciphore/radiocli
+radiocli setup
+radiocli</pre></div><div><h4>Homebrew · macOS</h4><pre>brew install ciphore/tap/radiocli
+radiocli</pre><p>Also installs Node.js, mpv, and FFmpeg.</p></div><div><h4>npx · no install</h4><pre>npx @ciphore/radiocli</pre><p>Needs Node.js 22+ and a player such as mpv.</p></div></div></div>
+    <div class="tabs" id="tabs" aria-label="Tear-off install commands"></div></div>
+</div></section>
+
+<div class="tick pk" aria-hidden="true"><div>Explore ✦ Search ✦ Library ✦ Stats ✦ Receivers ✦ Alarms ✦ Agent control ✦ Explore ✦ Search ✦ Library ✦ Stats ✦ Receivers ✦ Alarms ✦ Agent control ✦ Explore ✦ Search ✦ Library ✦ Stats ✦ Receivers ✦ Alarms ✦ Agent control ✦ Explore ✦ Search ✦ Library ✦ Stats ✦ Receivers ✦ Alarms ✦ Agent control ✦ </div></div>
+
+<section class="blk" id="features"><div class="wrap">
+  <h2 class="d">What’s <em>inside</em></h2>
+  <div class="cards">
+  <article class="card" id="explore"><span class="n">01</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-explore-map.png" src="/demo/radiocli-explore-map.webm" aria-label="Exploring the RadioCLI world map"></video></figure><h3>Explore the world map</h3><p>A braille world map sits beside the station list. Move one scan cursor and the list reloads around that coordinate, sorted by real distance rather than popularity.</p><ul><li><kbd>WASD</kbd> to nudge, <kbd>Shift</kbd> to jump, or click</li><li>Browse whole country lists</li><li>Nearby lists stations around your approximate location</li><li>Cached station atlas keeps working during directory outages</li></ul><a class="go" href="/docs/getting-started/tui-controls">Explore controls →</a></article>
+  <article class="card" id="search"><span class="n">02</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-search.png" src="/demo/radiocli-search.webm" aria-label="Searching for radio stations"></video></figure><h3>Search every station</h3><p>Search by station name or genre, then narrow by country, language, codec, and bitrate. Results show exactly what you are about to tune.</p><ul><li><code>radiocli search jazz --pick</code></li><li><code>radiocli play --country JP</code></li><li>Add any direct HTTP(S) stream URL</li></ul><a class="go" href="/docs/getting-started/cli">Search commands →</a></article>
+  <article class="card" id="library"><span class="n">03</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-library.png" src="/demo/radiocli-library.webm" aria-label="RadioCLI favorites and recent stations"></video></figure><h3>A library that stays on your machine</h3><p>Favorites, recent stations, and imported streams live in one local library. There is no account to create and nothing to sync.</p><ul><li>Import M3U, PLS, or XSPF; export M3U</li><li>Named presets: <code>radiocli play work</code></li><li>Track history, JSON backup and restore</li></ul><a class="go" href="/docs/privacy-security">Privacy &amp; storage →</a></article>
+  <article class="card" id="stats"><span class="n">04</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-stats-green.png" src="/demo/radiocli-stats-colors.webm" aria-label="RadioCLI listening activity and stats"></video></figure><h3>Listening stats</h3><p>A 52-week activity graph with listening time, session counts, active days, streaks, and your most-listened station, recorded across TUI and CLI sessions.</p><ul><li>Stored locally, never uploaded</li><li>Selectable display colors</li><li><code>radiocli stats</code> from the shell</li></ul><a class="go" href="/docs/getting-started/cli">Stats commands →</a></article>
+  <article class="card" id="receivers"><span class="n">05</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-fullscreen.png" src="/demo/radiocli-now-playing.webm" aria-label="RadioCLI cycling through receiver styles"></video></figure><h3>424 receiver styles, 48 themes</h3><p>Braille animation, ASCII geometry, waves, fire, cityscapes, and the Gallop display. Switch without interrupting playback. Receivers move only while audio is really playing; a dead stream shows a flat zero-signal frame.</p><ul><li><kbd>v</kbd> next receiver, <kbd>t</kbd> next theme</li><li>Full, compact, and micro layouts</li><li>Reduced motion, screen readers, ASCII-only, <code>NO_COLOR</code></li></ul><a class="go" href="/receivers">Try all 424 receivers →</a></article>
+  <article class="card" id="alarms"><span class="n">06</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-alarm-editor.png" src="/demo/radiocli-alarm-editor.webm" aria-label="RadioCLI alarm editor"></video></figure><h3>Alarms and sleep timer (beta)</h3><p>One-time or recurring alarms with timezones, independent volume, fade-in, fallback stations, snooze, and auto-stop. Native OS scheduling lets them ring after the terminal is closed.</p><ul><li>launchd, Task Scheduler, or systemd user timers</li><li>Verify alarm setup rehearses the whole path</li><li>Beta: keep a second alarm for anything critical</li></ul><a class="go" href="/docs/alarms">Alarm guide →</a></article>
+  <article class="card" id="agent"><span class="n">07</span><figure class="shot"><video muted loop playsinline preload="none" poster="/demo/radiocli-codex-birdsong.png" src="/demo/radiocli-codex-birdsong.mp4" aria-label="An AI assistant playing a birdsong station through RadioCLI"></video></figure><h3>Agent control over MCP</h3><p>An optional Model Context Protocol server gives coding assistants typed tools for discovery, playback, favorites, stats, alarms, AirPlay, and appearance.</p><ul><li><code>radiocli setup --mcp</code></li><li>Opt-in, local, stdio transport</li><li>Agents can play only library stations or RadioCLI search results</li></ul><a class="go" href="/docs/getting-started/cli">MCP setup →</a></article>
+  
+  </div>
+</div></section>
+
+<section class="blk k" id="shell"><div class="wrap">
+  <h2 class="d">Run it from <i>the shell</i></h2>
+  <p style="max-width:60ch;margin-bottom:2rem;font-size:1.1rem"><code>radiocli play jazz</code> starts background playback and returns your prompt. If the full-screen interface is open, commands control that player instead.</p>
+  <div class="two"><table><tr><td><code>play [station]</code></td><td>Find and play a station, or continue listening</td></tr>
+<tr><td><code>pause</code></td><td>Pause the current station</td></tr>
+<tr><td><code>next</code></td><td>Tune the next station in the queue</td></tr>
+<tr><td><code>now</code></td><td>Show the station, track, and volume</td></tr>
+<tr><td><code>volume 40</code></td><td>Set volume from 0 to 100</td></tr>
+<tr><td><code>favorite</code></td><td>Save the current station</td></tr>
+<tr><td><code>favorites</code></td><td>List saved stations</td></tr>
+<tr><td><code>stop</code></td><td>Stop listening and close the background player</td></tr></table><table><tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Switch screens</td></tr>
+<tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd></td><td>Select and tune a station</td></tr>
+<tr><td><kbd>space</kbd></td><td>Pause or resume</td></tr>
+<tr><td><kbd>f</kbd></td><td>Toggle a favorite</td></tr>
+<tr><td><kbd>v</kbd> / <kbd>t</kbd></td><td>Receiver style / color theme</td></tr>
+<tr><td><kbd>?</kbd> / <kbd>q</kbd></td><td>Show shortcuts / quit</td></tr></table></div>
+  <div class="stick"><div class="more"><h3>Playback</h3><p>Pause, volume, mute, and live track metadata through <code>mpv</code>, with media keys and a sleep timer. <code>ffplay</code> and VLC work as fallbacks.</p></div>
+<div class="more"><h3>Scripting</h3><p><code>--json</code>, <code>--plain</code>, <code>--quiet</code>, and <code>--no-input</code> on listener commands, plus shell completion and <code>now --watch</code>.</p></div>
+<div class="more"><h3>Stream recovery</h3><p>Directory mirrors, broken-stream skipping, cached lists, offline browsing, and a low-bandwidth mode.</p></div>
+<div class="more"><h3>AirPlay (experimental)</h3><p>Discover network receivers and switch audio output from the terminal, passcodes included.</p></div>
+<div class="more"><h3>Custom stations</h3><p>Add direct stream URLs with ICY metadata lookup. Import M3U, PLS, or XSPF playlists.</p></div>
+<div class="more"><h3>Accessible</h3><p>Keyboard, mouse, and trackpad. Screen-reader output, reduced motion, ASCII rendering, and limited-color terminals.</p></div></div>
+</div></section>
+
+<section class="blk y" id="platforms"><div class="wrap">
+  <h2 class="d">Runs <em>here</em></h2>
+  <table><tr><td>macOS</td><td>Apple silicon &amp; Intel</td><td class="tier t1">First-class</td></tr>
+<tr><td>Ubuntu Linux</td><td>x64 &amp; arm64</td><td class="tier t1">First-class</td></tr>
+<tr><td>Windows</td><td>x64 &amp; arm64, tested CI environments</td><td class="tier t1">First-class</td></tr>
+<tr><td>FreeBSD, OpenBSD, NetBSD</td><td>core package route</td><td class="tier t2">Supported</td></tr>
+<tr><td>Alpine, WSL, Termux, others</td><td>detection paths only</td><td class="tier t3">Experimental</td></tr></table><p style="margin-top:1.2rem;font-weight:700"><a href="/docs/platforms">Full platform matrix →</a></p>
+</div></section>
+
+<section class="blk" id="faq"><div class="wrap">
+  <h2 class="d">Ask <em>away</em></h2>
+<details class="faq"><summary><h3>What is RadioCLI?</h3></summary><p>RadioCLI is a free, open-source internet radio player that runs in your terminal. It has a full-screen terminal interface (TUI) for browsing and listening, and a scriptable command line for starting, pausing, and switching stations from your shell.</p></details>
+<details class="faq"><summary><h3>How do I install RadioCLI?</h3></summary><p>With Node.js 22 or newer: <code>npm install -g @ciphore/radiocli</code>, then <code>radiocli setup</code>. On macOS, <code>brew install ciphore/tap/radiocli</code> also installs Node.js, mpv, and FFmpeg. To try it without installing, run <code>npx @ciphore/radiocli</code>.</p></details>
+<details class="faq"><summary><h3>Do I need an account or subscription?</h3></summary><p>No. There is no account, no sign-in, and no cloud library. Favorites, recent stations, settings, track history, and listening stats are stored on your machine, with JSON backup and restore.</p></details>
+<details class="faq"><summary><h3>Which operating systems are supported?</h3></summary><p>macOS (Apple silicon and Intel), Ubuntu Linux (x64 and arm64), and Windows (x64 and arm64) are tested in CI on Node.js 22 and 24. FreeBSD, OpenBSD, and NetBSD are supported for the core package route. Other platforms such as Alpine, WSL, and Termux are experimental.</p></details>
+<details class="faq"><summary><h3>What do I need for audio playback?</h3></summary><p>RadioCLI plays streams through <code>mpv</code>, which provides pause, volume, mute, media keys, and live track metadata. <code>ffplay</code> and VLC work as playback-only fallbacks. <code>radiocli setup</code> shows a plan and helps install the tools for your system; <code>radiocli doctor</code> checks what is available.</p></details>
+<details class="faq"><summary><h3>Where do the stations come from?</h3></summary><p>Station discovery uses the public Radio Browser directory, with cached results that stay available during provider outages. You can also add any direct HTTP(S) stream URL and import M3U, PLS, or XSPF playlists.</p></details>
+<details class="faq"><summary><h3>Can an AI assistant control RadioCLI?</h3></summary><p>Yes, if you opt in. <code>radiocli setup --mcp</code> registers a local Model Context Protocol (MCP) server with typed tools for discovery, playback, favorites, stats, alarms, AirPlay, and appearance. It runs over stdio on your machine, and agents can only play stations from your library or from RadioCLI's own search results.</p></details>
+<details class="faq"><summary><h3>Can RadioCLI wake me up with a radio station?</h3></summary><p>Alarms are in beta. You can schedule one-time or recurring alarms with timezones, fade-in, fallback stations, snooze, and auto-stop. They register with launchd, Task Scheduler, or a systemd user timer, so the terminal does not need to stay open. Use a second device for anything critical.</p></details>
+<details class="faq"><summary><h3>What does RadioCLI send over the network?</h3></summary><p>It resolves public stream URLs and hands playback to your local player; it does not proxy audio. Nearby uses an approximate IP-based location lookup only when you open that screen, and you can turn it off in Settings. Explore uses only the map cursor you move.</p></details>
+<details class="faq"><summary><h3>Is RadioCLI free?</h3></summary><p>Yes. RadioCLI is MIT licensed and the source is on GitHub at Ciphore/RadioCLI.</p></details>
+</div></section>
+
+<section class="blk p end"><div class="wrap"><h2 class="d">Start listening.</h2><div class="cta" style="justify-content:center"><a class="big" style="box-shadow:7px 7px 0 var(--yel)" href="#install">Install RadioCLI</a><a class="big alt" href="/docs">Read the manual</a></div></div></section>
+<footer><div class="wrap"><span>RadioCLI · free and open source · MIT license</span><span><a href="/docs">Docs</a><a href="/docs/changelog">Changelog</a><a href="/docs/privacy-security">Privacy</a><a href="https://github.com/Ciphore/RadioCLI">GitHub ↗</a></span></div></footer>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)],calm=matchMedia('(prefers-reduced-motion:reduce)').matches;
+{const io=new IntersectionObserver(es=>es.forEach(e=>{if(calm)return;e.isIntersecting?e.target.play().catch(()=>{}):e.target.pause()}),{threshold:.3});
+$$('video').forEach(v=>{io.observe(v);if(calm){v.removeAttribute('autoplay');v.pause();v.controls=true}})}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-copy]');if(!b)return;navigator.clipboard?.writeText(b.dataset.copy);const t=b.textContent;b.textContent=b.dataset.done||'copied';setTimeout(()=>b.textContent=t,1300)});
+
+const cmds=['npm install -g @ciphore/radiocli','brew install ciphore/tap/radiocli','npx @ciphore/radiocli'];
+$('#tabs').innerHTML=Array.from({length:9},(_,i)=>`<button class="tab" data-copy="${cmds[i%3]}" data-done="copied" title="Copy: ${cmds[i%3]}"><span>${cmds[i%3]}</span></button>`).join('');
+</script>
+<nav aria-label="Style previews" style="position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:2147483000;display:flex;flex-direction:column;font:600 12px/1 ui-monospace,Menlo,monospace;background:#111;border:1px solid #555;border-left:0;border-radius:0 8px 8px 0;overflow:hidden;text-shadow:none;letter-spacing:0"><a href="6-live.html" title="Previous style" style="color:#fff;text-decoration:none;padding:9px 8px;background:none">▲</a><a href="index.html" title="All styles" style="color:#6ef08a;text-decoration:none;padding:7px 8px;border-block:1px solid #555;background:none;text-align:center">7<br><span style="color:#888">/16</span></a><a href="8-printout.html" title="Next style" style="color:#fff;text-decoration:none;padding:9px 8px;background:none">▼</a></nav>
+</body>
+</html>

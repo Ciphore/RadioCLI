@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RadioCLI site variations</title><meta name="robots" content="noindex">
+<style>body{font:15px/1.5 ui-monospace,Menlo,monospace;background:#0b0b0e;color:#ddd;max-width:1500px;margin:2.5rem auto;padding:0 1.5rem}a{color:inherit;text-decoration:none}h1{font-size:1.3rem}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.2rem}.g a{border:1px solid #333;border-radius:8px;overflow:hidden;display:block}.g a:hover{border-color:#6ef08a}
+.f{aspect-ratio:16/10;overflow:hidden;position:relative}iframe{position:absolute;inset:0;width:400%;height:400%;transform:scale(.25);transform-origin:0 0;border:0;pointer-events:none}.g p{margin:0;padding:.8rem 1rem;border-top:1px solid #333}.g small{color:#888;display:block}</style>
+<h1>RadioCLI · landing page variations</h1><p>Work-in-progress directions for the RadioCLI home page. Click one to open it full size, then use the ▲ ▼ tab on the left edge to step through. <a href="/" style="color:#6ef08a">Back to the current site</a></p>
+<div class="g" id="g"></div>
+<script>
+[['1-phosphor','Phosphor','The site is the TUI. ←/→ tabs, v receiver, t theme.'],['2-vhs','VHS','Broadcast blue screen, static and scanlines over everything.'],['3-hifi','Hi-Fi','Silver-face receiver + printed owner’s manual. Unchanged.'],
+ ['4-atlas','Atlas','Draggable dot globe that lists and plays real stations nearby.'],['5-teletext','Teletext','Page 100. Type a page number, press the colour keys.'],['6-live','Live','A playable web RadioCLI: real search, real audio.'],
+ ['7-pirate','Pirate','Pirate-radio flyer: riso colours, tear-off install tabs.'],['8-printout','Printout','A man page on green-bar continuous paper. j/k to move.'],
+ ['9-shell','Shell','Type real radiocli commands; they play real radio.'],['10-dial','Dial','Scroll to tune: each section is a station, static in between.'],['11-departures','Departures','Split-flap airport board of live stations worldwide.'],
+ ['12-desktop','Desktop','A 90s desktop: draggable windows and a working player.'],['13-waterfall','Waterfall','SDR receiver: click a peak on the spectrum to tune.'],['14-nightdrive','Night Drive','Synthwave sunset and a car stereo with six live presets.'],
+ ['15-dossier','Dossier','Declassified file with an intercept log you can listen to.'],['16-passport','Passport','Airmail stamps: pick a country, hear its top station.']]
+ .forEach(([f,n,d],i)=>g.insertAdjacentHTML('beforeend',`<a href="${f}.html"><div class="f"><iframe src="${f}.html" loading="lazy" tabindex="-1"></iframe></div><p>${i+1} · ${n}<small>${d}</small></p></a>`));
+</script>
