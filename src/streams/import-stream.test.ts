@@ -2,6 +2,14 @@ import {describe, expect, it} from 'vitest';
 import {importStreamUrl} from './import-stream.js';
 
 describe('direct stream import', () => {
+  it.each([true, false])('keeps an unnamed URL with a malformed percent escape importable (online: %s)', async online => {
+    const result = await importStreamUrl('https://streams.example.com/%FF', undefined, {fetchImpl: async () => {
+      if (!online) throw new Error('offline');
+      return new Response('', {headers: {'content-type': 'audio/mpeg'}});
+    }});
+    expect(result.station.name).toBe('%FF');
+    expect(result.station.streamUrl).toBe('https://streams.example.com/%FF');
+  });
   it('discovers station details from portable HTTP and ICY headers', async () => {
     const fetchImpl = async () => new Response('', {
       status: 200,

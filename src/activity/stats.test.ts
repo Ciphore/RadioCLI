@@ -10,6 +10,16 @@ const station: Station = {
 };
 
 describe('computeListeningStats', () => {
+  it.each([true, false])('preserves sixteen confirmed hours across midnight (completed: %s)', completed => {
+    const start = new Date(2026, 4, 23, 16);
+    const end = new Date(start.getTime() + 16 * 3600_000);
+    const value = {...session('long', start, 16 * 3600, station), lastActiveAt: end.toISOString(), endedAt: completed ? end.toISOString() : undefined};
+    const stats = computeListeningStats([value], end);
+    expect(stats.totalSeconds).toBe(16 * 3600);
+    expect(stats.days.reduce((sum, day) => sum + day.seconds, 0)).toBe(16 * 3600);
+    expect(stats.activeDays).toBe(2);
+  });
+
   it('computes streaks, active days, total time, and favorite station', () => {
     const sessions: ListeningSession[] = [
       session('a', new Date(2026, 4, 22, 10), 3600, station),

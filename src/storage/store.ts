@@ -26,6 +26,7 @@ import {migrateStationIdentity} from './station-identity.js';
 import {stationSchema} from './station-schema.js';
 import {acquireFileLock} from './file-lock.js';
 import {replaceFileSync} from './replace-file.js';
+import {definedFields} from '../settings-patch.js';
 
 
 const defaultMediaKeys = {
@@ -245,6 +246,7 @@ const librarySchema: z.ZodType<LibraryState> = z.object({
         .array(
           z.object({
             id: z.string(),
+            owner: z.string().optional(),
             station: stationSchema,
             startedAt: z.string(),
             endedAt: z.string().optional(),
@@ -313,6 +315,7 @@ export class JsonLibraryStore {
     if (
       (!sharedLibraryReceiverStyles.has(this.state.settings.receiverStyle) && !existsSync(this.receiverPreferenceV2Path())) ||
       (!sharedLibraryThemes.has(this.state.settings.theme) && !existsSync(this.themePreferencePath()))
+      || this.preferenceRepairNeeded
     ) this.commit(this.state);
   }
 
@@ -427,13 +430,21 @@ export class JsonLibraryStore {
 
   updateSettings(settings: Partial<AppSettings>): LibraryState {
     this.refresh();
+    settings = definedFields(settings);
+    const agent = settings.agentControl;
+    const currentAgent = this.state.settings.agentControl;
+    const merged = settingsSchema.parse({
+      ...this.state.settings,
+      ...settings,
+      ...(agent ? {agentControl: {
+        ...currentAgent, ...definedFields(agent),
+        completionPreset: {...currentAgent?.completionPreset, ...definedFields(agent.completionPreset ?? {})}
+      }} : {}),
+      receiverStyleVersion: settings.receiverStyle ? 2 : this.state.settings.receiverStyleVersion
+    });
     return this.commit({
       ...this.state,
-      settings: {
-        ...this.state.settings,
-        ...settings,
-        receiverStyleVersion: settings.receiverStyle ? 2 : this.state.settings.receiverStyleVersion
-      }
+      settings: merged
     });
   }
 
@@ -604,11 +615,12 @@ export class JsonLibraryStore {
     return this.commit({...this.state, searchHistory});
   }
 
-  startListeningSession(station: Station, startedAt = new Date()): LibraryState {
+  startListeningSession(station: Station, startedAt = new Date(), owner?: string): LibraryState {
     this.refresh();
-    const finishedState = recoverActiveListeningSessionInState(this.state);
+    const finishedState = owner ? this.state : recoverActiveListeningSessionInState(this.state);
     const session: ListeningSession = {
-      id: `${startedAt.toISOString()}-${stationKey(station)}`,
+      id: `${startedAt.toISOString()}-${stationKey(station)}${owner ? `-${owner}` : ''}`,
+      ...(owner ? {owner} : {}),
       station,
       startedAt: startedAt.toISOString(),
       lastActiveAt: startedAt.toISOString(),
@@ -623,9 +635,9 @@ export class JsonLibraryStore {
     });
   }
 
-  checkpointActiveListeningSession(activeAt = new Date()): LibraryState {
+  checkpointActiveListeningSession(activeAt = new Date(), owner?: string): LibraryState {
     this.refresh();
-    const active = this.state.activity.sessions[0];
+    const active = this.state.activity.sessions.find(session => session.owner === owner && !session.endedAt);
     if (!active || active.endedAt) {
       return this.snapshot();
     }
@@ -641,13 +653,13 @@ export class JsonLibraryStore {
     };
     return this.commit({
       ...this.state,
-      activity: {sessions: [updated, ...this.state.activity.sessions.slice(1)]}
+      activity: {sessions: this.state.activity.sessions.map(session => session.id === active.id ? updated : session)}
     });
   }
 
-  finishActiveListeningSession(endedAt = new Date()): LibraryState {
+  finishActiveListeningSession(endedAt = new Date(), owner?: string): LibraryState {
     this.refresh();
-    const nextState = finishActiveListeningSessionInState(this.state, endedAt);
+    const nextState = finishActiveListeningSessionInState(this.state, endedAt, owner);
     if (nextState === this.state) {
       return this.snapshot();
     }
@@ -759,7 +771,9 @@ export class JsonLibraryStore {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
         throw storageError('read the receiver preference', error);
       }
-      const parsed = receiverPreferenceSchema.safeParse(JSON.parse(preference));
+      const value: unknown = JSON.parse(preference);
+      if (missingPreferenceField(value, 'libraryReceiverStyle', 'ultracode')) { this.preferenceRepairNeeded = true; continue; }
+      const parsed = receiverPreferenceSchema.safeParse(value);
       if (!parsed.success) throw new Error('The RadioCLI receiver preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
       if (state.settings.receiverStyle === parsed.data.libraryReceiverStyle) state.settings.receiverStyle = parsed.data.receiverStyle;
       break;
@@ -770,6 +784,7 @@ export class JsonLibraryStore {
   private receiverPreferencePath(): string { return `${this.filePath}.receiver.json`; }
   private receiverPreferenceV2Path(): string { return `${this.filePath}.receiver-v2.json`; }
   private themePreferencePath(): string { return `${this.filePath}.theme.json`; }
+  private preferenceRepairNeeded = false;
 
   private readThemePreference(state: LibraryState): LibraryState {
     let preference: string;
@@ -778,7 +793,9 @@ export class JsonLibraryStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return state;
       throw storageError('read the display color preference', error);
     }
-    const parsed = themePreferenceSchema.safeParse(JSON.parse(preference));
+    const value: unknown = JSON.parse(preference);
+    if (missingPreferenceField(value, 'libraryTheme', 'green')) { this.preferenceRepairNeeded = true; return state; }
+    const parsed = themePreferenceSchema.safeParse(value);
     if (!parsed.success) throw new Error('The RadioCLI display color preference is unsupported or invalid. Restart RadioCLI and its MCP clients with the latest version. Your library has been preserved.');
     if (state.settings.theme === parsed.data.libraryTheme) state.settings.theme = parsed.data.theme;
     return state;
@@ -799,6 +816,7 @@ export class JsonLibraryStore {
     try {
       const latestState = this.readForCurrentSession();
       const mergedState = mergeLibraryChanges(this.state, latestState, nextState);
+      mergedState.settings = settingsSchema.parse(mergedState.settings);
       this.write(mergedState);
       this.state = mergedState;
       return this.cachedSnapshot();
@@ -867,8 +885,16 @@ export function stationKey(station: Station): string {
   return `${station.provider}:${migrateStationIdentity(station).id}`;
 }
 
-function finishActiveListeningSessionInState(state: LibraryState, endedAt: Date): LibraryState {
-  const active = state.activity.sessions[0];
+// Only recover the exact two-key files emitted by the partial-update bug.
+// Unknown versions, selections and other malformed files still fail closed.
+function missingPreferenceField(value: unknown, fallback: string, expected: string): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 2 && record.version === 1 && record[fallback] === expected;
+}
+
+function finishActiveListeningSessionInState(state: LibraryState, endedAt: Date, owner?: string): LibraryState {
+  const active = state.activity.sessions.find(session => session.owner === owner && !session.endedAt);
   if (!active || active.endedAt) {
     return state;
   }
@@ -887,12 +913,12 @@ function finishActiveListeningSessionInState(state: LibraryState, endedAt: Date)
 
   return {
     ...state,
-    activity: {sessions: [finished, ...state.activity.sessions.slice(1)]}
+    activity: {sessions: state.activity.sessions.map(session => session.id === active.id ? finished : session)}
   };
 }
 
 function recoverActiveListeningSessionInState(state: LibraryState): LibraryState {
-  const active = state.activity.sessions[0];
+  const active = state.activity.sessions.find(session => session.owner === undefined && !session.endedAt);
   if (!active || active.endedAt) {
     return state;
   }
@@ -1154,14 +1180,22 @@ function mergeSearchHistory(base: string[], disk: string[], next: string[]): str
 }
 
 function mergeSettings(base: AppSettings, disk: AppSettings, next: AppSettings): AppSettings {
-  const merged = {...disk} as Record<string, unknown>;
-  const baseRecord = base as unknown as Record<string, unknown>;
-  const nextRecord = next as unknown as Record<string, unknown>;
-  for (const [key, value] of Object.entries(nextRecord)) {
-    if (!sameValue(baseRecord[key], value)) merged[key] = value;
-  }
-  return merged as unknown as AppSettings;
+  return mergeSettingsFields(base, disk, next) as unknown as AppSettings;
 }
+
+function mergeSettingsFields(base: object, disk: object, next: object): Record<string, unknown> {
+  const merged = {...disk} as Record<string, unknown>;
+  const previous = base as Record<string, unknown>;
+  for (const [key, value] of Object.entries(next)) {
+    if (sameValue(previous[key], value)) continue;
+    const before = previous[key]; const current = merged[key];
+    merged[key] = isSettingsRecord(before) && isSettingsRecord(current) && isSettingsRecord(value)
+      ? mergeSettingsFields(before, current, value) : value;
+  }
+  return merged;
+}
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);

@@ -33,7 +33,7 @@ export function launchEnvironment(
     if (value === undefined) return;
     // Empty overrides fall back; empty roots select the invoking directory.
     // Windows rejects an empty USERPROFILE, while HOME is unused there.
-    if (value === '' && (key === 'RADIOCLI_HOME' || key === 'RADIO_ATLAS_HOME' || key === 'USERPROFILE' || key === 'HOME' && platform === 'win32')) return;
+    if (value === '' && (key === 'XDG_CONFIG_HOME' || key === 'RADIOCLI_HOME' || key === 'RADIO_ATLAS_HOME' || key === 'USERPROFILE' || key === 'HOME' && platform === 'win32')) return;
     // Windows root-relative paths also depend on the invoking drive. Fully
     // qualified values need no cwd lookup (which can fail after cwd removal).
     const absolute = path.isAbsolute(value) && (platform !== 'win32' || /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(value));

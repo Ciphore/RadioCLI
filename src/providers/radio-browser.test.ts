@@ -10,6 +10,16 @@ import {RadioBrowserProvider} from './radio-browser.js';
 const roots: string[] = [];
 
 describe('RadioBrowserProvider', () => {
+  it.each([null, {error: 'temporary failure'}])('rejects malformed successful station data before selecting a mirror or caching it: %j', async malformed => {
+    const fetch = mockFetch(url => url.hostname === 'bad.example.test' ? jsonResponse(malformed) : jsonResponse([
+      {stationuuid: 'good', name: 'Good', url_resolved: 'https://stream.example.test/live'}, {invalid: true}
+    ]));
+    const provider = new RadioBrowserProvider(['https://bad.example.test', 'https://good.example.test'], cacheForTest());
+    await expect(provider.popular()).resolves.toMatchObject([{id: 'good', name: 'Good'}]);
+    await expect(provider.popular()).resolves.toMatchObject([{id: 'good'}]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -188,6 +198,7 @@ describe('RadioBrowserProvider', () => {
       if (url.origin === 'https://all.api.radio-browser.info') {
         return jsonResponse({message: 'unavailable'}, {status: 503, statusText: 'Service Unavailable'});
       }
+      if (url.pathname === '/json/stats') return jsonResponse({stations: 500});
       return jsonResponse([{name: 'Japan', iso_3166_1: 'jp', stationcount: 500}]);
     });
     const provider = new RadioBrowserProvider(undefined, cacheForTest(), {resolveSrv});

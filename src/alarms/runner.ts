@@ -18,9 +18,9 @@ type RunnerStore={
   toggleAlarm(id:string,enabled?:boolean):unknown;
   snoozeAlarm(id:string,until:Date):unknown;
   addRecent(station:Station):unknown;
-  startListeningSession(station:Station,at?:Date):unknown;
-  checkpointActiveListeningSession(at?:Date):unknown;
-  finishActiveListeningSession(at?:Date):unknown;
+  startListeningSession(station:Station,at?:Date,owner?:string):unknown;
+  checkpointActiveListeningSession(at?:Date,owner?:string):unknown;
+  finishActiveListeningSession(at?:Date,owner?:string):unknown;
 };
 type RunnerPlayer={play(station:Station,url:string,options?:{signal?:AbortSignal}):Promise<void>;stop():Promise<void>;setVolume(volume:number):Promise<PlaybackControlResult>;getState():Partial<PlaybackState>;onChange?(listener:(state:PlaybackState)=>void):()=>void};
 type RunnerProvider={resolve(station:Station,options?:{signal?:AbortSignal}):Promise<ResolvedStream>};
@@ -35,15 +35,21 @@ export type AlarmRunnerDeps={
   subscribeSignals?(handler:()=>void):()=>void;
   health?:AlarmRuntimeHealthStore;
   systemVolume?:SystemVolumeController;
+  playbackDurationMs?: number;
+  reconciliation?: {run<T>(alarmId: string, work: () => T | Promise<T>): Promise<T>};
 };
 export type AlarmRunResult={status?:AlarmRunRecord['status'];message?:string;duplicate?:boolean};
 
 export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmRunnerDeps):Promise<AlarmRunResult>{
   if(!/(?:Z|[+-]\d{2}:\d{2})$/.test(scheduledAtText))throw new Error('Scheduled alarm occurrence must be an absolute date.');
   const scheduledAt=new Date(scheduledAtText);if(!Number.isFinite(scheduledAt.getTime()))throw new Error('Scheduled alarm occurrence must be an absolute date.');
-  const releaseLock=deps.acquireLock(alarmId,scheduledAt.toISOString());if(!releaseLock){const current=deps.store.getAlarm(alarmId);if(current)try{await deps.scheduler.sync(current);}catch{}return{duplicate:true,message:'This alarm occurrence is already running or completed.'};}
+  const claim = () => deps.acquireLock(alarmId,scheduledAt.toISOString());
+  const releaseLock=deps.reconciliation ? await deps.reconciliation.run(alarmId, claim) : claim();if(!releaseLock){const current=deps.store.getAlarm(alarmId);if(current)try{await deps.scheduler.sync(current);}catch{}return{duplicate:true,message:'This alarm occurrence is already running or completed.'};}
   let alarm=deps.store.getAlarm(alarmId);let outcome:AlarmRunRecord|undefined;let session:ActiveAlarmServer|undefined;let lease:Awaited<ReturnType<PowerInhibitor['acquire']>>|undefined;let systemVolumeLease:SystemVolumeLease|undefined;let listening=false;let historyStarted=false;let firedAt:Date|undefined;
   const runnerWarnings=new Set<string>();
+  const historyOwner = `${alarmId}:${scheduledAt.toISOString()}`;
+  let historyTimer: NodeJS.Timeout | undefined;
+  let historyWrites = Promise.resolve();
   const recordRunnerWarning=(message:string)=>{runnerWarnings.add(message);try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:listening,message:[...runnerWarnings].join(' ')});}catch{}};
   let preserveNextOverride=false;
   let preserveSystemVolume=false;
@@ -94,7 +100,17 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     if(backendEndedAt)throw new Error(backendMessage??'Alarm stream ended while sleep protection was starting.');
     const startedAt=deps.now();listening=true;
     try{await deps.store.addRecent(resolvedStation);}catch(error){recordRunnerWarning(`Recent listening history could not be saved: ${errorMessage(error)}`);}
-    try{await deps.store.startListeningSession(resolvedStation,startedAt);historyStarted=true;}catch(error){recordRunnerWarning(`Listening history could not be started: ${errorMessage(error)}`);}
+    try{await deps.store.startListeningSession(resolvedStation,startedAt,historyOwner);historyStarted=true;}catch(error){recordRunnerWarning(`Listening history could not be started: ${errorMessage(error)}`);}
+    if (historyStarted) {
+      historyTimer = setInterval(() => {
+        const at = deps.now();
+        historyWrites = historyWrites.then(async () => {
+          try { await deps.store.checkpointActiveListeningSession(at, historyOwner); }
+          catch (error) { recordRunnerWarning(`Listening history could not be checkpointed: ${errorMessage(error)}`); }
+        });
+      }, 30_000);
+      historyTimer.unref?.();
+    }
     const activeStatus:ActiveAlarmStatus={alarmId,scheduledAt:scheduledAt.toISOString(),stationName:resolvedStation.name,station:resolvedStation,startedAt:startedAt.toISOString(),state:'playing'};
     session.update(activeStatus);
     void deps.openControls?.(activeStatus).then(result=>{if(result&&!result.opened&&result.terminal!=='existing-tui')recordRunnerWarning(`RadioCLI controls are unavailable or unverified: ${result.message}`);}).catch(error=>{recordRunnerWarning(`RadioCLI controls could not open automatically: ${errorMessage(error)}`);});
@@ -103,12 +119,13 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
       const supportsFade=deps.player.getState().backend==='mpv';
       if(supportsFade&&alarm.playback.fadeSeconds>0){const zero=await deps.player.setVolume(0);if(zero.ok){const steps=Math.min(1800,Math.max(1,Math.ceil(alarm.playback.fadeSeconds/2)));for(let step=1;step<=steps&&!action;step+=1){await Promise.race([deps.wait(alarm.playback.fadeSeconds*1000/steps),actionPromise]);if(!action){const changed=await deps.player.setVolume(Math.round(alarm.playback.volume*step/steps));if(!changed.ok){await deps.player.setVolume(alarm.playback.volume);break;}}}}else await deps.player.setVolume(alarm.playback.volume);}
       else {const volume=await deps.player.setVolume(alarm.playback.volume);if(!volume.ok)deps.health?.record({alarmId,component:'runner',healthy:true,message:volume.message??'The selected backend does not support runtime volume; it started with the configured alarm volume.'});}
-      if(!action){const elapsed=Math.max(0,deps.now().getTime()-startedAt.getTime());const timeout=deps.wait(Math.max(0,alarm.playback.stopAfterMinutes*60_000-elapsed)).then(()=>keepPlaying?new Promise<never>(()=>{}):'timeout' as const);action=await Promise.race([actionPromise,timeout]);}
+      if(!action){const elapsed=Math.max(0,deps.now().getTime()-startedAt.getTime());const timeout=deps.wait(Math.max(0,(deps.playbackDurationMs ?? alarm.playback.stopAfterMinutes*60_000)-elapsed)).then(()=>keepPlaying?new Promise<never>(()=>{}):'timeout' as const);action=await Promise.race([actionPromise,timeout]);}
     }
     outcome=finish(action==='backend-ended'?'failed':action==='dismissed'||action==='snoozed'||action==='signal'?'dismissed':'played',action==='backend-ended'?backendMessage:action==='snoozed'?'Snoozed.':action==='handoff'?'Handed off to interactive playback.':action==='signal'?'Interrupted.':undefined);
     return{status:outcome.status,message:outcome.message};
   }catch(error){outcome=finish(tuneAbort.signal.aborted&&action!=='backend-ended'?'dismissed':'failed',errorMessage(error));return{status:outcome.status,message:outcome.message};}
   finally{
+    clearInterval(historyTimer);
     listening=false;
     unsubscribePlayer?.();
     tuneAbort.abort();
@@ -117,16 +134,21 @@ export async function runAlarm(alarmId:string,scheduledAtText:string,deps:AlarmR
     await handoffOutput?.catch(()=>undefined);
     if(!preserveSystemVolume)try{await systemVolumeLease?.release();}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Previous system output volume could not be restored: ${errorMessage(error)}`});}catch{}}
     if(historyStarted){
+      await historyWrites;
       const endedAt=backendEndedAt??deps.now();
-      try{await deps.store.checkpointActiveListeningSession(endedAt);}catch(error){recordRunnerWarning(`Listening history could not be checkpointed: ${errorMessage(error)}`);}
-      try{await deps.store.finishActiveListeningSession(endedAt);}catch(error){recordRunnerWarning(`Listening history could not be finished: ${errorMessage(error)}`);}
+      try{await deps.store.checkpointActiveListeningSession(endedAt,historyOwner);}catch(error){recordRunnerWarning(`Listening history could not be checkpointed: ${errorMessage(error)}`);}
+      try{await deps.store.finishActiveListeningSession(endedAt,historyOwner);}catch(error){recordRunnerWarning(`Listening history could not be finished: ${errorMessage(error)}`);}
     }
     try{await lease?.release();if(lease)deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:true,active:false,message:'Playback sleep inhibition released.'});}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'power',healthy:false,active:true,message:`Unable to verify inhibitor release: ${errorMessage(error)}`});}catch{}}
     try{await session?.close();}catch{}
     if(alarm&&outcome){try{await deps.store.recordAlarmOutcome(alarmId,outcome,{clearNextOverride:validTerminalOccurrence&&!preserveNextOverride});const latest=deps.store.getAlarm(alarmId);if(alarm.schedule.type==='once'&&latest?.schedule.type==='once'&&latest.schedule.at===alarm.schedule.at&&validTerminalOccurrence&&!preserveNextOverride)await deps.store.toggleAlarm(alarmId,false);}catch(error){recordRunnerWarning(`Alarm outcome or completion state could not be saved: ${errorMessage(error)}`);}}
     alarm=deps.store.getAlarm(alarmId);if(alarm)try{if(deps.scheduler.syncClaimed)await deps.scheduler.syncClaimed(alarm,scheduledAt);else await deps.scheduler.sync(alarm);}catch{}
-    try{releaseLock(completeLock);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Occurrence lock cleanup failed: ${errorMessage(error)}`});}catch{}}
-    if(completeLock)try{await deps.scheduler.completeOccurrence?.(alarmId,scheduledAt);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'scheduler',healthy:false,message:`Completed launch job cleanup failed: ${errorMessage(error)}`});}catch{}}
+    const complete = async () => {
+      try{releaseLock(completeLock);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'runner',healthy:false,active:false,message:`Occurrence lock cleanup failed: ${errorMessage(error)}`});}catch{}}
+      if(completeLock)try{await deps.scheduler.completeOccurrence?.(alarmId,scheduledAt);}catch(error){try{deps.health?.record({alarmId,occurrenceAt:scheduledAt.toISOString(),component:'scheduler',healthy:false,message:`Completed launch job cleanup failed: ${errorMessage(error)}`});}catch{}}
+    };
+    try { if (deps.reconciliation) await deps.reconciliation.run(alarmId, complete); else await complete(); }
+    catch (error) { recordRunnerWarning(`Occurrence cleanup could not be reconciled: ${errorMessage(error)}`); }
   }
 }
 

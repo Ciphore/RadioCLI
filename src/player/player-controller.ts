@@ -677,6 +677,7 @@ export class PlayerController {
         // Several supported mpv/FFmpeg builds default to accepting any certificate.
         // Apply to every input, including HTTP redirects and nested playlists.
         '--tls-verify=yes',
+        '--mute=no',
         ...(startPaused ? ['--pause=yes'] : []),
         ...desktopMedia.mpvArgs,
         ...(recoveredAudioOutput || this.runtime.env.RADIOCLI_MPV_AUDIO_OUTPUT
@@ -1285,13 +1286,15 @@ export class PlayerController {
       if (event.event !== 'property-change') return;
       if (event.name === 'pause' && typeof event.data === 'boolean' && this.state.ready) {
         void this.applyMpvPause(event.data).catch(() => undefined);
+      } else if (event.name === 'mute' && typeof event.data === 'boolean' && this.state.muted !== event.data) {
+        this.setState({...this.state, muted: event.data});
       } else if (event.name === 'metadata' && event.data && typeof event.data === 'object') {
         void this.applyMpvMetadata(event.data as Record<string, string>, client, session);
       } else if (event.name === 'paused-for-cache' && typeof event.data === 'boolean' && this.state.buffering !== event.data) {
         this.setState({...this.state, buffering: event.data});
       }
     });
-    if (client) void Promise.all(['pause', 'metadata', 'paused-for-cache'].map((property, id) => client.observe(id + 1, property)))
+    if (client) void Promise.all(['pause', 'metadata', 'paused-for-cache', 'mute'].map((property, id) => client.observe(id + 1, property)))
       .then(() => {
         if (client !== this.mpvIpcClient || session !== this.mpvSessionId) return;
         this.mpvObserved = true;

@@ -75,6 +75,11 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
 
 function sessionSeconds(session: ListeningSession, now = new Date()): number {
   const started = Date.parse(session.startedAt);
+  const checkpoint = Date.parse(session.lastActiveAt ?? '');
+  const recorded = Number.isFinite(session.listenedSeconds) ? Math.max(0, Math.round(session.listenedSeconds)) : 0;
+  const confirmed = Number.isFinite(started) && Number.isFinite(checkpoint) && checkpoint >= started
+    ? Math.min(recorded, Math.round((checkpoint - started) / 1000))
+    : Math.min(maxContinuousListeningSeconds, recorded);
   const ended = session.endedAt
     ? Date.parse(session.endedAt)
     : session.lastActiveAt
@@ -83,13 +88,12 @@ function sessionSeconds(session: ListeningSession, now = new Date()): number {
         ? started + Math.max(0, session.listenedSeconds) * 1000
         : now.getTime();
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) {
-    return Math.min(maxContinuousListeningSeconds, Math.max(0, Math.round(session.listenedSeconds)));
+    return confirmed;
   }
 
-  return Math.min(
-    maxContinuousListeningSeconds,
-    Math.max(Math.round(session.listenedSeconds), Math.round((ended - started) / 1000))
-  );
+  // Persisted listening is confirmed by the player. Only inferred elapsed
+  // time from legacy/stale records needs the crash-protection ceiling.
+  return Math.max(confirmed, Math.min(maxContinuousListeningSeconds, Math.round((ended - started) / 1000)));
 }
 
 function localDay(date: Date): string {

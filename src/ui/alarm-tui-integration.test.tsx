@@ -671,7 +671,9 @@ describe('Settings TUI integration', () => {
     let finish!: (result: updates.UpdateInstallResult) => void;
     const install = vi.spyOn(updates, 'installUpdate').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const configure = vi.fn(async () => []);
-    const app = render(<App store={store} alarmService={service} playbackSession={playbackSession} mcpConfigurator={configure} />);
+    const repair = vi.fn(async () => ({mcp: 'repaired' as const, alarms: 0, failures: []}));
+    const updateRepair = vi.fn(() => repair);
+    const app = render(<App store={store} alarmService={service} playbackSession={playbackSession} mcpConfigurator={configure} updateRepair={updateRepair} />);
     try {
       await settle();
       app.stdin.write('b'); await settle();
@@ -689,7 +691,8 @@ describe('Settings TUI integration', () => {
       await act(async () => { finish({ok, command: 'fixture-update', output: ok ? '' : 'fixture failure'}); });
       await settle();
       expect(app.lastFrame()).toContain(ok ? 'restart MCP clients' : 'Update install failed');
-      expect(configure).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(repair).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(configure).not.toHaveBeenCalled();
       expect(call.mock.calls.some(([command]) => ['stop', 'tui-detach'].includes(command.type))).toBe(false);
       expect(playbackSession.status).toMatchObject({station, queue: [station], playback: {state: 'playing'}});
       app.stdin.write('q'); await settle();

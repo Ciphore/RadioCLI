@@ -16,6 +16,7 @@ import {detectPlaybackBackends} from '../player/backend-install.js';
 import {AgentAlarmService, type AgentAlarmCreate, type AgentAlarmUpdate} from './alarm-service.js';
 import {appVersion} from '../version.js';
 import {checkForUpdate, updateCommandForInstall} from '../update-check.js';
+import {definedFields} from '../settings-patch.js';
 
 export type StationSource = 'recent' | 'favorite' | 'popular' | 'country';
 export type AgentRuntime = {nodePath: string; cliPath: string};
@@ -182,6 +183,7 @@ export class AgentRadioService {
 
   async updateAppearance(input: {theme?: ThemeName; receiverStyle?: ReceiverStyle}): Promise<unknown> {
     this.assertEnabled();
+    input = definedFields(input);
     if (input.theme && !themeNames.includes(input.theme)) throw new Error(`Unknown theme: ${input.theme}`);
     if (input.receiverStyle && !receiverStyleNames.includes(input.receiverStyle)) throw new Error(`Unknown receiver style: ${input.receiverStyle}`);
     const client = await this.connect();
@@ -198,7 +200,7 @@ export class AgentRadioService {
   async configureCompletionPreset(input: Partial<AgentControlSettings['completionPreset']>): Promise<AgentControlSettings> {
     this.assertEnabled();
     const agentControl = this.agentSettings();
-    const completionPreset = {...agentControl.completionPreset, ...input};
+    const completionPreset = {...agentControl.completionPreset, ...definedFields(input)};
     if (completionPreset.source === 'country' && !completionPreset.countryCode) throw new Error('A two-letter countryCode is required for the country preset source.');
     if (completionPreset.countryCode) completionPreset.countryCode = completionPreset.countryCode.toUpperCase();
     return (await this.store.updateSettings({agentControl: {...agentControl, completionPreset}})).settings.agentControl!;
@@ -206,7 +208,7 @@ export class AgentRadioService {
 
   async updateAgentPreferences(input: {openUiOnPlay?: boolean; focusNowPlaying?: boolean}): Promise<unknown> {
     this.assertEnabled();
-    const agentControl = {...this.agentSettings(), ...input};
+    const agentControl = {...this.agentSettings(), ...definedFields(input)};
     const client = await this.connect();
     if (client) return client.call({type: 'update-settings', settings: {agentControl}});
     return (await this.store.updateSettings({agentControl})).settings.agentControl;

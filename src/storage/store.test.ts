@@ -18,6 +18,59 @@ vi.mock('node:fs', async importOriginal => ({...await importOriginal<typeof impo
 vi.mock('../platform/paths.js', async importOriginal => ({...await importOriginal<typeof import('../platform/paths.js')>()}));
 
 describe('JsonLibraryStore', () => {
+  it('merges unrelated nested preference edits from independent writers', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-settings-merge-')); roots.push(root);
+    const path = join(root, 'library.json'); const a = new JsonLibraryStore(path); const b = new JsonLibraryStore(path);
+    a.updateSettings({agentControl: {...a.settings().agentControl!, openUiOnPlay: false}});
+    b.updateSettings({agentControl: {...b.settings().agentControl!, focusNowPlaying: false}});
+    expect(new JsonLibraryStore(path).settings().agentControl).toMatchObject({openUiOnPlay: false, focusNowPlaying: false});
+  });
+
+  it.each([
+    ['theme.json', {version: 1, libraryTheme: 'green'}],
+    ['receiver-v2.json', {version: 1, libraryReceiverStyle: 'ultracode'}]
+  ])('recovers only the known missing-field %s sidecar without losing the library', (suffix, preference) => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-preference-recovery-')); roots.push(root);
+    const file = join(root, 'library.json'); const store = new JsonLibraryStore(file);
+    store.toggleFavorite({id: 'saved', provider: 'playlist', name: 'Saved', tags: []});
+    writeFileSync(`${file}.${suffix}`, JSON.stringify(preference));
+    const reopened = new JsonLibraryStore(file);
+    expect(reopened.snapshot().favorites[0]?.name).toBe('Saved');
+    expect(existsSync(`${file}.${suffix}`)).toBe(false);
+    expect(new JsonLibraryStore(file).settings().theme).toBe('green');
+  });
+
+  it('preserves omitted settings and rejects invalid merged preferences before writing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-settings-patch-')); roots.push(root);
+    const file = join(root, 'library.json'); const store = new JsonLibraryStore(file);
+    store.updateSettings({theme: 'ruby'});
+    store.updateSettings({theme: undefined, receiverStyle: 'fire'});
+    expect(new JsonLibraryStore(file).settings()).toMatchObject({theme: 'ruby', receiverStyle: 'fire'});
+    const bytes = readFileSync(file, 'utf8');
+    expect(() => store.updateSettings({theme: 'invalid' as never})).toThrow();
+    expect(readFileSync(file, 'utf8')).toBe(bytes);
+    expect(existsSync(`${file}.theme.json`)).toBe(false);
+  });
+
+  it('keeps overlapping alarm and ordinary listening sessions independent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-owned-history-')); roots.push(root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    const station: Station = {id: 'a', provider: 'playlist', name: 'A', tags: []};
+    const at = new Date('2030-01-01T00:00:00Z');
+    store.startListeningSession(station, at, 'alarm-a');
+    store.startListeningSession(station, at, 'alarm-b');
+    store.startListeningSession(station, at);
+    store.checkpointActiveListeningSession(new Date(at.getTime() + 60_000), 'alarm-a');
+    store.finishActiveListeningSession(new Date(at.getTime() + 120_000), 'alarm-b');
+    const sessions = store.snapshot().activity.sessions;
+    expect(sessions.find(session => session.owner === 'alarm-a')?.listenedSeconds).toBe(60);
+    expect(sessions.find(session => session.owner === 'alarm-a')?.endedAt).toBeUndefined();
+    expect(sessions.find(session => session.owner === 'alarm-b')).toMatchObject({listenedSeconds: 120, endedAt: expect.any(String)});
+    expect(sessions.find(session => !session.owner)?.listenedSeconds).toBe(0);
+    expect(sessions.find(session => !session.owner)?.endedAt).toBeUndefined();
+    expect(new JsonLibraryStore(store.filePath).snapshot().activity.sessions).toEqual(sessions);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     for (const root of roots.splice(0)) {

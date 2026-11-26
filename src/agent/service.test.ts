@@ -22,6 +22,27 @@ afterEach(() => {
 });
 
 describe('agent radio service policy', () => {
+  it.each(['absent', 'idle', 'paused'] as const)('preserves partial MCP preferences with an %s session', async host => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-partial-preferences-')); roots.push(root); vi.stubEnv('RADIOCLI_HOME', root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    store.updateSettings({theme: 'ruby', agentControl: {...defaultAgentControlSettings, enabled: true, openUiOnPlay: false,
+      completionPreset: {action: 'play', source: 'country', countryCode: 'JP', ifPlaying: 'replace', openUi: false}}});
+    const status: RadioSessionStatus = {owner: 'tui', playback: {backend: 'mpv', state: host === 'paused' ? 'paused' : 'idle', volume: 70, muted: false, ready: host === 'paused'}, station: null, queue: []};
+    const server = host === 'absent' ? undefined : await startRadioSession(async command => {
+      if (command.type === 'update-settings') store.updateSettings(command.settings);
+      return {ok: true, message: 'ok', status};
+    });
+    try {
+      const service = new AgentRadioService({nodePath: '/node', cliPath: '/cli'}, store);
+      await service.updateAppearance({theme: undefined, receiverStyle: 'fire'});
+      await service.updateAgentPreferences({openUiOnPlay: undefined, focusNowPlaying: false});
+      await service.configureCompletionPreset({action: 'pause', source: undefined, countryCode: undefined, ifPlaying: undefined, openUi: undefined});
+      const settings = new JsonLibraryStore(store.filePath).settings();
+      expect(settings).toMatchObject({theme: 'ruby', receiverStyle: 'fire', agentControl: {openUiOnPlay: false, focusNowPlaying: false,
+        completionPreset: {action: 'pause', source: 'country', countryCode: 'JP', ifPlaying: 'replace', openUi: false}}});
+    } finally { await server?.close(); }
+  });
+
   it('honors Nearby privacy before geolocation and returns useful failures and bounded results', async () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-nearby-'));
     roots.push(root);

@@ -37,6 +37,7 @@ import {useAlarmTui} from './use-alarm-tui.js';
 import {toAsciiSafe} from './ascii.js';
 import {registerTuiPresence} from '../alarms/tui-presence.js';
 import {configureMcpIntegrations, type McpInstallResult} from '../agent/mcp-install.js';
+import {prepareUpdateRepair} from '../update-repair.js';
 import {allowedRadioSessionSettings, resolveDesktopTransport, serializeRadioCommands, startRadioSession, type RadioSessionCommand, type RadioSessionResult, type RadioSessionStatus} from '../agent/session.js';
 import {desktopMediaPolicy, startDesktopMediaControls} from '../platform/desktop-media.js';
 import {
@@ -76,6 +77,7 @@ type AppProps = {
   alarmPreview?: (station: Station) => Promise<void>;
   initialAgentCommand?: RadioSessionCommand;
   mcpConfigurator?: typeof configureMcpIntegrations;
+  updateRepair?: typeof prepareUpdateRepair;
   updateChecker?: typeof checkForUpdate;
   platform?: NodeJS.Platform;
   playbackSession?: TuiSession;
@@ -100,7 +102,7 @@ const settingToggleLabel: Record<BooleanSetting, string> = {
   automaticUpdateChecks: 'Automatic update checks'
 };
 
-export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateChecker = checkForUpdate, platform = process.platform, playbackSession, playbackRecoveryWarning}: AppProps): React.ReactElement {
+export function App({store: providedStore, providers: providedProviders, alarmService: providedAlarmService, alarmPreview, initialAgentCommand, mcpConfigurator = configureMcpIntegrations, updateRepair = prepareUpdateRepair, updateChecker = checkForUpdate, platform = process.platform, playbackSession, playbackRecoveryWarning}: AppProps): React.ReactElement {
   const {exit} = useApp();
   const {stdin} = useStdin();
   const {stdout} = useStdout();
@@ -1808,27 +1810,26 @@ export function App({store: providedStore, providers: providedProviders, alarmSe
     const command = updateCommandForInstall();
     installingUpdateRef.current = true;
     setMessage(`Installing update with ${command.method === 'homebrew' ? 'Homebrew' : 'npm'}...`);
-    const result = await installUpdate(command.command);
-    installingUpdateRef.current = false;
-    if (result.ok) {
-      const agentControl = settingsRef.current.agentControl ?? defaultAgentControlSettings;
-      if (agentControl.enabled) {
+    try {
+      const repair = updateRepair(mcpRuntime());
+      const result = await installUpdate(command.command);
+      if (result.ok) {
         try {
-          const repaired = await mcpConfigurator(true, mcpRuntime(), null);
-          const suffix = repaired.some(item => item.status === 'failed') ? ' Some MCP clients need manual repair.' : ' MCP integrations repaired.';
-          setMessage(`Update installed.${suffix} Quit and reopen RadioCLI; restart MCP clients to load updated tools.`);
+          const repaired = await repair();
+          const suffix = repaired.failures.length ? ' Some registrations need repair; run radiocli alarm sync and radiocli mcp repair.' : ' Registrations repaired.';
+          setMessage(`Update installed. Restart RadioCLI and restart MCP clients.${suffix}`);
         } catch {
-          setMessage('Update installed. MCP repair failed; run radiocli mcp repair, then quit and reopen RadioCLI and restart MCP clients.');
+          setMessage('Update installed. Restart RadioCLI and restart MCP clients. Repair failed; run radiocli alarm sync and radiocli mcp repair.');
         }
-      } else {
-        setMessage('Update installed. Quit and reopen RadioCLI to use the new version.');
+        return;
       }
-      return;
-    }
 
-    const detail = result.output ? ` ${result.output.split('\n').at(-1)}` : '';
-    setMessage(`Update install failed. Run manually: ${result.command}.${detail}`);
-  }, [installedVersion, library.updateCheck, mcpConfigurator, refreshUpdateCheck, store]);
+      const detail = result.output ? ` ${result.output.split('\n').at(-1)}` : '';
+      setMessage(`Update install failed. Run manually: ${result.command}.${detail}`);
+    } catch (error) {
+      setMessage(`Update failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally { installingUpdateRef.current = false; }
+  }, [installedVersion, library.updateCheck, updateRepair, refreshUpdateCheck, store]);
 
   const executeCommand = useCommandExecutor({
     beginLearningTransportKey,

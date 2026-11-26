@@ -24,7 +24,7 @@ export type TuiActiveAlarm = {
 
 export type AlarmTuiService = {
   sync(alarm: Alarm): Promise<Date | null>;
-  syncAll(alarms: readonly Alarm[]): Promise<Array<{id: string; occurrence: Date | null; error?: string}>>;
+  syncAll(alarms: readonly Alarm[]): Promise<Array<{id: string; occurrence: Date | null; error?: string; deferred?: boolean}>>;
   remove(alarm: Alarm): Promise<void>;
   runtimeStatus(alarms: readonly Alarm[]): Promise<AlarmRuntimeSummary>;
   activeAlarms(): Promise<TuiActiveAlarm[]>;

@@ -26,6 +26,13 @@ function managerFixture(name: string, body: string): string {
 }
 
 describe('update checks', () => {
+  it('expires a cached check after a backward clock correction', () => {
+    vi.stubEnv('CI', 'false');
+    const now = Date.parse('2026-07-07T12:00:00Z');
+    expect(shouldCheckForUpdate({checkedAt: new Date(now + 86400_000).toISOString(), currentVersion: '0.2.6', updateAvailable: false}, now)).toBe(true);
+    expect(shouldCheckForUpdate({checkedAt: new Date(now + 500).toISOString(), currentVersion: '0.2.6', updateAvailable: false}, now)).toBe(false);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.useRealTimers();

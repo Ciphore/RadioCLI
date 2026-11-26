@@ -2,7 +2,7 @@ import type {Alarm, AlarmCreateInput, AlarmSchedule, IsoWeekday, Station} from '
 import type {JsonLibraryStore} from '../storage/store.js';
 import type {LibraryRepository} from '../storage/repository.js';
 import {AlarmOccurrenceCache} from '../alarms/occurrence-cache.js';
-import {canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
+import {assertFutureAlarm, canonicalizeAlarmTime, canonicalizeIsoWeekdays, canonicalizeTimeZone} from '../alarms/schedule.js';
 import {connectActiveAlarms, type ActiveAlarmClient, type ActiveAlarmStatus} from '../alarms/active-session.js';
 import {createSchedulerService, type SchedulerService} from '../alarms/scheduler.js';
 
@@ -208,7 +208,7 @@ function normalizeSchedule(schedule: AgentAlarmSchedule): AlarmSchedule {
     if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(schedule.at) || !Number.isFinite(instant.getTime()) || instant.getUTCSeconds() !== 0 || instant.getUTCMilliseconds() !== 0) {
       throw new Error('One-time alarms require an absolute ISO-8601 minute with an offset or Z and zero seconds.');
     }
-    if (instant.getTime() <= Date.now()) throw new Error('One-time alarms must be scheduled in the future.');
+    assertFutureAlarm(schedule);
     return {type: 'once', at: instant.toISOString()};
   }
   return {

@@ -5,11 +5,53 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {JsonLibraryStore} from '../storage/store.js';
 import {runAlarmCommand,alarmRuntimeSettings,alarmUsage,parseActiveSelectors,rejectAt,runnerPowerActive,enforcePreviewDeadline,validatePreviewResult} from './cli.js';
 import {SchedulerService,type SchedulerAdapter} from './scheduler.js';
+import {PlayerController} from '../player/player-controller.js';
+import * as backendInstall from '../player/backend-install.js';
+import {ProviderManager} from '../providers/provider-manager.js';
+import * as power from './inhibitor.js';
+import {defaultRunnerUtilities} from './runner.js';
 
 const roots:string[]=[];
 afterEach(()=>{vi.restoreAllMocks();for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 
 describe('alarm CLI',()=>{
+  it('finishes a healthy preview normally before its watchdog and leaves the saved alarm unchanged', async () => {
+    vi.useFakeTimers();
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'radiocli-preview-')); roots.push(root);
+      const store = new JsonLibraryStore(join(root, 'library.json'));
+      const saved = store.addAlarm({label: 'Preview', enabled: true, station: {id: 'preview', provider: 'playlist', name: 'Preview', tags: []},
+        schedule: {type: 'once', at: '2099-01-01T08:00:00Z'}, playback: {volume: 40, fadeSeconds: 0, stopAfterMinutes: 30}, reliability: {missedRunGraceMinutes: 10, wakeIfSupported: false}});
+      vi.spyOn(backendInstall, 'detectPlaybackBackends').mockReturnValue(['mpv']);
+      vi.spyOn(PlayerController.prototype, 'play').mockResolvedValue();
+      vi.spyOn(PlayerController.prototype, 'getState').mockReturnValue({backend: 'mpv', state: 'playing', volume: 40, muted: false, ready: true});
+      const stop = vi.spyOn(PlayerController.prototype, 'stop').mockResolvedValue();
+      vi.spyOn(PlayerController.prototype, 'setVolume').mockResolvedValue({ok: true});
+      vi.spyOn(PlayerController.prototype, 'onChange').mockReturnValue(() => {});
+      vi.spyOn(ProviderManager.prototype, 'resolve').mockResolvedValue({url: 'https://fixture.test/live'});
+      vi.spyOn(power, 'createPowerInhibitor').mockReturnValue({status: () => ({supported: false, active: false, message: 'fixture'}), acquire: async () => ({release: async () => {}})});
+      vi.spyOn(defaultRunnerUtilities, 'createSession').mockResolvedValue({update: vi.fn(), close: vi.fn(async () => {})});
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const preview = expect(runAlarmCommand(['test', saved.id], {store, scheduler: {} as SchedulerService})).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(4000); await preview;
+      expect(log).toHaveBeenCalledWith('test=complete'); expect(stop).toHaveBeenCalled();
+      expect(store.getAlarm(saved.id)).toEqual(saved); expect(store.snapshot().activity.sessions).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('rejects past one-time additions and schedule edits before changing the library or scheduler', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-past-alarm-')); roots.push(root);
+    const store = new JsonLibraryStore(join(root, 'library.json'));
+    const station = {id: 'jazz', provider: 'playlist' as const, name: 'Jazz', tags: [], streamUrl: 'https://example.test/jazz'}; store.addImported([station]);
+    const scheduler = {sync: vi.fn()} as unknown as SchedulerService;
+    await expect(runAlarmCommand(['add', '--station', 'playlist:jazz', '--once', '2000-01-01T08:00:00Z'], {store, scheduler})).rejects.toThrow(/future/);
+    expect(store.listAlarms()).toEqual([]); expect(scheduler.sync).not.toHaveBeenCalled();
+    const saved = store.addAlarm({label: 'Future', enabled: true, station, schedule: {type: 'once', at: '2099-01-01T08:00:00Z'},
+      playback: {volume: 40, fadeSeconds: 0, stopAfterMinutes: 30}, reliability: {missedRunGraceMinutes: 10, wakeIfSupported: false}});
+    await expect(runAlarmCommand(['edit', saved.id, '--once', '2000-01-01T08:00:00Z'], {store, scheduler})).rejects.toThrow(/future/);
+    expect(store.getAlarm(saved.id)?.schedule).toEqual(saved.schedule); expect(scheduler.sync).not.toHaveBeenCalled();
+  });
+
   it('adds and synchronizes a recurring alarm without invoking a real OS command',async()=>{
     const root=mkdtempSync(join(tmpdir(),'radiocli-cli-alarm-'));roots.push(root);const store=new JsonLibraryStore(join(root,'library.json'));
     store.addImported([{id:'jazz',provider:'playlist',name:'Jazz',tags:[],streamUrl:'https://example.test/jazz'}]);

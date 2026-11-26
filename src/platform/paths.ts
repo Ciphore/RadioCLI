@@ -7,7 +7,7 @@ type PathInput = {platform?: string; home?: string; env?: NodeJS.ProcessEnv};
 export const pathEnvironmentKeys = [
   'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
   'RADIOCLI_HOME', 'RADIO_ATLAS_HOME',
-  'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR'
+  'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR'
 ] as const;
 
 /**

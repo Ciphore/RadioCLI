@@ -1,5 +1,5 @@
 import type {Alarm, AlarmCreateInput, IsoWeekday, Station} from '../types.js';
-import {nextAlarmOccurrence} from '../alarms/schedule.js';
+import {assertFutureAlarm, nextAlarmOccurrence} from '../alarms/schedule.js';
 
 export type AlarmDraft = {
   id?: string;
@@ -119,7 +119,7 @@ export function alarmInputFromDraft(draft: AlarmDraft, now = new Date()): AlarmC
         weekdays: parseWeekdays(draft.weekdays),
         timezone: canonicalTimezone(draft.timezone)
       };
-  if (schedule.type === 'once' && new Date(schedule.at).getTime() <= now.getTime()) throw new Error('One-time alarm must be in the future.');
+  assertFutureAlarm(schedule, now);
   return {
     label,
     enabled: draft.enabled,

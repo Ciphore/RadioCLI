@@ -78,7 +78,7 @@ export function shouldCheckForUpdate(updateCheck: UpdateCheckState | undefined, 
   }
 
   const checkedAt = Date.parse(updateCheck.checkedAt);
-  return !Number.isFinite(checkedAt) || now - checkedAt >= UPDATE_CHECK_INTERVAL_MS;
+  return !Number.isFinite(checkedAt) || checkedAt > now + 1000 || now - checkedAt >= UPDATE_CHECK_INTERVAL_MS;
 }
 
 export function automaticUpdateChecksAllowed(enabled = true): boolean {

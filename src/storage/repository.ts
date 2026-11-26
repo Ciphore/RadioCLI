@@ -67,9 +67,9 @@ export class LibraryRepository {
   addRecent(station: Station): Promise<LibraryState> { return this.call('addRecent', station); }
   recordTrack(station: Station, title: string): Promise<LibraryState> { return this.call('recordTrack', station, title); }
   addSearch(query: string): Promise<LibraryState> { return this.call('addSearch', query); }
-  startListeningSession(station: Station, at = new Date()): Promise<LibraryState> { return this.call('startListeningSession', station, at); }
-  checkpointActiveListeningSession(at = new Date()): Promise<LibraryState> { return this.call('checkpointActiveListeningSession', at); }
-  finishActiveListeningSession(at = new Date()): Promise<LibraryState> { return this.call('finishActiveListeningSession', at); }
+  startListeningSession(station: Station, at = new Date(), owner?: string): Promise<LibraryState> { return this.call('startListeningSession', station, at, owner); }
+  checkpointActiveListeningSession(at = new Date(), owner?: string): Promise<LibraryState> { return this.call('checkpointActiveListeningSession', at, owner); }
+  finishActiveListeningSession(at = new Date(), owner?: string): Promise<LibraryState> { return this.call('finishActiveListeningSession', at, owner); }
   toggleFavorite(station: Station): Promise<LibraryState> { return this.call('toggleFavorite', station); }
   addImported(stations: Station[]): Promise<LibraryState> { return this.call('addImported', stations); }
 
