@@ -597,7 +597,7 @@ export class RadioBrowserProvider {
     if (options.maxAgeMs) {
       const cached = await abortable(this.cache.getAsync<T>(cacheKey, options.maxAgeMs), options.signal);
       options.signal?.throwIfAborted();
-      if (cached) {
+      if (cached !== null && validEndpointResponse(path, cached)) {
         return cached;
       }
     }
@@ -606,7 +606,7 @@ export class RadioBrowserProvider {
     if (policy.offline || options.cacheOnly) {
       const stale = options.maxAgeMs ? await abortable(this.cache.getStaleAsync<T>(cacheKey), options.signal) : null;
       options.signal?.throwIfAborted();
-      if (stale !== null) return stale;
+      if (stale !== null && validEndpointResponse(path, stale)) return stale;
       throw new ProviderUnavailableError(policy.offline
         ? `${this.label} is offline: no cached response is available.`
         : `${this.label} is in low-bandwidth mode: no cached atlas is available. Disable RADIOCLI_LOW_BANDWIDTH to download it.`);
@@ -638,6 +638,7 @@ export class RadioBrowserProvider {
         );
         const value = await fetchJsonWithTimeout<T>(url, attemptTimeoutMs, this.runtime, options.signal);
         options.signal?.throwIfAborted();
+        if (!validEndpointResponse(path, value)) throw new Error('Radio Browser returned an invalid response shape.');
         this.activeBaseUrl = baseUrl;
         if (options.maxAgeMs) {
           try {
@@ -666,7 +667,7 @@ export class RadioBrowserProvider {
 
     const stale = await abortable(this.cache.getStaleAsync<T>(cacheKey), options.signal);
     options.signal?.throwIfAborted();
-    if (stale) {
+    if (stale !== null && validEndpointResponse(path, stale)) {
       return stale;
     }
 
@@ -685,6 +686,11 @@ export class RadioBrowserProvider {
     if (mirrors.length === 0 && this.mirrorDiscoveryPromise === discovery) this.mirrorDiscoveryPromise = null;
     return mirrors;
   }
+}
+
+function validEndpointResponse(path: string, value: unknown): boolean {
+  if (path === '/json/countries' || path.startsWith('/json/stations/')) return Array.isArray(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function describeRequestError(error: Error | null): string {

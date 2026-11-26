@@ -171,7 +171,10 @@ function isHls(contentType: string | undefined, url: string): boolean {
 
 function fallbackStationName(url: string): string {
   const parsed = new URL(url);
-  const segment = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).at(-1) ?? '')
+  const rawSegment = parsed.pathname.split('/').filter(Boolean).at(-1) ?? '';
+  let decoded = rawSegment;
+  try { decoded = decodeURIComponent(rawSegment); } catch { /* Opaque escaped octets need not encode UTF-8. */ }
+  const segment = decoded
     .replace(/\.(?:aac|flac|m3u8?|mp3|ogg|opus)$/i, '')
     .replace(/[-_]+/g, ' ')
     .trim();

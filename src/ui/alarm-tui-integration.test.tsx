@@ -669,9 +669,12 @@ describe('Settings TUI integration', () => {
     vi.spyOn(session, 'ensureRadioSession').mockResolvedValue({call, status: async () => structuredClone(status)});
     const playbackSession = await TuiSession.connect();
     let finish!: (result: updates.UpdateInstallResult) => void;
+    vi.spyOn(updates, 'updateCommandForInstall').mockReturnValue({method: 'yarn', command: 'fixture-update'});
     const install = vi.spyOn(updates, 'installUpdate').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const configure = vi.fn(async () => []);
-    const app = render(<App store={store} alarmService={service} playbackSession={playbackSession} mcpConfigurator={configure} />);
+    const repair = vi.fn(async () => ({mcp: 'repaired' as const, alarms: 0, failures: []}));
+    const updateRepair = vi.fn(() => repair);
+    const app = render(<App store={store} alarmService={service} playbackSession={playbackSession} mcpConfigurator={configure} updateRepair={updateRepair} />);
     try {
       await settle();
       app.stdin.write('b'); await settle();
@@ -682,6 +685,8 @@ describe('Settings TUI integration', () => {
       await moveDown(app, 1);
       app.stdin.write('\r'); await settle();
       expect(install).toHaveBeenCalledOnce();
+      expect(updateRepair).toHaveBeenCalledBefore(install);
+      expect(app.lastFrame()).toContain('Installing update with yarn');
       expect(playbackSession.status.playback.state).toBe('playing');
       app.stdin.write('\r'); await settle();
       expect(install).toHaveBeenCalledOnce();
@@ -689,7 +694,8 @@ describe('Settings TUI integration', () => {
       await act(async () => { finish({ok, command: 'fixture-update', output: ok ? '' : 'fixture failure'}); });
       await settle();
       expect(app.lastFrame()).toContain(ok ? 'restart MCP clients' : 'Update install failed');
-      expect(configure).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(repair).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(configure).not.toHaveBeenCalled();
       expect(call.mock.calls.some(([command]) => ['stop', 'tui-detach'].includes(command.type))).toBe(false);
       expect(playbackSession.status).toMatchObject({station, queue: [station], playback: {state: 'playing'}});
       app.stdin.write('q'); await settle();

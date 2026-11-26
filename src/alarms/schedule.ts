@@ -3,6 +3,12 @@ import type {Alarm, AlarmSchedule, IsoWeekday} from '../types.js';
 export type ScheduledOccurrenceAssessment = 'pending' | 'due' | 'missed';
 export const NATIVE_DISPATCH_TOLERANCE_MS = 30_000;
 
+export function assertFutureAlarm(schedule: AlarmSchedule, now = new Date()): void {
+  if (schedule.type === 'once' && new Date(schedule.at).getTime() <= now.getTime()) {
+    throw new Error('One-time alarm must be in the future.');
+  }
+}
+
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 const timezoneCache = new Map<string, string>();
 const civilOccurrenceCache = new Map<string, number | null>();

@@ -1,5 +1,6 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import type {Station} from '../types.js';
 import {customStationId} from '../storage/station-identity.js';
 
@@ -15,7 +16,7 @@ export function parsePlaylistFile(filePath: string, depth = 0): Station[] {
   if (lower.endsWith('.pls')) {
     stations = parsePls(text, root, depth);
   } else if (lower.endsWith('.xspf')) {
-    stations = parseXspf(text);
+    stations = parseXspf(text, filePath);
   } else {
     stations = parseM3u(text, basename(filePath), root, depth);
   }
@@ -114,20 +115,61 @@ function parsePls(text: string, root: string, depth: number): Station[] {
   });
 }
 
-function parseXspf(text: string): Station[] {
-  const tracks = [...text.matchAll(/<track\b[\s\S]*?<\/track>/gi)].map(match => match[0]);
-  return tracks.flatMap(track => {
-    const location = decodeXml(firstTag(track, 'location'));
-    if (!location || !isSupportedTarget(location)) {
-      return [];
+function parseXspf(text: string, filePath: string): Station[] {
+  // XSPF locations are URI references. Carry namespace and xml:base context
+  // through the document, including prefixed playlists and location elements.
+  // No DTD/entity declarations are interpreted or fetched.
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('XSPF entity declarations are unsupported.');
+  type Element = {name: string; local: string; xspf: boolean; base: URL; namespaces: Record<string, string>; text: string};
+  const stack: Element[] = [];
+  const stations: Station[] = [];
+  let track: {title?: string; locations: string[]} | undefined;
+  const tokens = text.match(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<(?:[^<>"']|"[^"]*"|'[^']*')+>|[^<]+/g) ?? [];
+  const close = () => {
+    const element = stack.pop();
+    if (!element) throw new Error('Invalid XSPF element nesting.');
+    if (track && element.xspf && stack.at(-1)?.local === 'track') {
+      if (element.local === 'title') track.title = element.text.trim();
+      if (element.local === 'location' && element.text.trim()) {
+        try {
+          const target = new URL(element.text.trim(), element.base).href;
+          if (isSupportedTarget(target)) track.locations.push(target);
+        } catch { /* An invalid location does not discard other tracks. */ }
+      }
     }
-
-    return [stationFromUrl(location, decodeXml(firstTag(track, 'title')) || location)];
-  });
-}
-
-function firstTag(text: string, tag: string): string | undefined {
-  return new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(text)?.[1]?.trim();
+    if (element.xspf && element.local === 'track' && track) {
+      const location = track.locations[0];
+      if (location) stations.push(stationFromUrl(location, track.title || location));
+      track = undefined;
+    }
+  };
+  for (const token of tokens) {
+    if (token.startsWith('<!--') || token.startsWith('<?')) continue;
+    if (token.startsWith('<![CDATA[')) { if (stack.length) stack.at(-1)!.text += token.slice(9, -3); continue; }
+    if (!token.startsWith('<')) { if (stack.length) stack.at(-1)!.text += decodeXml(token) ?? ''; continue; }
+    if (token.startsWith('</')) {
+      if (stack.at(-1)?.name !== token.slice(2, -1).trim()) throw new Error('Invalid XSPF element nesting.');
+      close(); continue;
+    }
+    const name = /^<([\w:.-]+)/.exec(token)?.[1];
+    if (!name) throw new Error('Invalid XSPF element.');
+    const attributes = Object.fromEntries([...token.matchAll(/([\w:.-]+)\s*=\s*(["'])([\s\S]*?)\2/g)].map(match => [match[1]!, decodeXml(match[3]) ?? '']));
+    const parent = stack.at(-1);
+    const namespaces = {...parent?.namespaces};
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === 'xmlns') namespaces[''] = value;
+      else if (key.startsWith('xmlns:')) namespaces[key.slice(6)] = value;
+    }
+    const parts = name.split(':'); const local = parts.at(-1)!;
+    const namespace = namespaces[parts.length === 1 ? '' : parts[0]!];
+    const xspf = namespace === 'http://xspf.org/ns/0/' || parts.length === 1 && namespace === undefined;
+    const base = new URL(attributes['xml:base'] ?? '', parent?.base ?? pathToFileURL(resolve(filePath)));
+    stack.push({name, local, xspf, base, namespaces, text: ''});
+    if (xspf && local === 'track' && parent?.xspf && parent.local === 'trackList') track = {locations: []};
+    if (token.endsWith('/>')) close();
+  }
+  if (stack.length) throw new Error('Invalid XSPF element nesting.');
+  return stations;
 }
 
 function decodeXml(value?: string): string | undefined {
@@ -142,7 +184,7 @@ function decodeXml(value?: string): string | undefined {
       const point = entity.startsWith('#x') ? Number.parseInt(entity.slice(2), 16) : Number(entity.slice(1));
       return Number.isInteger(point) && point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)
         ? String.fromCodePoint(point) : reference;
-    }).trim();
+    });
 }
 
 function normalizePlaylistTarget(target: string, root: string): string | null {

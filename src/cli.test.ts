@@ -14,6 +14,8 @@ import {identifyPlatform} from './platform/runtime.js';
 import * as nativeDiagnostics from './platform/diagnostics.js';
 import * as airPlayReadiness from './player/airplay-readiness.js';
 import * as commandDiagnostics from './player/command-diagnostics.js';
+import * as updates from './update-check.js';
+import * as updateRepair from './update-repair.js';
 
 vi.mock('./player/backend-install.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./player/backend-install.js')>();
@@ -99,6 +101,24 @@ describe('CLI command dispatch', () => {
 
     expect(logs.join('\n')).toMatch(/^\d+\.\d+\.\d+/);
     expect(existsSync(join(radioCliHome, 'radiocli.json'))).toBe(false);
+  });
+
+  it('rejects npx self-updates before installing or preparing registration repair', async () => {
+    const check = vi.spyOn(updates, 'checkForUpdate').mockResolvedValue({
+      checkedAt: new Date().toISOString(), currentVersion: '0.2.6', latestVersion: '9.0.0', updateAvailable: true
+    });
+    const method = vi.spyOn(updates, 'updateCommandForInstall').mockReturnValue({
+      method: 'npx', command: 'npx @ciphore/radiocli@latest'
+    });
+    const install = vi.spyOn(updates, 'installUpdate').mockResolvedValue({ok: false, command: 'fixture', output: ''});
+    const prepare = vi.spyOn(updateRepair, 'prepareUpdateRepair');
+    try {
+      await expect(runCommand(['update', '--install'])).rejects.toThrow(updates.npxUpdateMessage);
+      expect(install).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of [check, method, install, prepare]) spy.mockRestore();
+    }
   });
 
   // Doctor permits a bounded 10-second PowerShell scheduler probe on Windows.

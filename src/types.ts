@@ -210,6 +210,7 @@ type RecentPlay = {
 
 export type ListeningSession = {
   id: string;
+  owner?: string;
   station: Station;
   startedAt: string;
   endedAt?: string;

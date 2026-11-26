@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {existsSync, mkdirSync,readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync,readFileSync,readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -15,6 +15,9 @@ import {resolveCommandDetails} from '../platform/executables.js';
 import {launchEnvironment, nodeLaunchCommand} from '../platform/launch-command.js';
 import {powershellCommand} from '../platform/shell.js';
 import {identifyOmarchy,type OmarchyProbeOptions} from '../platform/omarchy.js';
+import {AlarmReconciliation} from './reconciliation.js';
+import {stableInstallationPath} from '../platform/installation.js';
+import {registeredCommand, registeredRuntime} from './registered-command.js';
 
 export type SchedulerCapabilities = {
   name?: string;
@@ -49,9 +52,21 @@ export type SchedulerDeps = {
 };
 
 export class SchedulerService {
-  constructor(readonly adapter: SchedulerAdapter, private readonly now: () => Date = () => new Date(),readonly health=new AlarmRuntimeHealthStore(),private readonly guard?:{start(alarm:Alarm):Promise<unknown>;stop(alarmId?:string):Promise<boolean>;status?():Promise<GuardStatus>|GuardStatus}) {}
+  constructor(readonly adapter: SchedulerAdapter, private readonly now: () => Date = () => new Date(),readonly health=new AlarmRuntimeHealthStore(),private readonly guard?:{start(alarm:Alarm):Promise<unknown>;stop(alarmId?:string):Promise<boolean>;status?():Promise<GuardStatus>|GuardStatus}, private readonly reconciliation?: AlarmReconciliation) {}
 
   async sync(alarm: Alarm): Promise<Date | null> {
+    return (await this.reconcile(alarm)).occurrence;
+  }
+
+  private async reconcile(alarm: Alarm): Promise<{occurrence: Date | null; deferred?: boolean}> {
+    if (this.reconciliation) return this.reconciliation.run(alarm.id, () => {
+      if (this.reconciliation!.active(alarm.id)) return {occurrence: nextOccurrenceForAlarm(alarm, this.now()), deferred: true};
+      return this.syncInactive(alarm).then(occurrence => ({occurrence}));
+    });
+    return {occurrence: await this.syncInactive(alarm)};
+  }
+
+  private async syncInactive(alarm: Alarm): Promise<Date | null> {
     const occurrence = nextOccurrenceForAlarm(alarm, this.now());
     try {
       if (!occurrence) {
@@ -72,17 +87,30 @@ export class SchedulerService {
     } catch(error) {if(!(error instanceof GuardReconcileError))this.health.record({alarmId:alarm.id,component:'scheduler',healthy:false,message:errorMessage(error),...(occurrence?{nextOccurrence:occurrence.toISOString()}:{})});throw error;}
   }
 
-  async syncAll(alarms: readonly Alarm[]): Promise<Array<{id: string; occurrence: Date | null; error?: string}>> {
+  async syncAll(alarms: readonly Alarm[]): Promise<Array<{id: string; occurrence: Date | null; error?: string; deferred?: boolean}>> {
     return mapConcurrent(alarms,4,async alarm => {
-      try { return {id: alarm.id, occurrence: await this.sync(alarm)}; }
+      try { return {id: alarm.id, ...await this.reconcile(alarm)}; }
       catch (error) { return {id: alarm.id, occurrence: null, error: errorMessage(error)}; }
     });
   }
 
   doctor(): SchedulerCapabilities { return this.adapter.capabilities(); }
-  async syncClaimed(alarm:Alarm,currentOccurrence:Date):Promise<Date|null>{const occurrence=nextOccurrenceForAlarm(alarm,this.now());try{if(!occurrence){if(this.adapter.removeFromRunner)await this.adapter.removeFromRunner(alarm.id,currentOccurrence);else await this.adapter.remove(alarm.id);await this.ensureGuardAbsent(alarm.id);this.health.record({alarmId:alarm.id,component:'scheduler',healthy:true,message:'Claimed occurrence has no enabled future native job.'});return null;}const capability=this.adapter.capabilities();if(!capability.supported)throw new Error(capability.message);if(this.adapter.installFromRunner)await this.adapter.installFromRunner(alarm,occurrence,currentOccurrence);else await this.adapter.install(alarm,occurrence);this.health.record({alarmId:alarm.id,component:'scheduler',healthy:true,message:'Next native occurrence registered by active runner.',nextOccurrence:occurrence.toISOString()});await this.reconcileGuard(alarm);return occurrence;}catch(error){this.health.record({alarmId:alarm.id,component:'scheduler',healthy:false,message:errorMessage(error),...(occurrence?{nextOccurrence:occurrence.toISOString()}:{})});throw error;}}
+  async syncClaimed(alarm: Alarm, currentOccurrence: Date): Promise<Date | null> {
+    const sync = () => this.syncClaimedInactive(alarm, currentOccurrence);
+    return this.reconciliation ? this.reconciliation.run(alarm.id, sync) : sync();
+  }
+  private async syncClaimedInactive(alarm:Alarm,currentOccurrence:Date):Promise<Date|null>{const occurrence=nextOccurrenceForAlarm(alarm,this.now());try{if(!occurrence){if(this.adapter.removeFromRunner)await this.adapter.removeFromRunner(alarm.id,currentOccurrence);else await this.adapter.remove(alarm.id);await this.ensureGuardAbsent(alarm.id);this.health.record({alarmId:alarm.id,component:'scheduler',healthy:true,message:'Claimed occurrence has no enabled future native job.'});return null;}const capability=this.adapter.capabilities();if(!capability.supported)throw new Error(capability.message);if(this.adapter.installFromRunner)await this.adapter.installFromRunner(alarm,occurrence,currentOccurrence);else await this.adapter.install(alarm,occurrence);this.health.record({alarmId:alarm.id,component:'scheduler',healthy:true,message:'Next native occurrence registered by active runner.',nextOccurrence:occurrence.toISOString()});await this.reconcileGuard(alarm);return occurrence;}catch(error){this.health.record({alarmId:alarm.id,component:'scheduler',healthy:false,message:errorMessage(error),...(occurrence?{nextOccurrence:occurrence.toISOString()}:{})});throw error;}}
   async completeOccurrence(alarmId:string,occurrence:Date):Promise<void>{await this.adapter.completeOccurrence?.(alarmId,occurrence);}
-  async remove(alarmId:string):Promise<void>{await this.ensureGuardAbsent(alarmId);try{await this.adapter.remove(alarmId);}catch(error){this.health.record({alarmId,component:'scheduler',healthy:false,message:`Native job removal failed; the alarm definition was retained: ${errorMessage(error)}`});throw error;}this.health.remove(alarmId);}
+  async remove(alarmId:string):Promise<void>{
+    const remove = async () => {
+      if (this.reconciliation?.active(alarmId)) throw new Error('This alarm is currently playing. Dismiss it before removing its native job.');
+      await this.ensureGuardAbsent(alarmId);
+      try { await this.adapter.remove(alarmId); }
+      catch(error){this.health.record({alarmId,component:'scheduler',healthy:false,message:`Native job removal failed; the alarm definition was retained: ${errorMessage(error)}`});throw error;}
+      this.health.remove(alarmId);
+    };
+    if (this.reconciliation) await this.reconciliation.run(alarmId, remove); else await remove();
+  }
   async statusAll(alarms:readonly Alarm[]){return mapConcurrent(alarms,4,async alarm=>{const occurrence=nextOccurrenceForAlarm(alarm,this.now());return{alarmId:alarm.id,nextOccurrence:occurrence?.toISOString()??null,native:occurrence?await this.adapter.status(alarm.id):{installed:false,healthy:true,message:'No enabled future occurrence; no native job is expected.'},health:this.health.get(alarm.id)};});}
   async runtimeStatus(alarms:readonly Alarm[]=[]){const [capabilities,status]=await Promise.all([this.adapter.probeCapabilities?.()??this.doctor(),this.statusAll(alarms)]);return{capabilities,entries:this.health.list(),alarms:status};}
   private async reconcileGuard(alarm:Alarm){if(!this.guard)return;try{const requested=alarm.enabled&&alarm.reliability.keepAwakeUntilAlarm;if(requested)await this.guard.start(alarm);else await this.ensureGuardAbsent(alarm.id);this.health.record({alarmId:alarm.id,component:'power',healthy:true,active:requested,message:requested?'Alarm Guard reconciled.':'Alarm Guard verified absent.'});}catch(error){const message=`Alarm Guard reconciliation failed: ${errorMessage(error)}`;this.health.record({alarmId:alarm.id,component:'power',healthy:false,active:true,message});throw new GuardReconcileError(message);}}
@@ -93,14 +121,14 @@ class GuardReconcileError extends Error{}
 async function settledOperation(work:()=>Promise<unknown>):Promise<{error?:string}>{try{await work();return{};}catch(error){return{error:errorMessage(error)};}}
 
 export function createSchedulerService(deps: SchedulerDeps = {}): SchedulerService {
-  return new SchedulerService(createSchedulerAdapter(deps),()=>new Date(),new AlarmRuntimeHealthStore(),new AlarmGuardService(new AlarmPowerGuardStore()));
+  return new SchedulerService(createSchedulerAdapter(deps),()=>new Date(),new AlarmRuntimeHealthStore(),new AlarmGuardService(new AlarmPowerGuardStore()),new AlarmReconciliation());
 }
 
 export function createSchedulerAdapter(deps: SchedulerDeps = {}): SchedulerAdapter {
   const platform = deps.platform ?? process.platform;
   const home = deps.home ?? homedir();
-  const nodePath = deps.nodePath ?? process.execPath;
-  const cliPath = deps.cliPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js');
+  const nodePath = stableInstallationPath(deps.nodePath ?? process.execPath);
+  const cliPath = stableInstallationPath(deps.cliPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js'));
   const env = deps.env ?? process.env;
   const host = identifyPlatform({platform, env});
   const policy = nativeAdapters(host);
@@ -160,12 +188,24 @@ function launchdAdapter(common: Common): SchedulerAdapter {
     async removeFromRunner(){},
     async completeOccurrence(id,occurrence){const specific=occurrencePath(id,occurrence);await removeJob(existsSync(specific)?specific:pathFor(id));},
     async remove(id){for(const path of pathsFor(id))await removeJob(path);},
-    async status(id){const paths=pathsFor(id).filter(existsSync);const executable=existsSync(common.nodePath)&&existsSync(common.cliPath);if(!paths.length)return{installed:false,healthy:false,message:'LaunchAgent artifact missing'};const results=await Promise.all(paths.map(path=>common.run('launchctl',['print',`gui/${process.getuid?.()??''}/${path.split('/').at(-1)!.slice(0,-6)}`])));const registered=results.some(result=>result.code===0);return{installed:registered,healthy:registered&&executable,message:!registered?'launchd registration missing':!executable?'RadioCLI executable missing':'registered and executable'};}
+    async status(id) {
+      const paths = pathsFor(id).filter(existsSync);
+      if (!paths.length) return {installed: false, healthy: false, message: 'LaunchAgent artifact missing'};
+      const results = await Promise.all(paths.map(async path => {
+        const native = await common.run('launchctl', ['print', `gui/${process.getuid?.()??''}/${path.split('/').at(-1)!.slice(0,-6)}`]);
+        return {native, executable: registeredExecutable(readFileSync(path, 'utf8'), 'darwin', native.stdout)};
+      }));
+      const installed = results.some(result => result.native.code === 0);
+      const healthy = results.some(result => result.native.code === 0 && result.executable);
+      return {installed, healthy, message: !installed ? 'launchd registration missing' : !healthy ? 'Registered RadioCLI executable is missing or differs from the loaded job; run radiocli alarm sync.' : 'registered and executable'};
+    }
   };
 }
 
 function systemdAdapter(common: Common): SchedulerAdapter {
-  const base = join(common.home,'.config','systemd','user'); const names=(id:string)=>({service:`${jobName(id)}.service`,timer:`${jobName(id)}.timer`});
+  const config = launchEnvironment({XDG_CONFIG_HOME: common.env.XDG_CONFIG_HOME}, {platform: common.platform});
+  common = {...common, env: {...common.env, ...config}};
+  const base = join(config.XDG_CONFIG_HOME || join(common.home,'.config'),'systemd','user'); const names=(id:string)=>({service:`${jobName(id)}.service`,timer:`${jobName(id)}.timer`});
   const capabilities=():SchedulerCapabilities=>({name:'systemd',supported:true,exactWake:false,catchUpAfterWake:true,message:'systemd tooling detected; user-manager readiness is checked during registration and diagnostics. Persistent user timers can catch up after login/wake; WakeSystem is not claimed without system privileges.'});
   const probeCapabilities=async():Promise<SchedulerCapabilities>=>{
     try{
@@ -177,14 +217,28 @@ function systemdAdapter(common: Common): SchedulerAdapter {
   return {
     capabilities,
     probeCapabilities,
-    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand(nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence),runtimeEnvironment(common),{inheritDesktop:common.inheritDesktop})); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
+    async install(alarm, occurrence) { const readiness=await probeCapabilities();if(!readiness.supported)throw new Error(readiness.message);const n=names(alarm.id); const env=Object.entries(runtimeEnvironment(common)).map(([key,value])=>`Environment=${systemdQuote(`${key}=${value}`)}\n`).join(''); const cmd=systemdExecCommand(nodeLaunchCommand(common.nodePath,invocationArgs(common,alarm.id,occurrence),runtimeEnvironment(common),{inheritDesktop:common.inheritDesktop})); common.write(join(base,n.service),`[Unit]\nDescription=RadioCLI alarm ${unitText(alarm.label)}\n[Service]\nType=exec\n${env}ExecStart=${cmd}\n`); common.write(join(base,n.timer),`[Unit]\nDescription=RadioCLI scheduled radio ${unitText(alarm.label)}\n[Timer]\nOnCalendar=${systemdCalendar(occurrence)}\nPersistent=true\nAccuracySec=1s\nUnit=${n.service}\n[Install]\nWantedBy=timers.target\n`); if(common.env.XDG_CONFIG_HOME)ensureSuccess(await common.run('systemctl',['--user','link','--force',join(base,n.service),join(base,n.timer)]),'systemctl link custom config units'); ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload'); ensureSuccess(await common.run('systemctl',['--user','enable','--now',n.timer]),'systemctl enable'); },
     async remove(id){
       const n=names(id);
       await removeWithVerification(()=>common.run('systemctl',['--user','disable','--now',n.timer]),()=>common.run('systemctl',['--user','show',n.timer,'--property=LoadState','--property=ActiveState']),result=>/^LoadState=not-found\r?$/m.test(result.stdout)&&/^ActiveState=inactive\r?$/m.test(result.stdout),'systemd timer');
+      if(common.env.XDG_CONFIG_HOME)ensureSuccess(await common.run('systemctl',['--user','disable',n.service]),'systemctl unlink custom config service');
       common.removeFile(join(base,n.timer));common.removeFile(join(base,n.service));
       ensureSuccess(await common.run('systemctl',['--user','daemon-reload']),'systemctl daemon-reload after removal');
     },
-    async status(id){const readiness=await probeCapabilities();if(!readiness.supported)return{installed:false,healthy:false,message:readiness.message};const n=names(id);const [enabled,active]=await Promise.all([common.run('systemctl',['--user','is-enabled',n.timer]),common.run('systemctl',['--user','is-active',n.timer])]);const artifact=existsSync(join(base,n.timer))&&existsSync(join(base,n.service));const executable=existsSync(common.nodePath)&&existsSync(common.cliPath);return{installed:enabled.code===0&&artifact,healthy:enabled.code===0&&active.code===0&&artifact&&executable,message:enabled.code!==0?'user timer not enabled':active.code!==0?'user timer is not active':!artifact?'systemd unit artifact missing':!executable?'RadioCLI executable missing':'enabled, active, and executable'};}
+    async status(id) {
+      const readiness = await probeCapabilities();
+      if (!readiness.supported) return {installed:false, healthy:false, message:readiness.message};
+      const n = names(id);
+      const [enabled, active] = await Promise.all([common.run('systemctl',['--user','is-enabled',n.timer]), common.run('systemctl',['--user','is-active',n.timer])]);
+      const artifact = existsSync(join(base,n.timer)) && existsSync(join(base,n.service));
+      let executable = false;
+      if (enabled.code === 0 && active.code === 0 && artifact) {
+        const loaded = await common.run('systemctl',['--user','show',n.service,'--property=ExecStart','--value']);
+        executable = loaded.code === 0 && registeredExecutable(readFileSync(join(base,n.service),'utf8'),'linux',loaded.stdout);
+      }
+      return {installed: enabled.code === 0 && artifact, healthy: enabled.code === 0 && active.code === 0 && artifact && executable,
+        message: enabled.code !== 0 ? 'user timer not enabled' : active.code !== 0 ? 'user timer is not active' : !artifact ? 'systemd unit artifact missing' : !executable ? 'Registered RadioCLI executable is missing or differs from the loaded job; run radiocli alarm sync.' : 'enabled, active, and executable'};
+    }
   };
 }
 
@@ -218,7 +272,13 @@ function windowsAdapter(common: Common): SchedulerAdapter {
       if(state.state!=='absent')throw new Error(`Unable to verify Task Scheduler job absence; repair artifacts were retained. ${removal.error??''} ${state.message}`);
       common.removeFile(xmlPath(id));
     },
-    async status(id){const result=await common.run('schtasks.exe',['/Query','/TN',`\\RadioCLI\\${jobName(id)}`]);const artifact=existsSync(xmlPath(id));const executable=existsSync(common.nodePath)&&existsSync(common.cliPath);return{installed:result.code===0&&artifact,healthy:result.code===0&&artifact&&executable,message:result.code!==0?'task not registered':!artifact?'task XML artifact missing':!executable?'RadioCLI executable missing':'registered and executable'};}
+    async status(id) {
+      const result = await common.run('schtasks.exe', ['/Query','/TN',`\\RadioCLI\\${jobName(id)}`,'/XML']);
+      const artifact = existsSync(xmlPath(id));
+      const executable = result.code === 0 && registeredExecutable(result.stdout, 'win32');
+      return {installed: result.code === 0 && artifact, healthy: result.code === 0 && artifact && executable,
+        message: result.code !== 0 ? 'task not registered' : !artifact ? 'task XML artifact missing' : !executable ? 'Registered RadioCLI executable is missing or invalid; run radiocli alarm sync.' : 'registered and executable'};
+    }
   };
 }
 
@@ -296,3 +356,11 @@ function unitText(value:string){return value.replace(/[\r\n\0]/g,' ').replaceAll
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function isLaunchdServiceNotFound(result:CommandResult,label:string){const output=`${result.stderr}\n${result.stdout}`;const match=/could not find service "([^"]+)" in domain for\b/i.exec(output);return result.code!==0&&match?.[1]===label;}
 async function mapConcurrent<T,R>(items:readonly T[],limit:number,work:(item:T)=>Promise<R>):Promise<R[]>{const results=new Array<R>(items.length);let next=0;await Promise.all(Array.from({length:Math.min(limit,items.length)},async()=>{while(true){const index=next;next+=1;if(index>=items.length)return;results[index]=await work(items[index]!);}}));return results;}
+
+function registeredExecutable(body: string, platform: 'darwin' | 'linux' | 'win32', loaded?: string): boolean {
+  const runtime = registeredRuntime(registeredCommand(body, platform));
+  if (!runtime || !existsSync(runtime.nodePath) || !existsSync(runtime.cliPath)) return false;
+  if (loaded === undefined) return true;
+  const normalized = loaded.replace(/\\x([a-f0-9]{2})/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+  return normalized.includes(runtime.nodePath) && normalized.includes(runtime.signature);
+}

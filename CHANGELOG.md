@@ -69,7 +69,7 @@ All notable changes to RadioCLI are documented in this file.
   Weave, Sea Beacon, Tourbillon, Bathysphere, Zen Garden, Rose Window,
   Switchboard, Marble Run, and Chess Match.
 - Added three GTA VI collaboration receivers: Vice Radio Wheel, Leonida Chase,
-  and Vice Billboard. 
+  and Vice Billboard.
 - Added twelve muse receivers (Moon Jellies, Starlings, Paper Lanterns, Koi
   Pond, Double Helix, Pendulum Wave, Mandala, Bubble Wrap, Wind Turbines,
   Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,

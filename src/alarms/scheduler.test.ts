@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
 import {existsSync,mkdirSync,mkdtempSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
+import {stableInstallationPath} from '../platform/installation.js';
 import {homedir,tmpdir} from 'node:os';
 import {basename,dirname,join,posix,win32} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -67,6 +68,49 @@ function omarchyInstallation(name='omarchy',version='4.0.4-1'):OmarchyProbeOptio
 }
 
 describe('native alarm schedulers', () => {
+  it.each(['', 'relative-radiocli-config'])('uses the same XDG config root for registration and its detached runner: %j', async configured => {
+    const first: Array<[string, string]> = []; const second: Array<[string, string]> = [];
+    const deps = {platform: 'linux' as const, home: '/fixture/home', nodePath: '/fixture/node', cliPath: '/fixture/cli',
+      commandExists: () => true, run: async () => ({code: 0, stdout: '', stderr: ''})};
+    await createSchedulerAdapter({...deps, env: {XDG_CONFIG_HOME: configured}, writeFile: (path, body) => { first.push([path, body]); }}).install(alarm, new Date('2030-02-03T14:05:00Z'));
+    const environment = schedulerPayload(first.find(([, body]) => body.includes('ExecStart='))![1], 'linux').environment;
+    if (!configured) expect(environment.XDG_CONFIG_HOME).toBe('');
+    await createSchedulerAdapter({...deps, env: environment, writeFile: (path, body) => { second.push([path, body]); }}).install(alarm, new Date('2030-02-04T14:05:00Z'));
+    expect(second.map(([path]) => path)).toEqual(first.map(([path]) => path));
+  });
+
+  it.each(['darwin', 'linux', 'win32'] as const)('checks the actual registered runtime before reporting a %s job healthy', async platform => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-job-health-'));
+    try {
+      const node = join(root, 'node'); const cli = join(root, 'cli.js'); writeFileSync(node, ''); writeFileSync(cli, '');
+      const writes = new Map<string, string>();
+      const run = vi.fn(async (command: string, args: string[]) => {
+        const body = [...writes.values()].find(value => value.includes('ExecStart=') || value.includes('<Task') || value.includes('<plist')) ?? '';
+        const invocation = body ? schedulerInvocation(body, platform) : {command: '', args: []};
+        return {code: 0, stderr: '', stdout: command === 'schtasks.exe' ? body : args.includes('print') || args.includes('--property=ExecStart') ? [invocation.command, ...invocation.args].join(' ') : 'active'};
+      });
+      const adapter = createSchedulerAdapter({platform, home: root, env: {}, nodePath: node, cliPath: cli, run, commandExists: () => true,
+        writeFile: (path, body) => { mkdirSync(dirname(path), {recursive: true}); writeFileSync(path, body); writes.set(path, body); }});
+      await adapter.install(alarm, new Date('2030-02-03T14:05:00Z'));
+      expect(await adapter.status(alarm.id)).toMatchObject({installed: true, healthy: true});
+      rmSync(cli);
+      expect(await adapter.status(alarm.id)).toMatchObject({installed: true, healthy: false});
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
+
+  it('writes and links custom XDG systemd units into the actual user manager', async () => {
+    const writes: string[] = []; const run = vi.fn(async () => ({code: 0, stdout: '', stderr: ''}));
+    const config = join(tmpdir(), 'radiocli-config-fixture');
+    const adapter = createSchedulerAdapter({platform: 'linux', home: '/fixture/home', env: {XDG_CONFIG_HOME: config}, nodePath: '/fixture/node', cliPath: '/fixture/cli', run, commandExists: () => true,
+      writeFile: path => { writes.push(path); }, removeFile: vi.fn()});
+    await adapter.install(alarm, new Date('2030-02-03T14:05:00Z'));
+    expect(writes).toHaveLength(2);
+    expect(writes.every(path => path.startsWith(join(config, 'systemd', 'user')))).toBe(true);
+    expect(run).toHaveBeenCalledWith('systemctl', ['--user', 'link', '--force', ...writes]);
+    await adapter.remove(alarm.id);
+    expect(run).toHaveBeenCalledWith('systemctl', expect.arrayContaining(['disable', expect.stringMatching(/\.service$/)]));
+  });
+
   it('generates safely escaped launchd artifacts and an argv-only command', async () => {
     const write = vi.fn(); const run = vi.fn(async () => ({code: 0, stdout: '', stderr: ''}));
     const adapter = createSchedulerAdapter({platform: 'darwin', home: '/Users/A B', nodePath: '/Node A/node', cliPath: '/App A/dist/cli.js', writeFile: write, removeFile: vi.fn(), run, env: {RADIOCLI_HOME: '/Data & A'}});
@@ -216,7 +260,7 @@ describe('native alarm schedulers', () => {
       writeFileSync(cliPath,`process.stdout.write(JSON.stringify({args:process.argv.slice(2),environment:Object.fromEntries(${JSON.stringify(Object.keys(configured))}.map(key=>[key,process.env[key]]))}))`);
       const adapter=createSchedulerAdapter({platform:'win32',home:root,nodePath:process.execPath,cliPath,env:{...configured,HTTPS_PROXY:'https://private-password@proxy.invalid'},writeFile:(path,body)=>writes.push([path,body]),removeFile:vi.fn(),run:vi.fn(async()=>({code:0,stdout:'',stderr:''}))});
       await adapter.install(alarm,new Date('2030-02-03T14:05:00Z'));
-      const {command,args}=windowsTaskInvocation(writes[0]![1]);expect(command).toBe(process.execPath);expect(args).toHaveLength(3);expect(args[0]).toBe('-e');
+      const {command,args}=windowsTaskInvocation(writes[0]![1]);expect(command).toBe(stableInstallationPath(process.execPath));expect(args).toHaveLength(3);expect(args[0]).toBe('-e');
       const payload=JSON.parse(Buffer.from(args.at(-1)!,'base64url').toString('utf8'));expect(payload.environment).toEqual({...configured,RADIOCLI_ALARM_TERMINAL:'win32:console',...(process.platform==='win32'?{USERPROFILE:homedir()}:{})});expect(JSON.stringify(payload)).not.toContain('private-password');
       const output=execFileSync(command,args,{encoding:'utf8',windowsHide:true});
       expect(JSON.parse(output)).toEqual({args:['alarm','internal-run',alarm.id,'2030-02-03T14:05:00.000Z'],environment:configured});

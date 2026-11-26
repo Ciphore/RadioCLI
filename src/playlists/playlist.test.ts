@@ -1,4 +1,5 @@
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
@@ -7,6 +8,24 @@ import {parsePlaylistFile, writeM3u} from './playlist.js';
 const roots: string[] = [];
 
 describe('playlist import/export', () => {
+  it('resolves relative XSPF locations and inherited xml:base with namespace prefixes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-xspf-base-')); roots.push(root);
+    const input = join(root, 'stations.xspf');
+    writeFileSync(input, `<x:playlist xmlns:x="http://xspf.org/ns/0/" xml:base="https://example.com/radio/">
+      <x:trackList xml:base="../streams/"><x:track><x:title>Relative</x:title><x:location>live%20audio.mp3?a=1&amp;b=2</x:location></x:track>
+      <x:track><x:location xml:base="https://other.example/">live.mp3</x:location></x:track></x:trackList></x:playlist>`);
+    expect(parsePlaylistFile(input).map(item => item.streamUrl)).toEqual(['https://example.com/streams/live%20audio.mp3?a=1&b=2', 'https://other.example/live.mp3']);
+    writeFileSync(input, '<playlist><trackList><track><location>live.mp3</location></track></trackList></playlist>');
+    expect(parsePlaylistFile(input)[0]?.streamUrl).toBe(new URL('live.mp3', pathToFileURL(input)).href);
+  });
+
+  it('rejects XSPF entity declarations without resolving external content', () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-xspf-entity-')); roots.push(root);
+    const input = join(root, 'stations.xspf');
+    writeFileSync(input, '<!DOCTYPE playlist [<!ENTITY station SYSTEM "file:///etc/passwd">]><playlist/>');
+    expect(() => parsePlaylistFile(input)).toThrow(/entity declarations/);
+  });
+
   afterEach(() => {
     for (const root of roots.splice(0)) {
       rmSync(root, {recursive: true, force: true});

@@ -50,6 +50,12 @@ async function renderTui(encodedCommand?: string): Promise<void> {
 export async function runCommand(args: string[]): Promise<void> {
   const [command, ...rest] = args;
 
+  if (command === 'internal-reconcile-update') {
+    const {reconcileUpdatedInstallation} = await import('./update-repair.js');
+    console.log(JSON.stringify(await reconcileUpdatedInstallation(runtime)));
+    return;
+  }
+
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     if (command === 'help' && rest[0] && rest[0] !== '--all') { await runCommand([rest[0], '--help']); return; }
     printHelp(rest.includes('--all'));
@@ -164,21 +170,18 @@ export async function runCommand(args: string[]): Promise<void> {
     console.log(`command=${updateCommand.command}`);
     if (rest.includes('--install')) {
       if (updateCommand.method === 'npx') throw new Error(npxUpdateMessage);
+      const {prepareUpdateRepair} = await import('./update-repair.js');
+      const repair = prepareUpdateRepair(runtime);
       const result = await installUpdate(updateCommand.command);
       if (!result.ok) throw new Error(`Update install failed. Run manually: ${result.command}${result.output ? `\n${result.output}` : ''}`);
       console.log('updated=yes');
-      const [{JsonLibraryStore}, {defaultAgentControlSettings}] = await Promise.all([import('./storage/store.js'), import('./types.js')]);
-      const agentControl = new JsonLibraryStore().snapshot().settings.agentControl ?? defaultAgentControlSettings;
-      if (agentControl.enabled) {
-        try {
-          const {configureMcpIntegrations} = await import('./agent/mcp-install.js');
-          const repaired = await configureMcpIntegrations(true, runtime);
-          const failed = repaired.filter(item => item.status === 'failed');
-          console.log(`mcp_repaired=${failed.length ? 'partial' : 'yes'}`);
-          if (failed.length) console.log(`mcp_failures=${failed.map(item => `${item.client}: ${item.detail}`).join('; ')}`);
-        } catch (error) {
-          console.log(`mcp_repaired=failed ${error instanceof Error ? error.message : String(error)}`);
-        }
+      try {
+        const repaired = await repair();
+        console.log(`mcp_repaired=${repaired.mcp}`);
+        console.log(`alarms_reconciled=${repaired.alarms}`);
+        if (repaired.failures.length) console.log(`repair_failures=${repaired.failures.join('; ')}`);
+      } catch (error) {
+        console.log(`repair_failed=${error instanceof Error ? error.message : String(error)}`);
       }
       console.log('restart_required=yes');
     }

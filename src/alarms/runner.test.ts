@@ -19,6 +19,36 @@ function deps(overrides:Partial<AlarmRunnerDeps>={}):AlarmRunnerDeps{
 }
 
 describe('alarm runner',()=>{
+  it('keeps claim release and native occurrence cleanup inside one reconciliation transaction', async () => {
+    let inTransaction = false;
+    const release = vi.fn(() => { expect(inTransaction).toBe(true); });
+    const complete = vi.fn(async () => { expect(inTransaction).toBe(true); expect(release).toHaveBeenCalled(); });
+    const d = deps({reconciliation: {run: async (_id, work) => {
+      expect(inTransaction).toBe(false); inTransaction = true;
+      try { return await work(); } finally { inTransaction = false; }
+    }}, acquireLock: vi.fn(() => { expect(inTransaction).toBe(true); return release; }),
+    scheduler: {sync: vi.fn(async () => null), completeOccurrence: complete}});
+    await runAlarm('a', scheduledAt, d);
+    expect(complete).toHaveBeenCalledOnce(); expect(inTransaction).toBe(false);
+  });
+
+  it('checkpoints the owned occurrence during playback and finalizes it on dismissal', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2030-01-01T08:00:00Z'));
+      let dismiss!: () => void;
+      const d = deps({now: () => new Date(), createSession: vi.fn(async (_status, handlers) => {
+        dismiss = handlers.onDismiss; return {update: vi.fn(), close: vi.fn(async () => {})};
+      }), wait: ms => new Promise(resolve => setTimeout(resolve, ms))});
+      const playing = runAlarm('a', scheduledAt, d);
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(d.store.checkpointActiveListeningSession).toHaveBeenCalledWith(new Date('2030-01-01T08:00:30Z'), 'a:2030-01-01T08:00:00.000Z');
+      expect(d.store.finishActiveListeningSession).not.toHaveBeenCalled();
+      dismiss(); await playing;
+      expect(d.store.finishActiveListeningSession).toHaveBeenCalledWith(new Date('2030-01-01T08:00:59Z'), 'a:2030-01-01T08:00:00.000Z');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('ends history at backend EOF and fails the occurrence instead of waiting out its deadline', async () => {
     let change: ((state: import('../types.js').PlaybackState) => void) | undefined;
     let current = new Date('2030-01-01T08:01:00Z'); const base = deps();
@@ -27,7 +57,7 @@ describe('alarm runner',()=>{
       createSession: vi.fn(async () => ({update: vi.fn(), close: vi.fn(async () => {})})),
       wait: vi.fn(() => { current = ended; change!({backend: 'mpv', state: 'stopped', ready: false, volume: 40, muted: false, message: 'EOF'}); return new Promise<never>(() => {}); })});
     expect(await runAlarm('a', scheduledAt, d)).toMatchObject({status: 'failed', message: 'EOF'});
-    expect(d.store.finishActiveListeningSession).toHaveBeenCalledWith(ended);
+    expect(d.store.finishActiveListeningSession).toHaveBeenCalledWith(ended, 'a:2030-01-01T08:00:00.000Z');
   });
 
   it('releases a late sleep inhibitor after manual dismissal during acquisition', async () => {

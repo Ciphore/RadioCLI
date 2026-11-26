@@ -90,6 +90,16 @@ async function exerciseTools() {
   value(await call('radio_set_appearance', {theme: 'ruby', receiver_style: 'mesh'}));
   assert.equal(value(await call('radio_get_appearance')).current.receiverStyle, 'mesh');
   assert.equal(new JsonLibraryStore(store.filePath).settings().theme, 'ruby');
+  value(await call('radio_set_appearance', {receiver_style: 'fire'}));
+  assert.equal(value(await call('radio_get_appearance')).current.theme, 'ruby');
+  value(await call('radio_set_appearance', {theme: 'green'}));
+  assert.equal(value(await call('radio_get_appearance')).current.receiverStyle, 'fire');
+  const reopened = new JsonLibraryStore(store.filePath);
+  assert.equal(reopened.settings().receiverStyle, 'fire');
+  assert.equal(reopened.snapshot().favorites[0].id, station.id);
+  value(await call('radio_set_agent_preferences', {open_ui_on_play: false}));
+  value(await call('radio_set_agent_preferences', {focus_now_playing: false}));
+  assert.equal(new JsonLibraryStore(store.filePath).settings().agentControl.openUiOnPlay, false);
   assert.match(errorText(await call('radio_set_appearance', {theme: 'invalid'})), /invalid|Invalid/);
   assert.match(errorText(await call('radio_set_volume', {volume: 101})), /100/);
   assert.deepEqual(value(await call('radio_alarm_list')), []);

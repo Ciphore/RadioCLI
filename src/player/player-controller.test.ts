@@ -983,11 +983,12 @@ describe('PlayerController lifecycle', () => {
     await Promise.all(servers.map(server => server.close()));
   });
 
-  it('sends an explicit unmute to mpv even when local startup state is already unmuted', async () => {
+  it('reflects mpv mute state and can explicitly unmute', async () => {
     commandExistsMock.mockImplementation(command => command === 'mpv');
     const child = fakeChildProcess();
     let mpv: FakeMpvIpc | null = null;
     spawnMock.mockImplementation((_command, args) => {
+      expect(args).toContain('--mute=no');
       mpv = fakeMpvIpc(mpvIpcPath(args), {muted: true});
       return child as never;
     });
@@ -995,7 +996,7 @@ describe('PlayerController lifecycle', () => {
 
     await controller.play(station(), 'https://streams.example.com/live.mp3');
     const server = expectFakeMpv(mpv);
-    expect(controller.getState().muted).toBe(false);
+    await vi.waitFor(() => expect(controller.getState().muted).toBe(true));
     expect(server.muted()).toBe(true);
     await expect(controller.setMuted(false)).resolves.toEqual({ok: true});
     expect(server.muted()).toBe(false);
@@ -1241,7 +1242,7 @@ function fakeMpvIpc(
         let responseDelayMs = 0;
         if (command[0] === 'observe_property') {
           properties.set(Number(command[1]), String(command[2]));
-          socket.write(`${JSON.stringify({event: 'property-change', id: command[1], name: command[2], data: command[2] === 'pause' ? paused : command[2] === 'metadata' ? {} : false})}\n`);
+          socket.write(`${JSON.stringify({event: 'property-change', id: command[1], name: command[2], data: command[2] === 'pause' ? paused : command[2] === 'metadata' ? {} : command[2] === 'mute' ? muted : false})}\n`);
         } else if (command[0] === 'get_property' && command[1] === 'path') {
           data = 'https://streams.example.com/live.mp3';
         } else if (command[0] === 'get_property' && command[1] === 'pause') {
