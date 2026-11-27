@@ -264,6 +264,7 @@ export function AppContent({
         showDiagnostics={showDiagnostics}
         stationTime={stationTime}
         receiverStyle={library.settings.receiverStyle}
+        listeningSessions={library.activity.sessions}
         trackHistory={library.trackHistory}
         width={layout.receiverWidth}
         height={layout.receiverRows}

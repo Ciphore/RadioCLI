@@ -17,6 +17,7 @@ import * as systemActions from './system-actions.js';
 import * as pageFooter from './page-footer.js';
 import {JsonLibraryStore} from '../storage/store.js';
 import {appVersion} from '../version.js';
+import {receiverStyleNames} from '../types.js';
 import type {Alarm, IcyNowPlaying, PlaybackState, Station} from '../types.js';
 import type {AlarmTuiService, TuiActiveAlarm} from './alarm-tui-service.js';
 import {App} from './App.js';
@@ -164,7 +165,7 @@ async function tuneLibrary(app: ReturnType<typeof render>): Promise<void> {
 describe('Receiver style cycling', () => {
   it('wraps directly from the last receiver to Ultracode', async () => {
     const {store, service} = fixture();
-    store.updateSettings({receiverStyle: 'sound-bloom'});
+    store.updateSettings({receiverStyle: receiverStyleNames.at(-1)!});
     simulatedPlayer();
     const app = render(<App store={store} alarmService={service} />);
     await settle();

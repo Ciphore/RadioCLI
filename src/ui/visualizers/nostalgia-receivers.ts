@@ -1,10 +1,7 @@
 import {buildCosmoWorldMap} from '../cosmo-world-map.js';
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, replay, seconds, smooth, textPixel, tri, type Builder, type Run} from './cell-canvas.js';
-
-const pad2 = (n: number): string => String(Math.floor(n)).padStart(2, '0');
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, replay, seconds, smooth, tri, type Builder, type Run} from './cell-canvas.js';
 const BLOCKS = ' ▁▂▃▄▅▆▇█';
-const QUADRANTS = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█';
 
 // The disk optimiser: scattered blocks are read from the far end and packed against the start.
 const defrag: Builder = (pulse, width, height, theme) => {
@@ -158,226 +155,6 @@ const maze3d: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-const NOTES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
-const SCALE = [0, 3, 5, 7, 10];
-/** What a channel plays on a row of the module, or nothing. */
-function trackerNote(channel: number, row: number): {note: string; instrument: string; effect: string} | undefined {
-  const pitch = (seed: number, octave: number): string => {
-    const degree = Math.floor(hash(seed, channel + 5) * 10);
-    return NOTES[SCALE[degree % 5]!]! + (octave + Math.floor(degree / 5));
-  };
-  if (channel === 0) return row % 4 === 0 || (row % 16 === 10 && hash(row, 1) < 0.6) ? {note: 'C-2', instrument: '01', effect: 'C40'} : undefined;
-  if (channel === 1) return row % 8 === 4 ? {note: 'D-2', instrument: '02', effect: '...'} : row % 16 === 15 ? {note: 'D-2', instrument: '02', effect: 'C18'} : undefined;
-  if (channel === 2) return row % 2 === 0 ? {note: 'F#3', instrument: '03', effect: row % 4 === 2 ? 'C30' : 'C10'} : undefined;
-  if (channel === 3) return row % 2 === 0 && hash(row, 2) < 0.8 ? {note: pitch(Math.floor(row / 8), 1), instrument: '04', effect: '...'} : undefined;
-  return hash(row, channel * 3) < 0.4 ? {note: pitch(row, 3 + channel % 2), instrument: pad2(channel + 1), effect: hash(row, channel + 9) < 0.3 ? ['A0F', '4A2', '103', 'E93'][Math.floor(hash(row, channel + 11) * 4)]! : '...'} : undefined;
-}
-
-// A module tracker: the pattern scrolls up through the play row while each channel's meter kicks.
-const tracker: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const channels = clamp(Math.floor((g.w - 3) / 12), 1, 8);
-  const left = Math.max(0, Math.floor((g.w - (3 + channels * 12)) / 2));
-  const head = g.h >= 7 ? 2 : 0;
-  const lines = g.h - head, middle = Math.floor(lines / 2);
-  const row = Math.floor(t / 0.125);
-  const playing = mix(panelBackground, g.paint.accent, 0.28);
-  if (head) {
-    g.write(left, 0, `RADIOCLI.MOD  POS ${pad2(Math.floor(row / 64) % 32)}/1F  PAT ${pad2(Math.floor(row / 64) * 7 % 24)}  BPM 125`.slice(0, g.w - left), g.paint.ink(0.6));
-    for (let channel = 0; channel < channels; channel++) {
-      let last = row;
-      while (last > row - 16 && !trackerNote(channel, last)) last--;
-      const level = last > row - 16 ? Math.exp(-(t - last * 0.125) * 7) : 0;
-      const lit = Math.round(level * 9);
-      g.write(left + 3 + channel * 12, 1, `${channel + 1} `, g.paint.ink(0.45));
-      g.write(left + 5 + channel * 12, 1, '▮'.repeat(lit), g.paint.fan(channel / Math.max(1, channels - 1) * 2 - 1));
-      g.write(left + 5 + channel * 12 + lit, 1, '▯'.repeat(9 - lit), g.paint.ink(0.15));
-    }
-  }
-  for (let y = 0; y < lines; y++) {
-    const at = row + y - middle;
-    const here = y === middle;
-    const back = here ? playing : undefined;
-    if (here) for (let x = 0; x < g.w; x++) g.set(x, head + y, ' ', g.paint.accent, playing);
-    if (at < 0) continue;
-    g.write(left, head + y, (at % 64).toString(16).toUpperCase().padStart(2, '0'), g.paint.ink(at % 4 === 0 ? 0.7 : 0.3), back);
-    for (let channel = 0; channel < channels; channel++) {
-      const x = left + 3 + channel * 12;
-      const cell = trackerNote(channel, at);
-      g.write(x - 1, head + y, '│', g.paint.ink(0.14), back);
-      g.write(x, head + y, cell?.note ?? '---', cell ? g.paint.ink(here ? 1 : 0.85) : g.paint.ink(0.18), back);
-      g.write(x + 4, head + y, cell?.instrument ?? '..', cell ? g.paint.fan(-0.6) : g.paint.ink(0.18), back);
-      g.write(x + 7, head + y, cell?.effect ?? '...', cell && cell.effect !== '...' ? g.paint.fan(0.7) : g.paint.ink(0.18), back);
-    }
-  }
-  return g.finish();
-};
-
-const LISTINGS = ['NOW PLAYING', 'WORLD DIAL', 'JAZZ AND SOUL', 'AFTER HOURS', 'NEWS ROUND-UP', 'SHIPPING FORECAST', 'LISTENER LETTERS', 'TOMORROW ON AIR'];
-const spectrum = (band: number, t: number): number => clamp(
-  0.5 + 0.3 * Math.sin(band * 0.61 + t * 2.3) + 0.24 * Math.sin(band * 0.23 - t * 1.5 + 1.7) + 0.18 * Math.sin(band * 1.37 + t * 3.7)
-) ** 1.6 * (0.6 + 0.4 * kick(t));
-
-// A broadcast text page: block-mosaic headline, numbered listings, and the four coloured keys along the bottom.
-const teletext: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const paper = g.paint.ink(0.92);
-  const hunting = fract(t / 12) < 0.12;
-  const page = hunting ? 100 + Math.floor(t * 23) % 100 : 100;
-  g.write(0, 0, `P${page}`, hunting ? g.paint.fan(0.7) : paper);
-  if (g.w >= 30) g.write(Math.floor((g.w - 9) / 2), 0, 'RADIOTEXT', g.paint.fan(-0.7));
-  const clock = `${pad2(t / 60 % 60)}:${pad2(t % 60)}`;
-  if (g.w >= 16) g.write(g.w - clock.length, 0, clock, g.paint.fan(0.7));
-  // Each font pixel becomes a square of quarter-cell blocks.
-  const scale = g.h >= 9 && g.w >= 34 ? 2 : 1;
-  const banner = g.h >= 5 ? Math.ceil(5 * scale / 2) : 0;
-  const lit = (qx: number, qy: number): boolean => textPixel('RADIO', Math.floor(qx / scale) - 2, Math.floor(qy / scale));
-  const band = mix(panelBackground, g.paint.fan(-0.6), 0.32);
-  const headline = g.paint.fan(Math.sin(t * 0.4) * 0.5 + 0.5);
-  const titleEnd = Math.min(g.w, Math.ceil((29 + 4) * scale / 2));
-  for (let y = 0; y < banner; y++) {
-    for (let x = 0; x < g.w; x++) {
-      let bits = 0;
-      if (x < titleEnd) {
-        for (let q = 0; q < 4; q++) if (lit(x * 2 + (q & 1), y * 2 + (q >> 1))) bits |= 1 << q;
-      } else if (x > titleEnd) {
-        // Separated mosaic meters: three quarter-columns lit, one dark, measured in half rows.
-        for (let q = 0; q < 4; q++) {
-          const qx = (x - titleEnd - 1) * 2 + (q & 1);
-          if (qx % 4 !== 3 && y * 2 + (q >> 1) >= banner * 2 - Math.round(spectrum(Math.floor(qx / 4), t) * banner * 2)) bits |= 1 << q;
-        }
-      }
-      g.set(x, 1 + y, QUADRANTS[bits]!, x < titleEnd ? headline : g.paint.fan(0.9 - (y / Math.max(1, banner - 1)) * 0.8), x < titleEnd ? band : undefined);
-    }
-  }
-  const first = 1 + banner + (banner && g.h >= 9 ? 1 : 0);
-  const keys = g.h >= 7 ? 1 : 0;
-  const chosen = Math.floor(t / 2);
-  for (let y = first; y < g.h - keys; y++) {
-    const index = y - first;
-    const label = LISTINGS[index % LISTINGS.length]!;
-    const selected = index === chosen % Math.max(1, g.h - keys - first);
-    const line = `${101 + index} ${label} ${'.'.repeat(Math.max(0, Math.min(g.w, 44) - label.length - 11))} ${(88.1 + Math.floor(hash(index, 4) * 100) * 0.2).toFixed(1).padStart(5)}`.slice(0, g.w);
-    if (selected) g.write(0, y, line.padEnd(Math.min(g.w, 44)), panelBackground, g.paint.accent);
-    else {
-      g.write(0, y, line, paper);
-      g.write(0, y, line.slice(0, 3), g.paint.fan(0.7));
-      g.write(line.length - 5, y, line.slice(-5), g.paint.fan(-0.7));
-    }
-  }
-  if (keys) ['Stations', 'Favourites', 'World', 'Index'].forEach((key, i) => g.write(Math.floor(i * Math.min(g.w, 60) / 4), g.h - 1, key.slice(0, Math.max(1, Math.floor(g.w / 4) - 1)), g.paint.fan(i / 1.5 - 1)));
-  return g.finish();
-};
-
-// A worn tape on pause: colour bars that will not hold still, a tracking band rolling through, and the deck's own lettering on top.
-const vhs: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const tape = mix(panelBackground, g.paint.accent, 0.16);
-  const frame = Math.floor(t * 12.5);
-  const tracking = (1 - fract(t * 0.13)) * (g.h + 4) - 2;
-  const tear = hash(Math.floor(t / 3.1), 7) > 0.6 && fract(t / 3.1) < 0.08;
-  const inset = g.h >= 7 ? 2 : 0;
-  const bars = [0.74, 0.62].map(strength => Array.from({length: 7}, (_, bar) => mix(tape, g.paint.fan(bar / 3 - 1), strength)));
-  for (let y = 0; y < g.h; y++) {
-    const rolling = Math.abs(y - tracking) < 1.3;
-    const switching = g.h >= 4 && y === g.h - 1;
-    const slip = Math.round(Math.sin(t * 5 + y * 0.9) * 0.6) +
-      (rolling || switching ? Math.round((hash(y, frame) - 0.5) * 16) : 0) + (tear && y > g.h * 0.4 ? 5 : 0);
-    for (let x = 0; x < g.w; x++) {
-      const bar = Math.floor((((x - slip) % g.w + g.w) % g.w) / g.w * 7);
-      const picture = y >= inset && y < g.h - inset;
-      const back = picture ? bars[y % 2]![bar]! : tape;
-      const snow = hash(x * 1.3 + y * 7.1, frame);
-      if ((rolling || switching) && snow > (switching ? 0.72 : 0.5)) g.set(x, y, '░▒▓▁▂─'[Math.floor(snow * 97) % 6]!, g.paint.ink(0.8 + 0.2 * snow), back);
-      else g.set(x, y, ' ', g.paint.accent, back);
-    }
-  }
-  const type = g.paint.ink(1);
-  const caption = (x: number, y: number, text: string): void => { for (let i = 0; i < text.length; i++) if (text[i] !== ' ') g.set(x + i, y, text[i]!, type, tape, true); };
-  if (g.w >= 12) caption(1, 0, fract(t) < 0.75 ? 'PLAY ►' : 'PLAY');
-  if (g.w >= 20) caption(g.w - 3, 0, 'SP');
-  if (g.h >= 3 && g.w >= 12) caption(1, g.h - 1, `0:${pad2(t / 60 % 60)}:${pad2(t % 60)}`);
-  if (g.h >= 3 && g.w >= 24) caption(g.w - 9, g.h - 1, 'RADIOCLI');
-  return g.finish();
-};
-
-type Slime = {x: Float32Array; y: Float32Array; heading: Float32Array; trail: Float32Array; spare: Float32Array; food: number[]; random: () => number};
-const slimeRuns = new Map<string, Run<Slime>>();
-
-// Thousands of blind agents that only follow each other's scent, and end up building a transport network.
-const slimeMold: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  // At this resolution the network is at its best young; it is regrown before it can ball up.
-  const life = 110;
-  const step = Math.floor(pulse);
-  const tick = (state: Slime): void => {
-    const {x: xs, y: ys, heading, trail, spare, random} = state;
-    const smell = (x: number, y: number): number => x < 0 || y < 0 || x > p.pw - 1 || y > p.ph - 1 ? -0.5 : trail[Math.round(y) * p.pw + Math.round(x)]!;
-    for (let i = 0; i < xs.length; i++) {
-      const x = xs[i]!, y = ys[i]!, a = heading[i]!;
-      const ahead = smell(x + Math.cos(a) * 3.5, y + Math.sin(a) * 3.5);
-      const port = smell(x + Math.cos(a - 0.7) * 3.5, y + Math.sin(a - 0.7) * 3.5);
-      const starboard = smell(x + Math.cos(a + 0.7) * 3.5, y + Math.sin(a + 0.7) * 3.5);
-      // Follow the strongest scent, but shy away from a strand that is already packed.
-      let turned = ahead > 1.3 ? a + (random() - 0.5) * 2.4
-        : ahead >= port && ahead >= starboard ? a + (random() - 0.5) * 0.2
-          : port > starboard ? a - 0.45 : starboard > port ? a + 0.45 : a + (random() - 0.5) * 0.9;
-      let nx = x + Math.cos(turned), ny = y + Math.sin(turned);
-      // Walls turn an agent back towards the middle; a wrapping world only grows straight laps.
-      if (nx < 0 || nx >= p.pw || ny < 0 || ny >= p.ph) {
-        nx = clamp(nx, 0, p.pw - 1); ny = clamp(ny, 0, p.ph - 1);
-        turned = Math.atan2(p.ph / 2 - ny, p.pw / 2 - nx) + (random() - 0.5) * 2;
-      }
-      xs[i] = nx; ys[i] = ny; heading[i] = turned;
-      const cell = Math.round(ny) * p.pw + Math.round(nx);
-      trail[cell] = Math.min(2, trail[cell]! + 0.22);
-    }
-    // Food never runs out; it is what keeps the network strung out instead of balling up.
-    for (const cell of state.food) trail[cell] = 2;
-    for (let y = 0; y < p.ph; y++) {
-      const up = Math.max(0, y - 1) * p.pw, down = Math.min(p.ph - 1, y + 1) * p.pw, row = y * p.pw;
-      for (let x = 0; x < p.pw; x++) {
-        spare[row + x] = (trail[row + x]! * 4 + trail[row + Math.max(0, x - 1)]! + trail[row + Math.min(p.pw - 1, x + 1)]! + trail[up + x]! + trail[down + x]!) / 8 * 0.9;
-      }
-    }
-    state.trail = spare; state.spare = trail;
-  };
-  const state = replay(slimeRuns, `${p.pw}x${p.ph}`, Math.floor(step / life), step % life, epoch => {
-    const random = mulberry(epoch * 9973 + p.pw * 131 + p.ph);
-    const count = Math.round(clamp(p.pw * p.ph * 0.2, 30, 1500));
-    const fresh: Slime = {x: new Float32Array(count), y: new Float32Array(count), heading: new Float32Array(count),
-      trail: new Float32Array(p.pw * p.ph), spare: new Float32Array(p.pw * p.ph), food: [], random};
-    const meals = Math.round(clamp(p.pw * p.ph / 240, 3, 16));
-    for (let meal = 0; meal < meals; meal++) {
-      // One meal per column band, so the network has to span the panel.
-      const x = Math.floor((meal + 0.15 + random() * 0.7) * p.pw / meals), y = Math.floor((0.12 + random() * 0.76) * p.ph);
-      fresh.food.push(y * p.pw + x);
-    }
-    for (let i = 0; i < count; i++) {
-      fresh.x[i] = random() * (p.pw - 1); fresh.y[i] = random() * (p.ph - 1);
-      fresh.heading[i] = random() * TAU;
-    }
-    for (let warm = 0; warm < 14; warm++) tick(fresh);
-    return fresh;
-  }, tick);
-  const fade = Math.min(1, 0.4 + 0.6 * (life - step % life) / 16);
-  const meal = g.paint.fan(0.85);
-  const hot = Array.from({length: 9}, (_, i) => mix(g.paint.accent, g.paint.fan(0.8), i / 8));
-  for (let y = 0; y < p.ph; y++) {
-    for (let x = 0; x < p.pw; x++) {
-      const scent = state.trail[y * p.pw + x]! * fade;
-      if (scent > 0.22) p.px(x, y, scent > 1.3 ? hot[Math.round(clamp(scent - 1.3) * 8)]! : g.paint.ink(clamp(scent * 0.55) * 0.75));
-    }
-  }
-  for (const cell of state.food) p.px(cell % p.pw, Math.floor(cell / p.pw), mix(panelBackground, meal, fade));
-  p.flush();
-  return g.finish();
-};
-
 type Sand = {grains: Uint8Array; random: () => number};
 const sandRuns = new Map<string, Run<Sand>>();
 
@@ -471,35 +248,6 @@ const galtonBoard: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// An endless lead sheet sliding under a reading line; notes ring as they cross it.
-const sheetMusic: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const gap = g.h >= 11 ? 2 : 1;
-  const tall = 4 * gap + 1;
-  const staves = g.h >= 24 ? 2 : 1;
-  const top = Math.max(0, Math.floor((g.h - (staves * tall + (staves - 1) * 3)) / 2));
-  const reading = Math.min(6, Math.floor(g.w / 4));
-  const first = Math.floor(t / 0.25) - Math.ceil(reading / 2) - 1;
-  for (let staff = 0; staff < staves; staff++) {
-    const base = top + staff * (tall + 3) + tall - 1;
-    for (let line = 0; line < 5; line++) for (let x = 0; x < g.w; x++) g.set(x, base - line * gap, '─', g.paint.ink(0.26));
-    for (let j = first; j < first + Math.ceil(g.w / 2) + 4; j++) {
-      const x = reading + Math.round((j * 0.25 - t) * 8);
-      if (j % 8 === 0) for (let y = base - tall + 1; y <= base; y++) g.set(x - 1, y, '│', g.paint.ink(0.34));
-      const voice = staff * 50;
-      const sounding = staff ? j % 2 === 0 && hash(j, voice + 2) < 0.85 : hash(j, 2) < 0.74;
-      if (!sounding) continue;
-      const degree = Math.round(clamp(4 + Math.sin(j * (staff ? 0.19 : 0.37)) * 3.4 + (hash(j, voice + 1) - 0.5) * 3, -1, 9));
-      const y = base - Math.round(degree * gap / 2);
-      const glyph = staff ? '♩' : j % 2 === 0 && hash(j, 5) < 0.35 ? '♫' : hash(j, 6) < 0.5 ? '♪' : '♩';
-      if (x === reading) g.set(x, y, glyph, g.paint.ink(1), g.paint.accent, true);
-      else g.set(x, y, glyph, x < reading ? g.paint.ink(0.36) : g.paint.fan(degree / 4.5 - 1), undefined, x > reading);
-    }
-  }
-  return g.finish();
-};
-
 // Pins round a hoop, thread from each pin to its multiple: the multiplier creeps, and cardioids bloom and dissolve.
 const stringArt: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -574,13 +322,8 @@ export const nostalgiaReceiverBuilders = {
   defrag,
   solitaire,
   'maze-3d': maze3d,
-  tracker,
-  teletext,
-  vhs,
-  'slime-mold': slimeMold,
   sand,
   'galton-board': galtonBoard,
-  'sheet-music': sheetMusic,
   'string-art': stringArt,
   shortwave
 };

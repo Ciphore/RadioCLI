@@ -1,5 +1,5 @@
 import {TAU, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
-import {EMBER, GOLD, GREEN, INK, NIGHT, PINE, RED, SNOW, WOOD, disc, flame, season, snowfall, starlight, tree, wash, write} from './festive-receivers.js';
+import {GOLD, GREEN, INK, NIGHT, PINE, RED, SNOW, WOOD, disc, flame, season, snowfall, tree, wash, write} from './festive-receivers.js';
 
 const sprite = (p: Pixels, rows: readonly string[], left: number, top: number, palette: Record<string, string>, scale = 1, flip = false): void => {
   rows.forEach((row, y) => {
@@ -58,37 +58,6 @@ const santaClaus: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Rooftop, midnight: boots first into the chimney, a wriggle, and down he goes. Then the sack.
-const chimney: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const sky = (y: number): string => mix(c('#070d22'), c('#20305c'), y / p.ph);
-  wash(p, sky);
-  starlight(p, t, p.ph * 0.6, c(SNOW), c('#0c1530'));
-  disc(p, p.pw * 0.82, p.ph * 0.24, p.ph * 0.13, p.ph * 0.13, () => c('#fdf3c8'));
-  const roof = (x: number): number => Math.round(p.ph * 0.62 + Math.abs(x - p.pw * 0.5) * 0.16);
-  for (let x = 0; x < p.pw; x++) for (let y = roof(x); y < p.ph; y++) p.px(x, y, y < roof(x) + 2 ? c(SNOW) : (x + Math.floor(y / 2) * 2) % 4 === 0 || y % 2 === 0 ? c('#3b1f1c') : c('#5e2c26'));
-  const cx = Math.round(p.pw * 0.5), stackW = Math.max(6, Math.round(p.ph * 0.36)), stackTop = Math.round(p.ph * 0.36);
-  const local = t % 9;
-  // He drops in over three seconds, sticks at the belly, then pops through.
-  const sunk = local < 3 ? smooth(local / 3) * 0.55 : local < 4.6 ? 0.55 + Math.sin(local * 14) * 0.03 : local < 5.2 ? 0.55 + (local - 4.6) / 0.6 * 0.6 : 2;
-  const body = Math.round(p.ph * 0.3), top = stackTop - body + Math.round(sunk * body);
-  if (sunk < 1.2) {
-    box(p, cx - 3, top, 7, body, (_, dy) => dy < 2 ? c(SNOW) : dy > body * 0.55 && dy < body * 0.55 + 2 ? c(INK) : c(RED));
-    disc(p, cx + 0.5, top - 2, 3, 3, (_, dy) => dy < -0.2 ? c(RED) : dy > 0.4 ? c(SNOW) : c('#f2c6a0'));
-    for (const arm of [-1, 1]) stroke(p, cx + arm * 3, top + 3, cx + arm * (6 + Math.sin(t * 9 + arm) * 1.5), top - 1 + Math.cos(t * 9) * 1.5, 0.6, c(RED));
-  }
-  const sackAt = local > 5.4 && local < 7 ? (local - 5.4) / 1.6 : -1;
-  if (sackAt >= 0) disc(p, cx, stackTop - 6 + sackAt * 9, 3.5, 3, () => c('#7a4a2a'));
-  box(p, cx - stackW / 2, stackTop, stackW, p.ph, (dx, dy) => dy + stackTop >= roof(cx) + 1 ? undefined : dy < 2 ? c(SNOW) : (dx + (Math.floor(dy / 2) & 1) * 2) % 5 === 0 || dy % 2 === 1 ? c('#4a211c') : c('#8a3a2c'));
-  if (local > 5.2 && local < 6.4) for (let puff = 0; puff < 8; puff++) p.px(cx + Math.round((hash(puff, 1) - 0.5) * stackW * 1.4), stackTop - 1 - Math.round((local - 5.2) * 8 * hash(puff, 2)), c('#cfd6e6'));
-  snowfall(p, t, Math.round(p.pw * p.ph / 60), c(SNOW));
-  p.flush();
-  return g.finish();
-};
-
 // A glass globe on its stand. Every few bars it is shaken, and the snow takes its time coming down.
 const snowGlobe: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -115,28 +84,6 @@ const snowGlobe: Builder = (pulse, width, height, theme) => {
   }
   disc(p, ox - r * 0.4, cy - r * 0.45, r * 0.22, r * 0.14, (dx, dy) => mix(p.at(Math.round(ox - r * 0.4 + dx * r * 0.22), Math.round(cy - r * 0.45 + dy * r * 0.14)) ?? '#fff', '#ffffff', 0.45));
   box(p, ox - r * 0.72, cy + r * 0.86, Math.round(r * 1.44), Math.max(2, Math.round(p.ph - (cy + r * 0.86))), (dx, dy) => dy === 0 ? c(GOLD) : mix(c(WOOD), c('#3a2212'), dx / (r * 1.44)));
-  p.flush();
-  return g.finish();
-};
-
-const GINGER = ['  bbb  ', ' bebeb ', ' bbmbb ', '  bbb  ', 'wbbbbbw', 'bbbgbbb', ' bbbbb ', ' bbgbb ', ' bbwbb ', ' bb bb ', 'wbb bbw'] as const;
-
-// Gingerbread people fresh off the tray, doing the only dance they know.
-const gingerbread: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  wash(p, y => (y >> 1) % 2 ? c('#4a1c22') : c('#431a20'));
-  const scale = Math.max(1, Math.floor((p.ph - 3) / 12)), wide = 9 * scale;
-  const dancers = Math.max(1, Math.floor(p.pw / (wide + 2)));
-  for (let x = 0; x < p.pw; x++) for (let y = p.ph - 2; y < p.ph; y++) p.px(x, y, c(y === p.ph - 2 ? '#d9dde6' : '#9aa0ad'));
-  for (let dancer = 0; dancer < dancers; dancer++) {
-    const beat = Math.floor(t * 2) + dancer;
-    const hop = -Math.round(Math.abs(Math.sin(t * TAU + dancer * 0.6)) * 2 * scale);
-    const x = Math.round((dancer + 0.5) * p.pw / dancers - 3.5 * scale + (beat % 4 < 2 ? -1 : 1) * scale);
-    sprite(p, GINGER, x, p.ph - 2 - 11 * scale + hop, {b: c('#b86b32'), e: c(INK), m: c(RED), w: c(SNOW), g: c(dancer % 2 ? GREEN : RED)}, scale, beat % 2 === 1);
-  }
   p.flush();
   return g.finish();
 };
@@ -168,60 +115,6 @@ const candyCane: Builder = (pulse, width, height, theme) => {
     }
   }
   snowfall(p, t, Math.round(p.pw * p.ph / 120), c(SNOW));
-  p.flush();
-  return g.finish();
-};
-
-const ICONS: Record<string, string[]> = {
-  star: [' g ', 'ggg', ' g '], tree: [' n ', 'nnn', ' b '], bell: [' g ', 'ggg', 'g g'], gift: ['rgr', 'ggg', 'rgr'], heart: ['r r', 'rrr', ' r '], flake: ['w w', ' w ', 'w w']
-};
-
-// Twenty-four numbered doors. One opens every beat or two, and by the end the whole month is showing.
-const adventCalendar: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const columns = g.w >= 60 ? 12 : g.w >= 36 ? 8 : 6, rows = Math.ceil(24 / columns);
-  const doorW = Math.max(3, Math.floor(g.w / columns)), doorH = Math.max(1, Math.floor(g.h / rows));
-  const left = Math.floor((g.w - doorW * columns) / 2), top = Math.floor((g.h - doorH * rows) / 2);
-  const opened = Math.floor((t % 30) / 1.1);
-  const names = Object.keys(ICONS), ink: Record<string, string> = {g: c(GOLD), n: c(GREEN), b: c(WOOD), r: c(RED), w: c(SNOW)};
-  for (let door = 0; door < 24; door++) {
-    // Doors are numbered out of order, the way they always are.
-    const day = (door * 7) % 24 + 1, open = day <= opened, fresh = day === opened;
-    const x0 = left + door % columns * doorW, y0 = top + Math.floor(door / columns) * doorH;
-    const paper = c([RED, GREEN, '#1d4f8f', '#8a2a5a'][door % 4]!), inside = fresh ? c('#fff3c0') : c('#2a1c12');
-    for (let y = 0; y < doorH; y++) for (let x = 0; x < doorW - 1; x++) g.set(x0 + x, y0 + y, ' ', paper, open ? inside : mix(paper, '#000000', y === doorH - 1 ? 0.3 : 0));
-    if (!open) g.write(x0 + Math.max(0, Math.floor((doorW - 1 - String(day).length) / 2)), y0 + Math.floor((doorH - 1) / 2), String(day), c(GOLD), paper);
-    else if (doorH >= 3 && doorW >= 4) ICONS[names[day % names.length]!]!.forEach((row, dy) => [...row].forEach((key, dx) => {
-      if (key !== ' ') g.set(x0 + Math.floor((doorW - 4) / 2) + dx, y0 + Math.floor((doorH - 3) / 2) + dy, '█', ink[key]!, inside);
-    }));
-    else g.set(x0 + Math.floor((doorW - 1) / 2), y0 + Math.floor(doorH / 2), '✦', c(GOLD), inside, true);
-  }
-  return g.finish();
-};
-
-const NUTCRACKER = [' kkkkk ', ' kkgkk ', ' kkkkk ', ' fefef ', ' wfffw ', ' wmmmw ', 'grrrrrg', 'grgrgrg', 'frrrrrf', ' kkkkk ', ' ww ww ', ' ww ww ', ' kk kk '] as const;
-
-// A rank of nutcrackers, drilling: left, right, and every jaw snapping shut on the beat.
-const nutcracker: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  wash(p, y => mix(c('#1c0f2a'), c('#0e0816'), y / p.ph));
-  for (let x = 0; x < p.pw; x++) for (let y = 0; y < Math.min(3, p.ph / 6); y++) if ((x + y * 3 + Math.floor(t * 4)) % 6 < 3) p.px(x, y, c(y % 2 ? RED : GOLD));
-  const scale = Math.max(1, Math.floor((p.ph - 2) / 14)), soldiers = Math.max(1, Math.floor(p.pw / (9 * scale)));
-  for (let x = 0; x < p.pw; x++) p.px(x, p.ph - 1, c((x >> 2) % 2 ? '#3a2a1a' : '#4a3520'));
-  for (let soldier = 0; soldier < soldiers; soldier++) {
-    const x = Math.round((soldier + 0.5) * p.pw / soldiers - 3.5 * scale), step = Math.floor(t * 2) % 2 === (soldier % 2);
-    const top = p.ph - 1 - 13 * scale - (step ? scale > 1 ? 1 : 0 : 0);
-    sprite(p, NUTCRACKER, x, top, {k: c('#14141c'), g: c(GOLD), f: c('#f2c6a0'), e: c(INK), w: c(SNOW), m: c(RED), r: c(soldier % 2 ? '#1d4f8f' : RED)}, scale);
-    // The jaw: a dark gap that opens between beats.
-    if (kick(t) < 0.45) box(p, x + 2 * scale, top + 5 * scale + Math.ceil(scale / 2), 3 * scale, Math.max(1, Math.floor(scale / 2)), () => c('#3a0d14'));
-    box(p, x + (step ? 1 : 4) * scale, top + 12 * scale, 2 * scale, scale, () => c('#14141c'));
-    box(p, x + (step ? 1 : 4) * scale, top + 11 * scale, 2 * scale, scale, () => c(SNOW));
-  }
   p.flush();
   return g.finish();
 };
@@ -289,48 +182,6 @@ const ornaments: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A snowman built ball by ball, dressed, and left standing in the falling snow until the next one.
-const snowman: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const sky = (y: number): string => mix(c('#1b2748'), c('#5c6c9c'), y / p.ph);
-  wash(p, sky);
-  const ground = p.ph - Math.max(2, Math.round(p.ph * 0.14));
-  for (let x = 0; x < p.pw; x++) for (let y = ground + Math.round(Math.sin(x * 0.1) * 0.8); y < p.ph; y++) p.px(x, y, mix(c(SNOW), c('#a9bbe0'), (y - ground) / (p.ph - ground)));
-  const local = t % 16, cx = p.pw / 2;
-  const sizes = [p.ph * 0.2, p.ph * 0.15, p.ph * 0.11];
-  let foot = ground + 1;
-  sizes.forEach((r, ball) => {
-    const arrive = ball * 2.4, here = clamp((local - arrive) / 2);
-    if (local < arrive) return;
-    // Each ball is rolled in from the side, growing as it comes, then lifted onto the pile.
-    const rolling = here < 1, size = r * (0.45 + 0.55 * here);
-    const x = rolling ? cx + (ball % 2 ? 1 : -1) * (1 - here) * p.pw * 0.45 : cx, y = rolling && ball ? ground - size : foot - r;
-    disc(p, x, y, size, size, (dx, dy) => mix(c(SNOW), c('#9fb0d4'), clamp(0.2 + dy * 0.45 + dx * 0.25 + (rolling ? 0.2 * Math.sin((dx + dy) * 6 + t * 9) : 0))));
-    if (!rolling) foot -= r * 1.75;
-  });
-  if (local > 7.4) {
-    const head = foot + sizes[2]! * 0.75, r = sizes[2]!;
-    for (const eye of [-1, 1]) p.px(Math.round(cx + eye * r * 0.4), Math.round(head - r * 0.2), c(INK));
-    stroke(p, cx, head + r * 0.05, cx + r * 0.9, head + r * 0.2, 0.3, c(EMBER));
-    for (let button = 0; button < 3; button++) p.px(Math.round(cx), Math.round(head + r * 1.7 + button * r * 0.6), c(INK));
-    if (local > 8.4) {
-      box(p, cx - r * 1.1, head - r * 0.95, Math.round(r * 2.2), 1, () => c(INK));
-      box(p, cx - r * 0.7, head - r * 0.95 - Math.round(r * 1.1), Math.round(r * 1.4), Math.round(r * 1.1), (_, dy) => dy === Math.round(r * 1.1) - 1 ? c(RED) : c(INK));
-    }
-    if (local > 9.2) {
-      box(p, cx - r * 0.9, head + r * 0.8, Math.round(r * 1.8), Math.max(1, Math.round(r * 0.35)), dx => c(dx % 2 ? RED : GREEN));
-      for (let tail = 0; tail < r * 1.4; tail++) p.px(Math.round(cx + r * 0.8 + tail * 0.4 + Math.sin(t * 3 + tail * 0.6) * 1.2), Math.round(head + r * 1.1 + tail * 0.6), c(tail % 2 ? RED : GREEN));
-      for (const arm of [-1, 1]) stroke(p, cx + arm * sizes[1]! * 0.9, head + r * 2, cx + arm * sizes[1]! * 2, head + r * 1.2 + Math.sin(t * 2 + arm) * 1.2, 0.3, c(WOOD));
-    }
-  }
-  snowfall(p, t, Math.round(p.pw * p.ph / 36), c(SNOW));
-  p.flush();
-  return g.finish();
-};
-
 // The workshop line: bare boxes go in on the left, get wrapped, get a bow, and roll off to the sleigh.
 const workshop: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -345,20 +196,30 @@ const workshop: Builder = (pulse, width, height, theme) => {
   }
   const stations = [0.33, 0.66].map(at => Math.round(p.pw * at));
   const wraps = [RED, GREEN, '#2f6fd8', '#8a2a8a', GOLD], pitch = Math.max(10, Math.round(p.ph * 0.7));
+  const travel = t * 12, slide = travel % pitch;
+  const gifts: {center: number; top: number; size: number; id: number}[] = [];
   for (let n = -1; n * pitch < p.pw + pitch; n++) {
-    const slide = (t * 12) % pitch, x = n * pitch + slide, id = n - Math.floor(t * 12 / pitch);
+    const x = Math.round(n * pitch + slide), id = n - Math.floor(travel / pitch);
     const size = Math.max(3, Math.round(p.ph * (0.18 + 0.12 * hash(id, 1)))), top = belt - size;
-    const wrapped = x > stations[0]!, bowed = x > stations[1]!;
+    const center = n * pitch + slide + (size - 1) / 2;
+    gifts.push({center, top, size, id});
+    const wrapped = center >= stations[0]!, bowed = center >= stations[1]!;
     const paper = c(wraps[((id % 5) + 5) % 5]!);
     box(p, x, top, size, size, (dx, dy) => !wrapped ? (dx === 0 || dy === 0 || dx === size - 1 ? c('#6b4a2d') : c('#a9794a')) : dx === Math.floor(size / 2) || dy === Math.floor(size / 2) ? c(bowed ? GOLD : SNOW) : mix(paper, '#000000', dy / size * 0.25));
     if (bowed) for (const side of [-1, 1]) disc(p, x + size / 2 + side * 1.6, top - 1, 1.6, 1.2, () => c(GOLD));
   }
   stations.forEach((x, n) => {
-    // Each station is a press that comes down once a beat, offset from its neighbour.
-    const down = kick(t + n * 0.25) > 0.6 ? 1 : 0, head = Math.round(p.ph * 0.2) + down * Math.round(p.ph * 0.12);
+    const gift = gifts.reduce((nearest, next) => Math.abs(next.center - x) < Math.abs(nearest.center - x) ? next : nearest);
+    const distance = Math.abs(gift.center - x);
+    const reach = Math.min(pitch / 3, (gift.size + 6) / 2);
+    const contact = Math.max(0, gift.top - 2), rest = Math.min(contact, Math.round(p.ph * 0.2));
+    const head = Math.round(rest + (contact - rest) * smooth(1 - (distance - 1) / reach));
     box(p, x - 1, 0, 3, head, () => c('#5a5f6a'));
     box(p, x - 4, head, 9, 2, () => c(n ? GOLD : RED));
-    if (down) for (let spark = 0; spark < 5; spark++) p.px(x + Math.round((hash(spark, pulse) - 0.5) * 12), head + 3 + Math.round(hash(spark + 9, pulse) * 3), c('#fff3c0'));
+    if (distance <= 1.5) for (const side of [-1, 1]) for (let spark = 0; spark < 3; spark++) {
+      const dx = Math.ceil(gift.size / 2 + hash(spark, gift.id) * 3);
+      p.px(Math.round(gift.center) + side * dx, gift.top - Math.floor(hash(spark + 9, gift.id) * 3), c('#fff3c0'));
+    }
   });
   p.flush();
   return g.finish();
@@ -475,15 +336,10 @@ const fireworksSkyline: Builder = (pulse, width, height, theme) => {
 
 export const yuletideReceiverBuilders = {
   'santa-claus': santaClaus,
-  chimney,
   'snow-globe': snowGlobe,
-  gingerbread,
   'candy-cane': candyCane,
-  'advent-calendar': adventCalendar,
-  nutcracker,
   wreath,
   ornaments,
-  snowman,
   workshop,
   'christmas-lights': christmasLights,
   'fireworks-skyline': fireworksSkyline

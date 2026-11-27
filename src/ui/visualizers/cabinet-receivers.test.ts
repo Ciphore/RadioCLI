@@ -11,8 +11,8 @@ const glyphs = (style: (typeof styles)[number], pulse = 30): string =>
   cabinetReceiverBuilders[style](pulse, 80, 14, 'violet').map(row => row.text).join('');
 
 describe('cabinet receivers', () => {
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers distinct, animated scenes', () => {
+    expect(styles).toHaveLength(10);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -20,16 +20,15 @@ describe('cabinet receivers', () => {
       expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('draws each scene with its own kind of mark', () => {
-    for (const style of ['epicycles', 'snowflake', 'flower-of-life', 'ferris-wheel'] as const) expect(glyphs(style, 150), style).toMatch(/[⠁-⣿]/);
-    for (const style of ['rubens-tube', 'moon-phases', 'circle-packing'] as const) expect(glyphs(style, 150), style).toMatch(/[▀▄]/);
+    for (const style of ['epicycles', 'snowflake', 'flower-of-life'] as const) expect(glyphs(style, 150), style).toMatch(/[⠁-⣿]/);
+    for (const style of ['rubens-tube', 'circle-packing'] as const) expect(glyphs(style, 150), style).toMatch(/[▀▄]/);
     expect(glyphs('sound-field')).toMatch(/●[\s\S]*·/);
     expect(glyphs('fair-isle', 150)).toMatch(/V{20}/);
     expect(glyphs('infinity-mirror')).toMatch(/●[\s\S]*•[\s\S]*·/);
-    expect(glyphs('ferris-wheel')).toMatch(/■[\s\S]*◉/);
   });
 
   it('weaves cloth that covers the whole panel', () => {

@@ -110,8 +110,7 @@ export const rippleTank: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
-  const deep = mix(panelBackground, g.paint.fan(-0.5), 0.42);
-  const shades = Array.from({length: 40}, (_, i) => i < 20 ? mix('#02040a', deep, i / 19) : mix(deep, mix(g.paint.accent, '#ffffff', (i - 20) / 19 * 0.75), ((i - 20) / 19) ** 0.8));
+  const shades = Array.from({length: 40}, (_, i) => g.paint.ink(0.87 * (i / 39) ** 1.5));
   const drops = Array.from({length: 14}, (_, k) => {
     const born = Math.floor(t / 0.32) - k;
     return {x: hash(born, 1) * p.pw, y: hash(born, 2) * p.ph, age: t - born * 0.32, power: 0.6 + 0.4 * hash(born, 3)};
@@ -130,7 +129,7 @@ export const rippleTank: Builder = (pulse, width, height, theme) => {
     const slope = (height0(x + 1, y) - height0(x - 1, y)) * 0.9 + (height0(x, y + 1) - height0(x, y - 1)) * 0.7;
     p.px(x, y, shades[Math.round(clamp(0.34 + slope * 1.15) * 39)]!);
   }
-  for (const drop of drops) if (drop.age < 0.16) p.px(Math.floor(drop.x), Math.floor(drop.y), '#ffffff');
+  for (const drop of drops) if (drop.age < 0.16) p.px(Math.floor(drop.x), Math.floor(drop.y), g.paint.accent);
   p.flush();
   return g.finish();
 };
@@ -201,40 +200,6 @@ const stride = (pulse: number, W: number, H: number, stretch: number, share = 0.
   return {wide, tall, left, top, ink: (x: number, y: number): boolean => x >= left && y >= top && x < left + wide && y < top + tall && mask[(y - top) * wide + x - left] === 1};
 };
 
-// The horse as a solid body: the outline is closed, flooded from outside, and whatever the flood cannot reach is horse.
-export const gallopSilhouette: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const horse = stride(pulse, p.pw, p.ph, 1, 0.9);
-  const W = horse.wide + 2, H = horse.tall + 2;
-  const outside = new Uint8Array(W * H);
-  // The drawing has small breaks in it; a line thickened by one pixel has none, so the flood stays out.
-  const wall = (x: number, y: number): boolean => {
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (horse.ink(horse.left + x - 1 + dx, horse.top + y - 1 + dy)) return true;
-    return false;
-  };
-  const queue = [0];
-  outside[0] = 1;
-  while (queue.length) {
-    const at = queue.pop()!, x = at % W, y = Math.floor(at / W);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = x + dx, ny = y + dy, next = ny * W + nx;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H || outside[next] || wall(nx, ny)) continue;
-      outside[next] = 1; queue.push(next);
-    }
-  }
-  const ground = horse.top + horse.tall;
-  for (let x = 0; x < p.pw; x++) if (ground < p.ph) p.px(x, ground, g.paint.ink(0.16 + 0.1 * hash(x - Math.floor(pulse) * 3, 1)));
-  for (let y = 0; y < horse.tall; y++) for (let x = 0; x < horse.wide; x++) {
-    const line = horse.ink(horse.left + x, horse.top + y);
-    if (!line && outside[(y + 1) * W + x + 1]) continue;
-    // Lit from above: the back catches the light, the belly falls into shade.
-    p.px(horse.left + x, horse.top + y, line ? mix(g.paint.accent, '#ffffff', 0.45) : g.paint.ink(0.78 - 0.5 * y / horse.tall));
-  }
-  p.flush();
-  return g.finish();
-};
-
 const DENSITY = ' .:;+=*#@';
 // The horse typed out: each character chosen by how much of the drawing passes through its cell.
 export const gallopAscii: Builder = (pulse, width, height, theme) => {
@@ -257,39 +222,6 @@ export const gallopLed: Builder = (pulse, width, height, theme) => {
     const lit = horse.ink(x, y * 2) || horse.ink(x, y * 2 + 1);
     const fresh = lit && !(stride(pulse - 1, g.w, g.h * 2, 1, 0.94).ink(x, y * 2) || stride(pulse - 1, g.w, g.h * 2, 1, 0.94).ink(x, y * 2 + 1));
     g.set(x, y, lit ? '●' : '·', lit ? mix(g.paint.accent, '#ffffff', fresh ? 0.5 : 0.1) : g.paint.ink(0.12), undefined, lit);
-  }
-  return g.finish();
-};
-
-// The horse in bent glass tube: a white-hot core, a coloured halo, and a faint wash on the wall behind.
-export const gallopNeon: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const horse = stride(pulse, p.pw, p.ph, 1, 0.88);
-  const buzz = 0.88 + 0.12 * noise(t * 9, 3);
-  for (let y = horse.top - 2; y < horse.top + horse.tall + 2; y++) for (let x = horse.left - 2; x < horse.left + horse.wide + 2; x++) {
-    let near = 9;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (horse.ink(x + dx, y + dy)) near = Math.min(near, Math.hypot(dx, dy));
-    if (near > 1.05) continue;
-    const tube = g.paint.fan(Math.sin((x - horse.left) / horse.wide * 3 + t * 0.4));
-    p.px(x, y, near === 0 ? mix(tube, '#ffffff', 0.72 * buzz) : mix(panelBackground, tube, (near < 1.1 ? 0.5 : 0.22) * buzz));
-  }
-  p.flush();
-  return g.finish();
-};
-
-const QUADS = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█';
-// The horse cut from quarter blocks: four hard-edged pixels to a cell, and a shadow keeping pace underneath.
-export const gallopQuad: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const horse = stride(pulse, g.w * 2, g.h * 2, 2, 0.9);
-  const foot = Math.floor((horse.top + horse.tall) / 2);
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-    let bits = 0;
-    for (let q = 0; q < 4; q++) if (horse.ink(x * 2 + (q & 1), y * 2 + (q >> 1))) bits |= 1 << q;
-    if (bits) g.set(x, y, QUADS[bits]!, g.paint.fan(tri(y / g.h * 0.5 + 0.2) * 1.2 - 0.6));
-    else if (y === foot && Math.abs(x - g.w / 2) < horse.wide / 4.4) g.set(x, y, '▁', g.paint.ink(0.2));
   }
   return g.finish();
 };

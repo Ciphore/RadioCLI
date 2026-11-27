@@ -24,8 +24,8 @@ const bitmap = (style: (typeof styles)[number], pulse: number, width: number, he
 };
 
 describe('festive receivers', () => {
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers eleven distinct, animated scenes', () => {
+    expect(styles).toHaveLength(11);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -33,7 +33,7 @@ describe('festive receivers', () => {
       expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('spells the greeting out in red and green', () => {
@@ -44,13 +44,15 @@ describe('festive receivers', () => {
     expect(green.some(row => row.includes('####'))).toBe(true);
   });
 
-  it('counts down from ten, then wishes everyone a happy new year', () => {
-    const gold = (pulse: number): number => bitmap('new-year', pulse, 120, 20, color => color !== '' && /^#f[0-9a-f]f?[0-9a-f]{3,4}$/.test(color)).join('').split('#').length - 1;
-    // "10" has more lit pixels than "1"; after midnight the banner has more than either.
-    expect(gold(2)).toBeGreaterThan(gold(119));
-    const midnight = new Set(colours('new-year', 200, 'violet', 120, 20));
-    const before = new Set(colours('new-year', 60, 'violet', 120, 20));
-    expect(midnight.size).toBeGreaterThan(before.size);
+  it('shows the New Year greeting and successive fireworks from the first frame onward', () => {
+    const pulses = [0, 124, 125, 299, 300, 5000];
+    const frames = pulses.map(pulse => festiveReceiverBuilders['new-year'](pulse, 38, 14, 'violet'));
+    for (const frame of frames) {
+      expect(frame.map(row => row.text).join('\n')).toContain('HAPPY NEW YEAR');
+      const skyColors = new Set(frame.slice(0, 5).flatMap(row => row.segments.map(segment => segment.color)));
+      expect(skyColors.size).toBeGreaterThan(15);
+    }
+    expect(new Set(frames.map(frame => JSON.stringify(frame))).size).toBe(pulses.length);
   });
 
   it('lights one more candle each night', () => {

@@ -73,7 +73,7 @@ export function computeListeningStats(sessions: ListeningSession[], now = new Da
   };
 }
 
-function sessionSeconds(session: ListeningSession, now = new Date()): number {
+export function sessionSeconds(session: ListeningSession, now = new Date()): number {
   const started = Date.parse(session.startedAt);
   const checkpoint = Date.parse(session.lastActiveAt ?? '');
   const recorded = Number.isFinite(session.listenedSeconds) ? Math.max(0, Math.round(session.listenedSeconds)) : 0;

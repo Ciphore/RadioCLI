@@ -1,5 +1,5 @@
 import type {ThemeName} from '../../types.js';
-import {clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {clamp, fract, grid, hash, mix, noise, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
 
 // Places keep their own colours, like the scenes they sit beside; mono renders them in greys.
 const tint = (theme: ThemeName) => (hex: string): string => {
@@ -15,10 +15,10 @@ const ramp = (stops: string[], at: number): string => {
   const scaled = clamp(at) * (stops.length - 1), index = Math.min(stops.length - 2, Math.floor(scaled));
   return mix(stops[index]!, stops[index + 1]!, scaled - index);
 };
-const stars = (p: Pixels, t: number, below: number, sky: (y: number) => string): void => {
+const stars = (p: Pixels, t: number, below: number, sky: (y: number) => string, visibility = 1): void => {
   for (let star = 0; star < p.pw * below / 60; star++) {
     const y = Math.floor(hash(star, 42) * below);
-    p.px(Math.floor(hash(star, 41) * p.pw), y, mix(sky(y), '#ffffff', 0.2 + 0.6 * tri(t * (0.15 + 0.2 * hash(star, 43)) + hash(star, 44))));
+    p.px(Math.floor(hash(star, 41) * p.pw), y, mix(sky(y), '#ffffff', visibility * (0.2 + 0.6 * tri(t * (0.15 + 0.2 * hash(star, 43)) + hash(star, 44)))));
   }
 };
 const orb = (p: Pixels, cx: number, cy: number, r: number, color: (d: number, x: number, y: number) => string | undefined): void => {
@@ -30,30 +30,46 @@ const orb = (p: Pixels, cx: number, cy: number, r: number, color: (d: number, x:
   }
 };
 
-type Mood = {sky: string[]; water: [string, string]; steel: string; shade: string; hills: string; fog: number; night: boolean; sun?: string};
+type Mood = {
+  sky: (height: number) => string;
+  water: [string, string];
+  steel: string;
+  shade: string;
+  hills: string;
+  fog: number;
+  night: number;
+  sun?: {color: string; visibility: number; x: number; yAboveWater: number};
+};
 /** The bridge, seen side on: two towers, the long sag of the cables, a deck of traffic, and the strait underneath. */
-const bridge = (mood: Mood): Builder => (pulse, width, height, theme) => {
+const bridge = (atmosphere: Mood | ((nowMs: number | undefined) => Mood)): Builder => (pulse, width, height, theme, data) => {
+  const mood = typeof atmosphere === 'function' ? atmosphere(data?.nowMs) : atmosphere;
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
   const c = tint(theme);
   const sea = Math.round(p.ph * 0.74), deck = Math.round(p.ph * 0.58), crown = Math.max(1, Math.round(p.ph * 0.1));
-  const sky = (y: number): string => c(ramp(mood.sky, y / sea));
+  const sky = (y: number): string => c(mood.sky(y / sea));
   wash(p, y => y < sea ? sky(y) : c(mix(mood.water[0], mood.water[1], (y - sea) / (p.ph - sea))));
-  if (mood.night) stars(p, t, sea * 0.8, sky);
-  const sunX = p.pw * 0.5, sunY = sea - p.ph * 0.27, sunR = Math.max(2, p.ph * 0.2);
-  if (mood.sun) {
-    orb(p, sunX, sunY, sunR * 2.2, (d, _, y) => y < sea ? mix(sky(y), c(mood.sun!), 0.45 * (1 - d) ** 1.5) : undefined);
-    orb(p, sunX, sunY, sunR, (d, __, y) => y < sea ? c(mix(mood.sun!, '#ffffff', 0.85 - 0.3 * d)) : undefined);
+  if (mood.night) stars(p, t, sea * 0.8, sky, mood.night);
+  const sun = mood.sun, sunlight = sun?.visibility ?? 0;
+  const sunX = p.pw * (sun?.x ?? 0.5), sunY = sea - p.ph * (sun?.yAboveWater ?? 0.27), sunR = Math.max(2, p.ph * 0.2);
+  if (sun && sunlight) {
+    orb(p, sunX, sunY, sunR * 2.2, (d, x, y) => y < sea ? mix(p.at(x, y) ?? sky(y), c(sun.color), sunlight * 0.45 * (1 - d) ** 1.5) : undefined);
+    orb(p, sunX, sunY, sunR, (d, x, y) => y < sea
+      ? mix(p.at(x, y) ?? sky(y), c(mix(sun.color, '#ffffff', 0.85 - 0.3 * d)), sunlight)
+      : undefined);
   }
-  if (mood.night) orb(p, p.pw * 0.16, p.ph * 0.2, Math.max(1.5, p.ph * 0.08), d => c(mix('#fdf3c8', '#cfc08a', d)));
+  if (mood.night) orb(p, p.pw * 0.16, p.ph * 0.2, Math.max(1.5, p.ph * 0.08),
+    (d, x, y) => mix(p.at(x, y) ?? sky(y), c(mix('#fdf3c8', '#cfc08a', d)), mood.night));
   const hill = (x: number): number => sea - Math.round(p.ph * (0.05 + 0.13 * noise(x * 0.03, 5) * smooth(Math.abs(x / p.pw - 0.5) * 2.4)));
   for (let x = 0; x < p.pw; x++) for (let y = hill(x); y < sea; y++) p.px(x, y, c(mood.hills));
   // Water: the sky's light lies on it in broken horizontal dashes.
+  const reflectedLight = mix(mix('#ffffff', '#ffd9a0', mood.night), sun?.color ?? '#ffffff', sunlight);
+  const reflectionStrength = mood.night === 1 ? 0.25 : 0.3 - 0.05 * mood.night;
   for (let y = sea; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
     const glitter = noise(x * 0.5 + t * (1 + (y - sea) * 0.2), y * 2.1, 3);
-    const path = mood.sun ? Math.exp(-(((x - sunX) / (sunR * (0.8 + (y - sea) * 0.35))) ** 2)) : 0;
-    if (glitter > 0.72 - path * 0.45) p.px(x, y, c(mix(mood.water[1], mood.sun ?? (mood.night ? '#ffd9a0' : '#ffffff'), (mood.night ? 0.25 : 0.3) + 0.6 * path)));
+    const path = sunlight ? sunlight * Math.exp(-(((x - sunX) / (sunR * (0.8 + (y - sea) * 0.35))) ** 2)) : 0;
+    if (glitter > 0.72 - path * 0.45) p.px(x, y, c(mix(mood.water[1], reflectedLight, reflectionStrength + 0.6 * path)));
   }
   const towers = [0.28, 0.72].map(at => Math.round(p.pw * at));
   const thick = Math.max(1, Math.round(p.pw / 55));
@@ -66,12 +82,13 @@ const bridge = (mood: Mood): Builder => (pulse, width, height, theme) => {
     return deck - 2 - (deck - 2 - crown) * u * u;
   };
   const steel = c(mood.steel), shade = c(mood.shade);
+  const cableLight = mix(steel, c('#ffe2a0'), mood.night), towerLight = mix(shade, c('#ff4a4a'), mood.night);
   for (let x = 0; x < p.pw; x++) {
     const y = Math.round(cable(x));
     p.px(x, y, steel);
     if (x % 3 === 0) for (let hang = y + 1; hang < deck; hang++) p.px(x, hang, mix(sky(hang), steel, 0.6));
     for (let d = 0; d < 2; d++) p.px(x, deck + d, d ? shade : steel);
-    if (mood.night && x % 4 === 0) p.px(x, y, c('#ffe2a0'));
+    if (mood.night && x % 4 === 0) p.px(x, y, cableLight);
   }
   for (const x of towers) {
     for (let y = crown - 1; y < p.ph; y++) for (const leg of [-1, 1]) for (let w = 0; w < thick; w++) {
@@ -84,16 +101,17 @@ const bridge = (mood: Mood): Builder => (pulse, width, height, theme) => {
       const y = Math.round(crown + (deck - crown) * (brace / 4) ** 0.9);
       for (let dx = -thick; dx <= thick; dx++) p.px(x + dx, y, steel);
     }
-    if (mood.night) p.px(x, crown - 2, fract(t * 0.6) < 0.5 ? c('#ff4a4a') : shade);
+    if (mood.night) p.px(x, crown - 2, fract(t * 0.6) < 0.5 ? towerLight : shade);
   }
   for (let car = 0; car < p.pw / 7; car++) {
     const way = car % 2 ? 1 : -1, lap = p.pw + 8;
     const x = Math.round((((hash(car, 1) * lap + way * t * (7 + 6 * hash(car, 2))) % lap) + lap) % lap) - 4;
-    p.px(x, deck - 1, c(mood.night ? (way > 0 ? '#fff3c0' : '#ff5a5a') : ['#e8e8e8', '#30405a', '#c7b23a', '#a03030'][car % 4]!));
+    p.px(x, deck - 1, c(mix(['#e8e8e8', '#30405a', '#c7b23a', '#a03030'][car % 4]!, way > 0 ? '#fff3c0' : '#ff5a5a', mood.night)));
   }
   const boat = Math.round(fract(t * 0.012 + 0.3) * (p.pw + 12)) - 6, by = sea + Math.max(1, Math.round((p.ph - sea) * 0.4));
   for (let dx = -3; dx <= 3; dx++) p.px(boat + dx, by, c('#1b2230'));
-  for (let dy = 1; dy <= 3; dy++) for (let dx = 0; dx < 4 - dy; dx++) p.px(boat + dx, by - dy, c(mood.night ? '#c9d2e0' : '#ffffff'));
+  const sail = c(mix('#ffffff', '#c9d2e0', mood.night));
+  for (let dy = 1; dy <= 3; dy++) for (let dx = 0; dx < 4 - dy; dx++) p.px(boat + dx, by - dy, sail);
   if (mood.fog) {
     // Fog pours through in banks: thickest at deck height, with the tower tops left standing clear of it.
     for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
@@ -107,9 +125,68 @@ const bridge = (mood: Mood): Builder => (pulse, width, height, theme) => {
   return g.finish();
 };
 
-export const goldenGateFog = bridge({sky: ['#6f9fc9', '#a9c6dc', '#dfe6ea'], water: ['#3f6f8f', '#274a66'], steel: '#d2452f', shade: '#96281d', hills: '#4d5f52', fog: 1, night: false});
-export const goldenGateSunset = bridge({sky: ['#2a2350', '#7a3b6e', '#d85f45', '#f08a4a'], water: ['#7a3d4d', '#241a3a'], steel: '#3a1418', shade: '#220a10', hills: '#2a1a2e', fog: 0, night: false, sun: '#ffb347'});
-export const goldenGateNight = bridge({sky: ['#04061a', '#0c1638', '#1c2a5a'], water: ['#0a1430', '#04081a'], steel: '#c2402c', shade: '#6e1f18', hills: '#070b18', fog: 0.35, night: true});
+const fog: Mood = {sky: y => ramp(['#6f9fc9', '#a9c6dc', '#dfe6ea'], y), water: ['#3f6f8f', '#274a66'], steel: '#d2452f', shade: '#96281d', hills: '#4d5f52', fog: 1, night: 0};
+const sunset: Mood = {
+  sky: y => ramp(['#2a2350', '#7a3b6e', '#d85f45', '#f08a4a'], y), water: ['#7a3d4d', '#241a3a'],
+  steel: '#3a1418', shade: '#220a10', hills: '#2a1a2e', fog: 0, night: 0,
+  sun: {color: '#ffb347', visibility: 1, x: 0.5, yAboveWater: 0.27}
+};
+const night: Mood = {sky: y => ramp(['#04061a', '#0c1638', '#1c2a5a'], y), water: ['#0a1430', '#04081a'], steel: '#c2402c', shade: '#6e1f18', hills: '#070b18', fog: 0.35, night: 1};
+const daylight: Mood = {...fog, sky: y => ramp(['#4787bd', '#8ac1de', '#d9e5e8'], y), water: ['#41839d', '#225575'], fog: 0.08};
+export const goldenGateFog = bridge(fog);
+export const goldenGateSunset = bridge(sunset);
+export const goldenGateNight = bridge(night);
+
+const radians = Math.PI / 180;
+const bridgeLatitude = 37.82 * radians;
+const bridgeLongitude = -122.48;
+const dayMs = 86_400_000;
+
+// NOAA's solar position approximation uses UTC and geographic coordinates.
+// https://gml.noaa.gov/grad/solcalc/solareqns.PDF
+function bridgeSun(nowMs: number): {altitude: number; progress: number; morning: boolean} {
+  const year = new Date(nowMs).getUTCFullYear();
+  const yearStart = Date.UTC(year, 0, 1);
+  const fraction = (nowMs - yearStart - dayMs / 2) / (Date.UTC(year + 1, 0, 1) - yearStart);
+  const angle = 2 * Math.PI * fraction;
+  const timeCorrection = 229.18 * (0.000075 + 0.001868 * Math.cos(angle) - 0.032077 * Math.sin(angle) -
+    0.014615 * Math.cos(2 * angle) - 0.040849 * Math.sin(2 * angle));
+  const declination = 0.006918 - 0.399912 * Math.cos(angle) + 0.070257 * Math.sin(angle) -
+    0.006758 * Math.cos(2 * angle) + 0.000907 * Math.sin(2 * angle) -
+    0.002697 * Math.cos(3 * angle) + 0.00148 * Math.sin(3 * angle);
+  const solarDay = fract((nowMs / dayMs) + (timeCorrection + 4 * bridgeLongitude) / 1440);
+  const hourAngle = (360 * solarDay - 180) * radians;
+  const latitudeTerm = Math.sin(bridgeLatitude) * Math.sin(declination);
+  const dailyArc = Math.cos(bridgeLatitude) * Math.cos(declination);
+  const altitude = Math.asin(latitudeTerm + dailyArc * Math.cos(hourAngle)) / radians;
+  const horizonAngle = Math.acos(-latitudeTerm / dailyArc);
+  return {altitude, progress: clamp(hourAngle / horizonAngle, -1, 1), morning: hourAngle < 0};
+}
+
+export const goldenGateLive = bridge(nowMs => {
+  const {altitude, progress, morning} = bridgeSun(nowMs ?? Date.UTC(2026, 0, 1, 20));
+  const light = smooth((altitude + 12) / 12);
+  if (light === 0) return night;
+  const highSun = smooth((altitude - (morning ? 5 : 4)) / (morning ? 22 : 23));
+  const horizon = morning ? fog : sunset;
+  const tone = (dark: string, low: string, high: string): string => mix(dark, mix(low, high, highSun), light);
+  const water = (i: 0 | 1): string => tone(night.water[i], horizon.water[i], daylight.water[i]);
+  return {
+    sky: y => tone(night.sky(y), horizon.sky(y), daylight.sky(y)),
+    water: [water(0), water(1)],
+    steel: tone(night.steel, horizon.steel, daylight.steel),
+    shade: tone(night.shade, horizon.shade, daylight.shade),
+    hills: tone(night.hills, horizon.hills, daylight.hills),
+    fog: night.fog * (1 - light) + (horizon.fog * (1 - highSun) + daylight.fog * highSun) * light,
+    night: 1 - light,
+    sun: {
+      color: mix(horizon.sun?.color ?? '#ffdba0', '#fff2b9', highSun),
+      visibility: smooth((altitude + 3) / 5) * (0.7 * highSun + (morning ? 0.12 : 1) * (1 - highSun)),
+      x: 0.5 + 0.33 * progress,
+      yAboveWater: 0.08 + 0.51 * clamp(altitude / 74)
+    }
+  };
+});
 
 type Tower = {x: number; w: number; top: number; seed: number; crown: number};
 /** A row of towers along a baseline. `crown` picks the roof: flat, stepped, spire or slant. */
@@ -212,44 +289,6 @@ export const skylineRain: Builder = (pulse, width, height, theme) => {
     const x = Math.floor(hash(drop, 8) * (p.pw + 10) - fall * 6), y = Math.floor(fall * p.ph);
     const under = p.at(x, y);
     if (under) { p.px(x, y, mix(under, c('#b9c6e6'), 0.4)); p.px(x + 1, y - 1, mix(p.at(x + 1, y - 1) ?? under, c('#b9c6e6'), 0.25)); }
-  }
-  p.flush();
-  return g.finish();
-};
-
-// The city as an eighties record sleeve: a striped sun, towers in outline, and a grid running out to the horizon.
-export const skylineSynth: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = tint(theme);
-  const base = Math.round(p.ph * 0.62);
-  const sky = (y: number): string => c(ramp(['#0b0221', '#2a0845', '#7a1f6e', '#ff4f8b'], y / base));
-  wash(p, y => y < base ? sky(y) : c('#0a0218'));
-  stars(p, t, base * 0.5, sky);
-  const sunR = Math.max(3, Math.min(p.ph * 0.36, p.pw * 0.2)), sunY = base - sunR * 0.25;
-  orb(p, p.pw / 2, sunY, sunR, (_, __, y) => {
-    if (y >= base) return undefined;
-    // Bars cut through the lower half of the sun, widening as they go down, and creep downward.
-    const low = (y - sunY) / sunR;
-    return low > 0 && fract(low * 4.5 - t * 0.35) < 0.18 + low * 0.3 ? undefined : c(ramp(['#fff06a', '#ff9a3c', '#ff2e7e'], (y - (sunY - sunR)) / (sunR * 2)));
-  });
-  const shift = Math.floor(t * 4);
-  const rows = [block(900, 0, p.pw * 3, base, p.ph * 0.1, p.ph * 0.3, [4, 8]), block(1100, 0, p.pw * 3, base, p.ph * 0.08, p.ph * 0.46, [5, 10])];
-  rows.forEach((towers, depth) => {
-    const edge = depth ? c('#35f0ff') : c('#b040ff'), fillTone = depth ? c('#12052a') : c('#200a3c');
-    raise(p, towers, base, Math.floor(shift * (depth ? 1 : 0.4)) % (towers.at(-1)!.x - p.pw), (tower, dx, y, roof) =>
-      y === roof || dx === 0 || dx === tower.w - 1 ? edge : depth && windowAt(tower, dx, y, base) && hash(tower.seed * 7 + dx, y) > 0.6 ? mix(c('#ff4fd8'), g.paint.accent, 0.3) : fillTone);
-  });
-  const row = (y: number): number => Math.floor(1.6 / ((y - base + 1) / (p.ph - base)) + t * 2);
-  for (let y = base; y < p.ph; y++) {
-    const depth = (y - base + 1) / (p.ph - base), spacing = depth * p.pw * 0.12 + 0.6;
-    // A grid line wherever the ground distance crosses a whole number between this row and the last.
-    const line = y === base || (depth > 0.3 && row(y) !== row(y - 1));
-    for (let x = 0; x < p.pw; x++) {
-      const lane = (x + 0.5 - p.pw / 2) / spacing;
-      if (line || Math.abs(lane - Math.round(lane)) * spacing < 0.5) p.px(x, y, mix(c('#0a0218'), c('#ff3fb4'), 0.3 + 0.6 * depth + 0.1 * kick(t)));
-    }
   }
   p.flush();
   return g.finish();

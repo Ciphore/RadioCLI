@@ -126,11 +126,12 @@ export async function runUpgradeSmoke(tarball, {baseline, source = null, evidenc
     pathToFileURL(join(packageRoot, 'dist', 'ui', 'visualizers', 'receiver-visualizers.js')).href], {cwd: project, env}).stdout);
     const registry = rendered.names;
     assert.equal(rendered.defaultStyle, 'ultracode');
-    assert.equal(registry[0], 'ultracode');
-    assert.equal(registry[8], 'gallop-fine');
-    assert.equal(registry.length, 424);
-    assert.deepEqual(registry.slice(61, 64), ['alpine', 'boat-lake', 'crossfade']);
-    assert.deepEqual(registry.slice(-3), ['orbit-rings', 'weave-lines', 'sound-bloom']);
+    assert.deepEqual(registry.slice(0, 4), ['ultracode', 'pulse-grid', 'ripple-code', 'orbit-rings']);
+    assert.equal(registry.length, 308);
+    assert.equal(new Set(registry).size, registry.length);
+    for (const style of ['gallop-fine', 'alpine', 'boat-lake', 'crossfade', 'orbit-rings', 'weave-lines']) {
+      assert.ok(registry.includes(style), `Missing receiver style ${style}.`);
+    }
     assert.equal(rendered.hashes.length, registry.length);
     for (const receiverStyle of registry) {
       await candidate.call('updateSettings', {receiverStyle});

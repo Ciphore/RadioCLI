@@ -6,17 +6,20 @@ import {playervizReceiverBuilders} from './playerviz-receivers.js';
 import {receiverStyleNames} from './receiver-style-registry.js';
 import {buildVisualizer} from './receiver-visualizers.js';
 
-const sets = {oel: oelReceiverBuilders, playerviz: playervizReceiverBuilders};
+const sets = {
+  oel: {builders: oelReceiverBuilders, count: 10},
+  playerviz: {builders: playervizReceiverBuilders, count: 9}
+};
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
 const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | 'ruby' | 'blue' = 'violet') =>
   buildVisualizer(style, pulse, 80, 14, null, playback, theme);
 const text = (style: ReceiverStyle, pulse = 60): string => frame(style, pulse).map(row => row.text).join('\n');
 
-describe.each(Object.entries(sets))('%s receivers', (_, builders) => {
+describe.each(Object.entries(sets))('%s receivers', (_, {builders, count}) => {
   const styles = Object.keys(builders) as ReceiverStyle[];
 
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers distinct, animated scenes', () => {
+    expect(styles).toHaveLength(count);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -75,13 +78,10 @@ describe('OEL and classic media player details', () => {
   it('renders recognizable car head-unit and classic player furniture', () => {
     expect(text('oel-dolphins')).toMatch(/OEL[\s\S]*STEREO/);
     expect(text('oel-racer')).toMatch(/KM\/H[\s\S]*GEAR \d/);
-    expect(text('oel-jet')).toMatch(/HDG \d{3}/);
     expect(text('oel-city-cruise')).toMatch(/NIGHT CRUISE/);
     expect(text('oel-dancers')).toMatch(/DEMO\s+GROOVE/);
     expect(text('car-tachometer')).toMatch(/RPM[\s\S]*MPH/);
     expect(text('xplod-ring')).toMatch(/XPLOD[\s\S]*101\.9/);
-    expect(text('cd-changer')).toMatch(/6-CD CHANGER/);
-    expect(text('minidisc')).toMatch(/MDLP[\s\S]*ATRAC3[\s\S]*TR\d\d/);
-    expect(text('win98-player')).toMatch(/Media Player - RadioCLI[\s\S]*File\s+View\s+Play[\s\S]*Playing/);
+    expect(text('minidisc')).toMatch(/MDLP[\s\S]*ATRAC3[\s\S]*LIVE/);
   });
 });

@@ -1,5 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, mix, noise, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {TAU, braille, clamp, fract, grid, hash, mix, noise, pixels, sceneColors, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
 
 const pad = (n: number, width: number): string => String(Math.floor(n)).padStart(width, '0');
 const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: (dx: number, dy: number) => string | undefined): void => {
@@ -17,27 +17,35 @@ const trainWindow: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
-  const dusk = [g.paint.fan(-0.7), g.paint.fan(0.2), g.paint.fan(0.9)];
-  const sky = (y: number): string => { const at = clamp(y / (p.ph * 0.6)) * 2, i = Math.min(1, Math.floor(at)); return mix(panelBackground, mix(dusk[i]!, dusk[i + 1]!, at - i), 0.25 + 0.35 * at / 2); };
+  const color = sceneColors(theme);
+  const dusk = ['#191e40', '#574263', '#bf786d'].map(color);
+  const hills = ['#524259', '#364656', '#293f36'].map(color);
+  const dark = color('#0a0c10');
+  const field = [color('#172921'), color('#20372a')];
+  const sky = (y: number): string => {
+    const at = clamp(y / (p.ph * 0.6)) * 2, i = Math.min(1, Math.floor(at));
+    return mix(dusk[i]!, dusk[i + 1]!, at - i);
+  };
   fillAll(p, (_, y) => sky(y));
-  disc(p, p.pw * 0.7, p.ph * 0.5, p.ph * 0.13, p.ph * 0.13, () => mix(g.paint.fan(0.9), '#ffffff', 0.6));
-  [[0.52, 0.4, 0.025, 0.13, 0.1], [0.6, 2, 0.05, 0.2, 0.18], [0.7, 7, 0.09, 0.32, 0.12]].forEach(([level, speed, scale, shade, lift], layer) => {
+  const sun = color('#ffd6a6');
+  disc(p, p.pw * 0.7, p.ph * 0.5, p.ph * 0.13, p.ph * 0.13, () => sun);
+  [[0.52, 0.4, 0.025, 0.1], [0.6, 2, 0.05, 0.18], [0.7, 7, 0.09, 0.12]].forEach(([level, speed, scale, lift], layer) => {
     for (let x = 0; x < p.pw; x++) {
       const top = Math.round(p.ph * (level! - lift! * noise((x + t * speed! * 8) * scale!, layer * 9, layer)));
-      for (let y = top; y < p.ph; y++) p.px(x, y, mix(panelBackground, g.paint.fan(-0.5 + layer * 0.2), shade! * (1 - (y - top) / p.ph * 0.5)));
+      for (let y = top; y < p.ph; y++) p.px(x, y, mix(hills[layer]!, dark, (y - top) / p.ph * 0.5));
     }
   });
-  for (let x = 0; x < p.pw; x++) for (let y = Math.round(p.ph * 0.82); y < p.ph; y++) p.px(x, y, mix(panelBackground, g.paint.accent, hash(Math.floor((x + t * 150) / 3), y) > 0.6 ? 0.2 : 0.12));
+  for (let x = 0; x < p.pw; x++) for (let y = Math.round(p.ph * 0.82); y < p.ph; y++) p.px(x, y, field[hash(Math.floor((x + t * 150) / 3), y) > 0.6 ? 1 : 0]!);
   // Poles come by one a second; the wires between them sag and rise as each one passes.
   const gap = p.pw * 0.9, offset = (t * 150) % gap, wireTop = p.ph * 0.2;
   for (let x = 0; x < p.pw; x++) {
     const along = fract((x + offset) / gap);
-    for (let wire = 0; wire < 2; wire++) p.px(x, Math.round(wireTop + wire * 2 + 4 * along * (1 - along) * p.ph * 0.18), '#0a0c10');
+    for (let wire = 0; wire < 2; wire++) p.px(x, Math.round(wireTop + wire * 2 + 4 * along * (1 - along) * p.ph * 0.18), dark);
   }
   for (let pole = -1; pole < 2; pole++) {
     const x = Math.round(pole * gap + gap - offset);
-    for (let y = Math.round(wireTop) - 2; y < p.ph; y++) for (let w = 0; w < 2; w++) p.px(x + w, y, '#0a0c10');
-    for (let w = -3; w <= 4; w++) p.px(x + w, Math.round(wireTop) - 1, '#0a0c10');
+    for (let y = Math.round(wireTop) - 2; y < p.ph; y++) for (let w = 0; w < 2; w++) p.px(x + w, y, dark);
+    for (let w = -3; w <= 4; w++) p.px(x + w, Math.round(wireTop) - 1, dark);
   }
   p.flush();
   return g.finish();
@@ -64,85 +72,6 @@ const cityWindows: Builder = (pulse, width, height, theme) => {
     for (let x = -1; x <= paneW; x++) p.px(x0 + x, y0 + paneH, mix(wall, '#ffffff', 0.18));
   }
   p.flush();
-  return g.finish();
-};
-
-// A cat asleep on the sill: sides rising and falling, an ear that twitches, a tail that cannot quite keep still.
-const catNap: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const sill = p.ph - Math.max(2, Math.round(p.ph * 0.16)), fur = mix(panelBackground, g.paint.accent, 0.8), shade = mix(fur, '#000000', 0.35);
-  fillAll(p, (_, y) => y >= sill ? mix(panelBackground, '#8a6a48', y === sill ? 0.75 : 0.5) : mix('#0a1024', '#1c2748', y / sill));
-  for (let star = 0; star < p.pw * sill / 70; star++) p.px(Math.floor(hash(star, 1) * p.pw), Math.floor(hash(star, 2) * sill * 0.8), mix('#1c2748', '#ffffff', 0.3 + 0.6 * tri(t * 0.2 + hash(star, 3))));
-  disc(p, p.pw * 0.18, sill * 0.28, sill * 0.16, sill * 0.16, (dx, dy) => Math.hypot(dx - 0.35, dy + 0.1) < 0.85 ? undefined : '#fdf3c8');
-  for (const x of [0, Math.floor(p.pw / 2), p.pw - 1]) for (let y = 0; y < sill; y++) p.px(x, y, mix(panelBackground, '#8a6a48', 0.6));
-  const cx = p.pw * 0.6, size = Math.min(sill * 0.42, p.pw * 0.14), breath = 1 + 0.06 * Math.sin(t * 1.3);
-  // The tail hangs over the edge and flicks from the tip, with the odd bigger swish.
-  const swish = Math.sin(t * 0.9) * 0.5 + (fract(t / 7) < 0.1 ? Math.sin(t * 12) * 0.5 : 0);
-  let tx = cx - size * 1.6, ty = sill - size * 0.3;
-  for (let seg = 0; seg < 12; seg++) { const a = Math.PI * 0.55 + swish * seg / 12 * 1.2; const nx = tx + Math.cos(a) * size * 0.16, ny = ty + Math.sin(a) * size * 0.16; stroke(p, tx, ty, nx, ny, Math.max(0.6, size * 0.11), seg % 4 < 2 ? fur : shade); tx = nx; ty = ny; }
-  disc(p, cx, sill - size * 0.62 * breath, size * 1.7, size * 0.66 * breath, (dx, dy) => Math.abs(fract(dx * 2.2 + dy * 0.4) - 0.5) < 0.12 && dy < 0.2 ? shade : mix(fur, '#000000', clamp(dy * 0.3)));
-  const hx = cx + size * 1.45, hy = sill - size * 0.5;
-  for (const ear of [-1, 1]) { const twitch = ear > 0 && fract(t / 5.3) < 0.06 ? -1 : 0; for (let row = 0; row < size * 0.5; row++) for (let w = -row * 0.7; w <= row * 0.7; w++) p.px(Math.round(hx + ear * size * 0.34 + w), Math.round(hy - size * 0.95 + row) + twitch, fur); }
-  disc(p, hx, hy, size * 0.62, size * 0.55, (_, dy) => mix(fur, '#000000', clamp(dy * 0.25)));
-  for (const eye of [-1, 1]) for (let w = -1; w <= 1; w++) p.px(Math.round(hx + eye * size * 0.26 + w), Math.round(hy - size * 0.02 + (Math.abs(w) === 1 ? 0 : 1)), '#14100c');
-  p.px(Math.round(hx), Math.round(hy + size * 0.2), '#e8897a');
-  // Z's drift up and to the right while it sleeps.
-  for (let z = 0; z < 3; z++) { const age = fract(t * 0.25 + z / 3); p.px(Math.round(hx + size * 0.8 + age * size * 1.4), Math.round(hy - size * 0.9 - age * sill * 0.4), mix('#1c2748', '#ffffff', 1 - age)); }
-  p.flush();
-  for (let z = 0; z < 3; z++) { const age = fract(t * 0.25 + z / 3); g.set(Math.round(hx + size * 0.8 + age * size * 1.4), Math.max(0, Math.round((hy - size * 0.9 - age * sill * 0.4) / 2)), age > 0.5 ? 'Z' : 'z', mix(panelBackground, '#ffffff', 0.9 * (1 - age))); }
-  return g.finish();
-};
-
-// A cup left to cool: the surface catching the light, and steam unwinding from it in slow braided threads.
-const coffeeSteam: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const table = p.ph - 2, cupH = Math.max(3, Math.round(p.ph * 0.3)), cupW = Math.max(6, Math.round(cupH * 2.4)), cx = Math.round(p.pw / 2), top = table - cupH;
-  fillAll(p, (_, y) => y >= table ? mix(panelBackground, '#6b4a2d', 0.7) : mix(panelBackground, g.paint.accent, 0.05 + 0.05 * y / p.ph));
-  const china = mix(panelBackground, '#f0ece4', 0.95);
-  for (let y = 0; y < cupH; y++) { const half = cupW / 2 - (y / cupH) ** 2 * cupW * 0.14; for (let x = -Math.round(half); x <= Math.round(half); x++) p.px(cx + x, top + y, y > cupH * 0.3 && y < cupH * 0.48 ? mix(g.paint.accent, '#000000', clamp(x / half * 0.25 + 0.1)) : mix(china, '#000000', clamp(x / half * 0.25 + 0.1))); }
-  for (let x = -Math.round(cupW / 2) + 1; x < cupW / 2; x++) p.px(cx + x, top, mix('#3a2212', '#8a5a34', 0.5 + 0.5 * Math.sin(x * 0.5 + t)));
-  for (let i = 0; i < 14; i++) { const a = -Math.PI / 2 + i / 13 * Math.PI; p.px(Math.round(cx + cupW / 2 + Math.cos(a) * cupH * 0.3), Math.round(top + cupH * 0.45 + Math.sin(a) * cupH * 0.3), china); }
-  for (let x = -Math.round(cupW * 0.8); x <= cupW * 0.8; x++) p.px(cx + x, table, china);
-  for (let thread = 0; thread < 5; thread++) for (let rise = 0; rise < top; rise++) {
-    // Each thread wanders further from the cup the higher it gets, and thins out as it goes.
-    const up = rise / Math.max(1, top), x = cx + (thread - 2) * cupW * 0.14 + Math.sin(rise * 0.35 - t * 1.6 + thread * 1.9) * (1 + up * cupW * 0.3) + Math.sin(rise * 0.11 + t * 0.4 + thread) * up * cupW * 0.4;
-    const strength = (1 - up) ** 1.4 * (0.35 + 0.3 * noise(rise * 0.3 - t * 2, thread));
-    if (strength > 0.06) { const px = Math.round(x), py = top - 1 - rise; p.px(px, py, mix(p.at(px, py) ?? panelBackground, '#ffffff', strength)); }
-  }
-  p.flush();
-  return g.finish();
-};
-
-// A row of machines mid-cycle: drums turning one way then the other, suds against the glass, a timer counting down on each.
-const laundromat: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const unit = Math.min(p.ph, Math.max(12, Math.floor(p.pw / Math.max(1, Math.floor(p.pw / (p.ph * 1.05)))))), count = Math.max(1, Math.floor(p.pw / unit)), left = Math.floor((p.pw - count * unit) / 2);
-  const body = mix(panelBackground, '#d8dce4', 0.8), clothes = [g.paint.fan(-0.9), g.paint.fan(0), g.paint.fan(0.9), '#f2f2f2'];
-  const labels: [number, number, string][] = [];
-  for (let n = 0; n < count; n++) {
-    const x0 = left + n * unit, cx = x0 + unit / 2, cy = p.ph * 0.58, r = Math.min(unit * 0.36, p.ph * 0.36);
-    for (let y = 0; y < p.ph; y++) for (let x = 1; x < unit - 1; x++) p.px(x0 + x, y, y < 3 ? mix(body, '#000000', 0.25) : mix(body, '#000000', 0.08 * (x / unit)));
-    // Tumble one way for a few seconds, pause, then back the other way; a spin every so often.
-    const phase = (t + n * 3.7) % 20, spinning = phase > 15, turn = spinning ? t * 14 : phase % 7 < 6 ? (Math.floor(phase / 7) % 2 ? -1 : 1) * t * 2.2 : 0;
-    disc(p, cx, cy, r, r, (dx, dy) => {
-      const d = Math.hypot(dx, dy);
-      if (d > 0.86) return '#8a909c';
-      const a = Math.atan2(dy, dx) - turn, load = noise(Math.cos(a) * d * 2.2 + n * 7, Math.sin(a) * d * 2.2, n);
-      const water = dy > 0.25 + 0.08 * Math.sin(dx * 6 + t * 5) && !spinning;
-      const item = clothes[Math.floor(clamp(load, 0, 0.999) * 4)]!;
-      return mix(spinning ? mix(item, '#8fa8c8', 0.55) : item, water ? '#cfe4ff' : '#101820', water ? 0.45 : d > 0.55 ? 0.1 : 0.35 * (1 - load));
-    });
-    for (let lamp = 0; lamp < 3; lamp++) p.px(Math.round(x0 + unit * 0.2 + lamp * 2), 1, lamp === Math.floor(phase / 7) ? g.paint.accent : '#4a4f5a');
-    labels.push([Math.round(x0 + unit * 0.6), 0, `${pad((20 - phase) / 1, 2)}:${pad(fract(20 - phase) * 60, 2)}`]);
-  }
-  p.flush();
-  for (const [x, y, text] of labels) if (unit >= 18) g.write(x, y, text, g.paint.accent, '#101418');
   return g.finish();
 };
 
@@ -226,33 +155,6 @@ const sonar: Builder = (pulse, width, height, theme) => {
   }
   g.set(Math.floor(g.w / 2), Math.floor(g.h / 2), '◆', g.paint.ink(1), undefined, true);
   if (g.w > 40) g.write(1, 0, `PING ${pad(Math.floor(t / period) % 1000, 3)}   ${since < 0.3 ? '•))' : '   '}`, g.paint.ink(0.5));
-  return g.finish();
-};
-
-// A drum of paper turning under three pens: mostly a tremor, then a jolt that takes a long time to die away.
-const seismograph: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const b = braille(g);
-  const t = seconds(pulse);
-  const paper = mix(panelBackground, '#efe8d6', 0.92), traces = Math.max(1, Math.min(3, Math.floor(g.h / 4)));
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) g.set(x, y, ' ', paper, paper);
-  const shake = (when: number, trace: number): number => {
-    // A quake every twelve seconds or so: a sharp onset, then ringing that decays.
-    let total = 0.05 * Math.sin(when * 7 + trace) + 0.04 * (noise(when * 9, trace) - 0.5);
-    for (let quake = Math.floor(when / 12); quake > Math.floor(when / 12) - 2; quake--) {
-      const since = when - quake * 12 - hash(quake, 1) * 6 - trace * 0.12;
-      if (since > 0) total += (0.4 + 0.6 * hash(quake, 2)) * Math.exp(-since * 0.55) * Math.sin(since * (16 + trace * 3)) * (1 + 0.5 * Math.sin(since * 41));
-    }
-    return total;
-  };
-  for (let trace = 0; trace < traces; trace++) {
-    const mid = (trace + 0.5) * b.dh / traces, swing = b.dh / traces * 0.46;
-    let last = mid;
-    for (let x = 0; x < b.dw; x++) { const y = mid - clamp(shake(t - (b.dw - 1 - x) / 40, trace), -1, 1) * swing; b.line(x, last, x, y, ['#1a2a6a', '#8a1a1a', '#1a5a2a'][trace]!); last = y; }
-  }
-  for (let x = g.w - 1 - Math.floor(t * 20) % 10; x >= 0; x -= 10) for (let y = 0; y < g.h; y++) if (g.h > 2 && y % 2 === 0) g.set(x, y, '┊', mix(paper, '#000000', 0.12), paper);
-  b.flush(paper);
-  if (g.w > 30) g.write(1, 0, `SEISMO  M ${(2 + 5 * Math.abs(shake(t, 0))).toFixed(1)}`, '#3a352c', paper);
   return g.finish();
 };
 
@@ -340,13 +242,9 @@ const elevator: Builder = (pulse, width, height, theme) => {
 export const everydayReceiverBuilders = {
   'train-window': trainWindow,
   'city-windows': cityWindows,
-  'cat-nap': catNap,
-  'coffee-steam': coffeeSteam,
-  laundromat,
   'subway-map': subwayMap,
   'weather-radar': weatherRadar,
   sonar,
-  seismograph,
   dandelion,
   kites,
   elevator

@@ -32,27 +32,6 @@ const pipes: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Two wandering quadrilaterals dragging their recent past behind them.
-const mystify: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const b = braille(g);
-  const t = seconds(pulse);
-  for (let shape = 0; shape < 2; shape++) {
-    const color = g.paint.fan((shape ? 0.6 : -0.6) + Math.sin(t * 0.2 + shape) * 0.35);
-    for (let k = 3; k >= 0; k--) {
-      const tk = t - k * 0.3;
-      const corners = Array.from({length: 4}, (_, v) => {
-        const id = shape * 4 + v;
-        return [tri(tk * (0.11 + 0.04 * hash(id, 1)) + hash(id, 2)) * (b.dw - 1), tri(tk * (0.13 + 0.05 * hash(id, 3)) + hash(id, 4)) * (b.dh - 1)] as const;
-      });
-      const shade = mix(panelBackground, color, (1 - k / 4) ** 1.3);
-      corners.forEach((corner, v) => b.line(corner[0], corner[1], corners[(v + 1) % 4]![0], corners[(v + 1) % 4]![1], shade));
-    }
-  }
-  b.flush();
-  return g.finish();
-};
-
 const FLAPS = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-';
 const CITIES = ['TOKYO', 'LAGOS', 'LIMA', 'OSLO', 'PARIS', 'HAVANA', 'NAIROBI', 'REYKJAVIK', 'MUMBAI', 'BERLIN', 'SEOUL', 'BOGOTA', 'CAIRO', 'DUBLIN', 'SYDNEY', 'MONTREAL', 'LISBON', 'ACCRA', 'KINGSTON', 'HANOI'];
 const GENRES = ['JAZZ', 'SOUL', 'HIGHLIFE', 'CUMBIA', 'AMBIENT', 'TECHNO', 'FADO', 'BOSSA', 'DUB', 'RAGA', 'FUNK', 'NEWS', 'K-POP', 'AFROBEAT', 'BAROQUE', 'INDIE'];
@@ -357,37 +336,8 @@ const aquarium: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Extruded lettering swinging on its axis, with shade blocks standing in for the lit and unlit sides.
-const spinText: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const label = g.w >= 56 ? 'RADIO' : g.w >= 14 ? 'FM' : '*';
-  const wide = label.length * 6 - 1;
-  const scale = Math.max(0.2, Math.min(g.w * 0.92 / (wide * 2), g.h * 0.8 / 5));
-  const swing = Math.sin(t * 0.9) * 0.9;
-  const cs = Math.cos(swing), ss = Math.sin(swing);
-  const depth = 0.8, steps = 14;
-  for (let y = 0; y < g.h; y++) {
-    const fy = Math.floor((y + 0.5 - g.h / 2) / scale + 2.5);
-    for (let x = 0; x < g.w; x++) {
-      const sx = (x + 0.5 - g.w / 2) / (2 * scale);
-      // Walk the ray only through the slab the letters occupy, nearest face first.
-      const near = (-depth - sx * ss) / cs, far = (depth - sx * ss) / cs;
-      for (let i = 0; i < steps; i++) {
-        const fx = sx * cs - (near + (far - near) * i / (steps - 1)) * ss + wide / 2;
-        if (!textPixel(label, Math.floor(fx), fy)) continue;
-        if (i === 0) g.set(x, y, '█', g.paint.ink(0.66 + 0.34 * (0.5 + 0.5 * Math.sin(fx * 0.5 - t * 2.2))));
-        else g.set(x, y, i < steps / 2 ? '▓' : '▒', g.paint.ink(0.42 - 0.2 * i / steps));
-        break;
-      }
-    }
-  }
-  return g.finish();
-};
-
 export const screensaverReceiverBuilders = {
   pipes,
-  mystify,
   'split-flap': splitFlap,
   'sine-scroller': sineScroller,
   bounce,
@@ -396,6 +346,5 @@ export const screensaverReceiverBuilders = {
   quilt,
   gyroscope,
   'wind-map': windMap,
-  aquarium,
-  'spin-text': spinText
+  aquarium
 };

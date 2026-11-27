@@ -1,5 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, noise, pixels, seconds, smooth, stroke, textPixel, tri, type Builder} from './cell-canvas.js';
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, seconds, smooth, stroke, textPixel, tri, type Builder} from './cell-canvas.js';
 
 type Panel = {x: number; y: number; w: number; h: number; tint: number};
 /** Split the canvas the way the painter did: unevenly, and stopping early more often than not. */
@@ -53,184 +53,6 @@ const mondrian: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-const STROKES = '─╲│╱';
-
-// A night sky painted in short directional strokes that follow the wind around each star.
-const starryNight: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const aspect = g.w / g.h / 2;
-  const count = Math.max(2, Math.round(g.w / 13));
-  const stars = Array.from({length: count}, (_, i) => ({
-    u: ((i + 0.5 + (hash(i, 1) - 0.5) * 0.5) / count * 2 - 1) * aspect,
-    v: -0.78 + hash(i, 2) * 0.75,
-    spin: (i % 2 ? -1 : 1) * (0.5 + hash(i, 3) * 0.8),
-    size: i === count - 1 ? 0.5 : 0.2 + 0.16 * hash(i, 4)
-  }));
-  const glow = g.paint.fan(0.95), night = g.paint.fan(-0.55);
-  const core = mix(glow, '#ffffff', 0.5);
-  // Sky colours by stroke brightness and by how much starlight reaches the cell.
-  const skies = Array.from({length: 12}, (_, lit) => Array.from({length: 10}, (_, halo) =>
-    mix(mix(panelBackground, night, 0.38 + 0.62 * lit / 11), glow, halo / 9 * 0.9)));
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      const u = ((x + 0.5) / g.w * 2 - 1) * aspect, v = (y + 0.5) / g.h * 2 - 1;
-      // The wind's stream function and its gradient, summed over a steady breeze and one whirl per star.
-      let stream = v * 1.1 + 0.3 * Math.sin(u * 1.6 + t * 0.2) + 0.15 * Math.sin(u * 4.1 - v * 2 - t * 0.33);
-      let du = 0.48 * Math.cos(u * 1.6 + t * 0.2) + 0.615 * Math.cos(u * 4.1 - v * 2 - t * 0.33);
-      let dv = 1.1 - 0.3 * Math.cos(u * 4.1 - v * 2 - t * 0.33);
-      let near = 9, halo = 0;
-      for (const star of stars) {
-        const su = u - star.u, sv = v - star.v, r = Math.hypot(su, sv) + 1e-6;
-        stream += star.spin * 0.42 * Math.log(r + 0.05);
-        const pull = star.spin * 0.42 / (r + 0.05) / r;
-        du += pull * su; dv += pull * sv;
-        const d = r / star.size;
-        if (d < near) near = d;
-        halo += Math.exp(-d * d * 0.55);
-      }
-      const band = 0.5 + 0.5 * Math.sin(stream * 11 - t * 1.8);
-      const dash = hash(x * 3 + y * 7, Math.floor(stream * 6)) > 0.2 ? 1 : 0.45;
-      if (near < 0.36) g.set(x, y, '●', core, undefined, true);
-      else g.set(x, y, STROKES[((Math.round(Math.atan2(-du, dv) / (Math.PI / 4)) % 4) + 4) % 4]!, skies[Math.round(band * dash * 11)]![Math.round(clamp(halo) * 9)]!, undefined, band > 0.7);
-    }
-  }
-  // The dark things that hold the sky down: a cypress, a ridge and a few lit windows.
-  const shade = mix(panelBackground, night, 0.12);
-  const tree = Math.round(g.w * 0.13);
-  for (let y = Math.min(1, g.h - 1); y < g.h; y++) {
-    const girth = Math.round((0.6 + (y / g.h) * 3.2) * (0.8 + 0.2 * Math.sin(y * 1.7 + t * 0.6)));
-    for (let x = tree - girth; x <= tree + girth; x++) g.set(x + Math.round(Math.sin(y * 0.9 + t * 0.5) * 0.7), y, '▓', shade);
-  }
-  for (let x = 0; x < g.w && g.h >= 5; x++) {
-    const ridge = g.h - 1 - Math.round(1.2 + Math.sin(x * 0.11 + 1) * 0.9 + Math.sin(x * 0.31) * 0.4);
-    for (let y = Math.max(0, ridge); y < g.h; y++) g.set(x, y, '█', shade);
-    if (hash(x, 31) > 0.86 && ridge + 1 < g.h) g.set(x, g.h - 1, '▪', mix(glow, panelBackground, 0.25 + 0.3 * hash(x, Math.floor(t * 0.7 + hash(x, 5) * 9))));
-  }
-  return g.finish();
-};
-
-// Nothing but dots of unmixed colour; the sunset only exists at a distance.
-const seurat: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const aspect = g.w / g.h / 2;
-  const sunU = aspect * 0.3, sunV = -0.12 + Math.sin(t * 0.05) * 0.06;
-  const warm = [g.paint.fan(0.9), g.paint.fan(0.55), mix(g.paint.fan(0.9), '#ffffff', 0.55)];
-  const cool = [g.paint.fan(-0.9), g.paint.fan(-0.5), g.paint.accent];
-  const boat = (fract(t * 0.012 + 0.2) * 2.6 - 1.3) * aspect;
-  const dabs = [...warm, ...cool].map(hue => Array.from({length: 16}, (_, level) => mix(panelBackground, hue, clamp(0.3 + level / 15 * 0.8))));
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      const u = ((x + 0.5) / g.w * 2 - 1) * aspect, v = (y + 0.5) / g.h * 2 - 1;
-      const d = Math.hypot(u - sunU, v - sunV);
-      let warmth = Math.exp(-d * d * 1.1), light = 0.5 + 0.45 * Math.exp(-d * d * 1.6);
-      if (d < 0.42) { warmth = 1; light = 1; }
-      const shore = 0.2 + 0.05 * Math.sin(u * 3.1) + 0.03 * Math.sin(u * 9.7 + 2);
-      if (v > 0.3) {
-        // Water: the sun's column breaks up further from the horizon.
-        const spread = 0.1 + (v - 0.3) * 0.5, ripple = 0.5 + 0.5 * Math.sin(v * 46 + u * 4 + t * 2.5);
-        const column = Math.exp(-(((u - sunU) / spread) ** 2)) * (0.45 + 0.55 * ripple);
-        warmth = column; light = 0.36 + 0.24 * ripple + 0.5 * column;
-      } else if (v > shore) { warmth = 0.1; light = 0.2; }
-      const sail = Math.abs(u - boat) < (v + 0.12) * 0.32 && v > -0.12 && v < 0.3;
-      if (sail) { warmth = 0.5; light = 0.95; }
-      // Each dot is repainted on its own slow clock, so the surface shimmers without ever flickering.
-      const roll = hash(x * 1.7 + y * 31.3, Math.floor(t * 0.9 + hash(x, y) * 7));
-      const pick = hash(x * 5.1 + y * 3.3, Math.floor(t * 0.6 + hash(y, x) * 5));
-      const dab = dabs[(roll < warmth ? 0 : 3) + Math.floor(pick * 3)]!;
-      const size = light + (pick - 0.5) * 0.16;
-      g.set(x, y, size > 0.62 ? '●' : size > 0.3 ? '•' : '∙', dab[Math.round(clamp(light) * 15)]!, undefined, size > 0.62);
-    }
-  }
-  return g.finish();
-};
-
-// Two soft-edged fields of colour hovering over a third, breathing.
-const rothko: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const drift = Math.sin(t * 0.045);
-  const ground = mix(panelBackground, g.paint.fan(-0.75 + drift * 0.2), 0.34);
-  const fields = [
-    {top: 0.08, bottom: 0.56 + 0.03 * Math.sin(t * 0.21), tint: 0.75 - drift * 0.25, glow: 0.74 + 0.1 * Math.sin(t * 0.37)},
-    {top: 0.66 + 0.02 * Math.sin(t * 0.17 + 2), bottom: 0.93, tint: 0.1 + drift * 0.45, glow: 0.6 + 0.1 * Math.sin(t * 0.29 + 1)}
-  ];
-  const margin = Math.max(1, Math.round(g.w * 0.07));
-  // Edges waver along their length, and the paint is never quite one colour.
-  const edges = fields.map((field, index) => ({
-    wobble: Array.from({length: g.w}, (_, x) => (noise(x * 0.09, t * 0.08, index) - 0.5) * 1.6),
-    lean: Array.from({length: g.h}, (_, y) => (noise(y * 0.5, t * 0.06, index + 5) - 0.5) * 5),
-    paints: Array.from({length: 8}, (_, level) => mix(ground, g.paint.fan(field.tint), field.glow * (0.9 + 0.1 * level / 7)))
-  }));
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      let glyph = ' ', color = ground, back = ground;
-      for (const [index, field] of fields.entries()) {
-        const wobble = edges[index]!.wobble[x]!, lean = edges[index]!.lean[y]!;
-        // Distance inside the field, in rows; columns count half.
-        const inside = Math.min((y + 0.5) - field.top * g.h - wobble, field.bottom * g.h + wobble - (y + 0.5), (x + 0.5 - margin - lean) / 2, (g.w - margin + lean - x - 0.5) / 2);
-        const solid = clamp(inside / 1.6 + 0.5);
-        if (solid <= 0) continue;
-        const cover = solid >= 1 ? 1 : solid + (hash(x * 3.7 + y * 9.1, index) - 0.5) * 0.3;
-        if (cover <= 0.12) continue;
-        const paint = edges[index]!.paints[Math.round(noise(x * 0.2, y * 0.7 + t * 0.05, index + 9) * 7)]!;
-        if (cover >= 0.9) { glyph = ' '; color = paint; back = paint; }
-        else { glyph = cover > 0.64 ? '▓' : cover > 0.38 ? '▒' : '░'; color = paint; back = ground; }
-      }
-      g.set(x, y, glyph, color, back);
-    }
-  }
-  return g.finish();
-};
-
-type Drip = {x: number; y: number; heading: number; bend: number; paint: number; left: number};
-type Canvas = {paint: Uint8Array; drips: Drip[]; random: () => number};
-type Run<State> = {epoch: number; step: number; state: State};
-const canvases = new Map<string, Run<Canvas>>();
-
-// Action painting: three arms swing loaded brushes across the canvas, and nothing is ever taken off again.
-const pollock: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const life = 380, step = Math.floor(pulse);
-  const epoch = Math.floor(step / life), now = step % life;
-  const key = `${p.pw}x${p.ph}`;
-  const tick = (state: Canvas): void => {
-    for (const drip of state.drips) {
-      for (let pass = 0; pass < 3; pass++) {
-        if (drip.left-- <= 0) {
-          drip.x = state.random() * p.pw; drip.y = state.random() * p.ph; drip.heading = state.random() * TAU;
-          drip.paint = 1 + Math.floor(state.random() * 5); drip.left = 30 + Math.floor(state.random() * 140);
-        }
-        drip.bend = clamp(drip.bend + (state.random() - 0.5) * 0.09, -0.22, 0.22);
-        drip.heading += drip.bend;
-        drip.x += Math.cos(drip.heading); drip.y += Math.sin(drip.heading);
-        if (drip.x < -4 || drip.y < -4 || drip.x > p.pw + 4 || drip.y > p.ph + 4) drip.left = 0;
-        const dab = (x: number, y: number): void => { if (x >= 0 && y >= 0 && x < p.pw && y < p.ph) state.paint[Math.floor(y) * p.pw + Math.floor(x)] = drip.paint; };
-        dab(drip.x, drip.y);
-        // A fast arm flicks drops off to the side; a slow one pools.
-        if (state.random() < 0.04) dab(drip.x + (state.random() - 0.5) * 9, drip.y + (state.random() - 0.5) * 9);
-        if (Math.abs(drip.bend) > 0.19 && state.random() < 0.5) { dab(drip.x + 1, drip.y); dab(drip.x, drip.y + 1); }
-      }
-    }
-  };
-  let run = canvases.get(key);
-  if (!run || run.epoch !== epoch || run.step > now) {
-    if (!run && canvases.size >= 4) canvases.delete(canvases.keys().next().value!);
-    const random = mulberry(epoch * 6007 + p.pw * 13 + p.ph);
-    run = {epoch, step: 0, state: {paint: new Uint8Array(p.pw * p.ph), random, drips: Array.from({length: 3}, () => ({x: 0, y: 0, heading: 0, bend: 0, paint: 1, left: 0}))}};
-    for (let warm = 0; warm < 12; warm++) tick(run.state);
-    canvases.set(key, run);
-  }
-  while (run.step < now) { tick(run.state); run.step++; }
-  const fade = Math.min(1, (life - now) / 20);
-  const linen = mix(panelBackground, g.paint.accent, 0.1);
-  const paints = [linen, g.paint.ink(1), g.paint.accent, g.paint.fan(0.85), g.paint.fan(-0.85), '#050607'].map(color => mix(linen, color, fade));
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, paints[run.state.paint[y * p.pw + x]!]!);
-  p.flush();
-  return g.finish();
-};
 
 // Circles, triangles and rules set against each other, each on its own slow orbit.
 const kandinsky: Builder = (pulse, width, height, theme) => {
@@ -257,9 +79,9 @@ const kandinsky: Builder = (pulse, width, height, theme) => {
   const beat = kick(t);
   // The great circle and its halo.
   const sunU = -reach * 0.52 + Math.sin(t * 0.11) * 0.1, sunV = -0.2 + Math.cos(t * 0.13) * 0.08;
-  disc(sunU, sunV, 0.74 + 0.03 * beat, mix(ground, g.paint.fan(0.6), 0.35));
-  disc(sunU, sunV, 0.56, '#07080b');
-  disc(sunU, sunV, 0.4 + 0.03 * beat, g.paint.fan(-0.85));
+  disc(sunU, sunV, 0.74 + 0.03 * beat, g.paint.ink(0.18));
+  disc(sunU, sunV, 0.56, mix('#07080b', g.paint.accent, 0.04));
+  disc(sunU, sunV, 0.4 + 0.03 * beat, g.paint.ink(0.68));
   // A chequered band, drifting.
   const bandU = reach * 0.3 + Math.sin(t * 0.17) * 0.25, bandV = 0.55;
   for (let i = 0; i < 7; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) {
@@ -268,18 +90,18 @@ const kandinsky: Builder = (pulse, width, height, theme) => {
   }
   // Long rules crossing the whole sheet, and a comb of short ones.
   rule(-reach, 0.7 + Math.sin(t * 0.09) * 0.1, reach, -0.55 + Math.sin(t * 0.09) * 0.1, 0.3, g.paint.ink(0.85));
-  rule(-reach * 0.2, -1, reach * 0.55 + Math.sin(t * 0.07) * 0.2, 1, 0.3, g.paint.fan(0.9));
-  rule(reach * 0.1, 1, reach * 0.9, -0.2 + Math.cos(t * 0.1) * 0.15, 0.6, g.paint.fan(-0.3));
+  rule(-reach * 0.2, -1, reach * 0.55 + Math.sin(t * 0.07) * 0.2, 1, 0.3, g.paint.ink(0.52));
+  rule(reach * 0.1, 1, reach * 0.9, -0.2 + Math.cos(t * 0.1) * 0.15, 0.6, g.paint.ink(0.71));
   for (let i = 0; i < 5; i++) rule(-reach * 0.1 + i * 0.09, 0.45 + i * 0.03, -reach * 0.1 + i * 0.09 + 0.16, 0.86 + i * 0.03, 0.3, g.paint.ink(0.7));
   // A triangle turning about its centre.
   const turn = t * 0.22;
   const corners = [0, 1, 2].map(i => [reach * 0.42 + Math.cos(turn + i * TAU / 3) * 0.62, -0.18 + Math.sin(turn + i * TAU / 3) * 0.62] as const);
-  corners.forEach((corner, i) => rule(corner[0], corner[1], corners[(i + 1) % 3]![0], corners[(i + 1) % 3]![1], 0.7, g.paint.fan(0.35)));
+  corners.forEach((corner, i) => rule(corner[0], corner[1], corners[(i + 1) % 3]![0], corners[(i + 1) % 3]![1], 0.7, g.paint.ink(0.98)));
   // Satellites.
   for (let i = 0; i < 6; i++) {
     const orbit = t * (0.12 + 0.05 * hash(i, 1)) * (i % 2 ? -1 : 1) + hash(i, 2) * TAU;
     disc(reach * (hash(i, 3) * 1.5 - 0.6) + Math.cos(orbit) * 0.2, (hash(i, 4) - 0.5) * 1.5 + Math.sin(orbit) * 0.18,
-      0.07 + 0.11 * hash(i, 5) + (i === Math.floor(t * 2) % 6 ? 0.04 * beat : 0), g.paint.fan(hash(i, 6) * 2 - 1), i % 3 === 0 ? 0.55 : 0);
+      0.07 + 0.11 * hash(i, 5) + (i === Math.floor(t * 2) % 6 ? 0.04 * beat : 0), g.paint.ink(0.42 + 0.46 * hash(i, 6)), i % 3 === 0 ? 0.55 : 0);
   }
   p.flush();
   return g.finish();
@@ -443,37 +265,6 @@ const schotter: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A chequerboard with something pushing through it from behind.
-const vasarely: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const unit = p.ph / 2, reach = p.pw / p.ph;
-  const domes = [
-    {u: Math.sin(t * 0.19) * reach * 0.55, v: Math.sin(t * 0.27) * 0.2, size: 0.95 + 0.06 * kick(t), push: 0.62},
-    {u: Math.cos(t * 0.13 + 1) * reach * 0.7, v: Math.cos(t * 0.21) * 0.3, size: 0.6, push: -0.5}
-  ];
-  const tiles = 3.2;
-  const shades = Array.from({length: 17}, (_, i) => [mix(panelBackground, g.paint.fan(i / 8 - 1), 0.95), mix(panelBackground, g.paint.fan(i / 8 - 1), 0.16)]);
-  for (let y = 0; y < p.ph; y++) {
-    for (let x = 0; x < p.pw; x++) {
-      let u = (x + 0.5 - p.pw / 2) / unit, v = (y + 0.5 - p.ph / 2) / unit, lift = 0;
-      for (const dome of domes) {
-        const du = u - dome.u, dv = v - dome.v, r = Math.hypot(du, dv) / dome.size;
-        if (r >= 1) continue;
-        // Inside a dome the grid is sampled closer to its centre: squares swell, or pinch when the push is negative.
-        const swell = 1 - dome.push * (1 - r * r);
-        u = dome.u + du * swell; v = dome.v + dv * swell;
-        lift += (1 - r * r) * Math.sign(dome.push);
-      }
-      const check = (Math.floor(u * tiles + 64) + Math.floor(v * tiles + 64)) & 1;
-      p.px(x, y, shades[Math.round(clamp(0.5 + lift * 0.5) * 16)]![check]!);
-    }
-  }
-  p.flush();
-  return g.finish();
-};
-
 // Star-and-cross tilework. Each star turns against its neighbours like a gear, and a slow wave of light crosses the wall.
 const zellige: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -508,15 +299,10 @@ const zellige: Builder = (pulse, width, height, theme) => {
 
 export const galleryReceiverBuilders = {
   mondrian,
-  'starry-night': starryNight,
-  seurat,
-  rothko,
-  pollock,
   kandinsky,
   lichtenstein,
   haring,
   klimt,
   schotter,
-  vasarely,
   zellige
 };

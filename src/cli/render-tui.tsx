@@ -12,8 +12,11 @@ export async function renderTui(printHelp: () => void, encodedCommand?: string):
   const initialAgentCommand = encodedCommand ? decodeAgentCommand(encodedCommand) : undefined;
   const {session: playbackSession, warning: playbackRecoveryWarning} = await openTuiSession();
   try {
+    const terminalFrames = terminal.interactive && Boolean(process.stdout.isTTY) && !terminal.screenReader;
     const app = render(<App playbackSession={playbackSession} playbackRecoveryWarning={playbackRecoveryWarning} initialAgentCommand={initialAgentCommand} />, {
-      stdout: terminal.interactive && process.stdout.isTTY && !terminal.screenReader ? rtlSafeOutput(process.stdout) : process.stdout,
+      stdout: terminalFrames ? rtlSafeOutput(process.stdout) : process.stdout,
+      // Rewrite changed rows in place so animation never erases the entire frame first.
+      incrementalRendering: terminalFrames,
       // App owns Ctrl+C so it can confirm before performing a clean shutdown.
       exitOnCtrlC: false,
       isScreenReaderEnabled: terminal.screenReader,

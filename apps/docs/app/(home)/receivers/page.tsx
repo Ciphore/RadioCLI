@@ -1,14 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { vhsFont } from '@/lib/vhs-font';
+import { receiverStyleNames } from '@/lib/receiver-engine';
 import './receiver-names.css';
 import { ReceiverGallery } from '@/components/receiver-gallery';
 
 export const metadata: Metadata = {
-  title: '424 Receiver Styles',
-  description: 'Explore all 424 RadioCLI receiver styles, with their original palettes and supported theme colors. Animated directly from the terminal renderer.',
+  title: `${receiverStyleNames.length} Receiver Styles`,
+  description: `Explore all ${receiverStyleNames.length} RadioCLI receiver styles, with their original palettes and supported theme colors. Animated directly from the terminal renderer.`,
   alternates: { canonical: '/receivers' },
-  openGraph: { title: 'RadioCLI Receiver Styles', url: '/receivers', description: '424 animated receiver styles, original palettes, and supported theme colors.' },
+  openGraph: { title: 'RadioCLI Receiver Styles', url: '/receivers', description: `${receiverStyleNames.length} animated receiver styles, original palettes, and supported theme colors.` },
 };
 
 export default function ReceiversPage() {

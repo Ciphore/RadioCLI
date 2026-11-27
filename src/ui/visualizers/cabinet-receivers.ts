@@ -1,5 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, noise, pixels, replay, seconds, smooth, tri, type Builder, type Run} from './cell-canvas.js';
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, mulberry, pixels, replay, seconds, smooth, tri, type Builder, type Run} from './cell-canvas.js';
 
 // A gas pipe with a speaker at one end: the standing wave inside decides how tall each flame burns.
 const rubensTube: Builder = (pulse, width, height, theme) => {
@@ -150,37 +150,6 @@ const snowflake: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A month in a row: the same moon at every phase, with the terminator creeping across all of them at once.
-const moonPhases: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-    if (hash(x, y + 11) > 0.955) g.set(x, y, '·', g.paint.ink(0.14 + 0.3 * tri(t * 0.25 + hash(x, y))));
-  }
-  const moons = Math.round(clamp(Math.floor(p.pw / (p.ph * 0.95)), 1, 9));
-  const pitch = p.pw / moons;
-  const radius = Math.max(1, Math.min(p.ph * 0.42, pitch * 0.43));
-  const regolith = mix(g.paint.accent, '#ffffff', 0.72), night = mix(panelBackground, g.paint.accent, 0.07);
-  const shades = Array.from({length: 24}, (_, i) => mix(night, regolith, i / 23));
-  for (let moon = 0; moon < moons; moon++) {
-    const cx = (moon + 0.5) * pitch, cy = p.ph / 2;
-    const phase = TAU * (t / 50 + moon / moons);
-    for (let y = Math.floor(cy - radius); y <= cy + radius; y++) for (let x = Math.floor(cx - radius); x <= cx + radius; x++) {
-      const dx = (x + 0.5 - cx) / radius, dy = (y + 0.5 - cy) / radius;
-      const d = dx * dx + dy * dy;
-      if (d > 1) continue;
-      const toward = Math.sqrt(1 - d);
-      // Sunlight arrives from a direction that swings round the moon once a month.
-      const sun = clamp((dx * Math.sin(phase) + toward * Math.cos(phase)) * 3.5);
-      const sea = smooth((noise(dx * 2.4 + 5, dy * 2.4 + 9, 3) - 0.42) * 4);
-      p.px(x, y, shades[Math.round(sun * (0.82 - 0.34 * sea) * (0.72 + 0.28 * toward) * 23)]!);
-    }
-  }
-  p.flush();
-  return g.finish();
-};
-
 type Bubble = {x: number; y: number; r: number; live: boolean; tint: number};
 type Packing = {bubbles: Bubble[]; random: () => number};
 const packings = new Map<string, Run<Packing>>();
@@ -269,7 +238,7 @@ const knotwork: Builder = (pulse, width, height, theme) => {
   const tall = p.ph / bands;
   const swing = tall * 0.33, half = Math.max(0.8, tall * 0.085);
   const pace = TAU / (tall * 1.7);
-  const edge = '#05070a';
+  const edge = mix('#05070a', g.paint.accent, 0.04);
   for (let band = 0; band < bands; band++) {
     const cy = (band + 0.5) * tall - 0.5;
     for (const rail of [-1, 1]) for (let x = 0; x < p.pw; x++) p.px(x, Math.round(cy + rail * (tall / 2 - 0.6)), g.paint.ink(0.34));
@@ -282,7 +251,7 @@ const knotwork: Builder = (pulse, width, height, theme) => {
       for (const {cord, y, depth, slope} of cords) {
         const thick = half * Math.sqrt(1 + slope * slope);
         const glint = Math.exp(-(((fract(x / p.pw - t * 0.16 - cord / 3) - 0.5) * 9) ** 2));
-        const tone = mix(mix('#000000', g.paint.fan(cord - 1), 0.62 + 0.38 * (depth * 0.5 + 0.5)), '#ffffff', 0.6 * glint);
+        const tone = g.paint.ink(0.37 + cord * 0.16 + 0.07 * depth + 0.24 * glint);
         for (let dy = -Math.ceil(thick) - 1; dy <= Math.ceil(thick) + 1; dy++) {
           const off = Math.abs(dy + Math.round(y) - y);
           if (off <= thick + 1) p.px(x, Math.round(y) + dy, off <= thick ? tone : edge);
@@ -301,7 +270,7 @@ const tartan: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
-  const yarns = [mix(panelBackground, g.paint.fan(-0.9), 0.55), g.paint.accent, mix(panelBackground, g.paint.fan(0.75), 0.8), '#07090c', g.paint.ink(0.97)];
+  const yarns = [g.paint.ink(0.26), g.paint.accent, g.paint.ink(0.54), mix('#07090c', g.paint.accent, 0.04), g.paint.ink(0.97)];
   // Stripes breathe a thread or two, then the sett is mirrored so it reads the same both ways.
   const half: number[] = [];
   SETT.forEach(([yarn, threads], i) => { for (let n = 0; n < Math.max(1, Math.round(threads * (1 + 0.3 * Math.sin(t * 0.13 + i * 1.9)))); n++) half.push(yarn); });
@@ -383,65 +352,15 @@ const infinityMirror: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// The big wheel at night: it turns slowly, the cars hang level, and the lights chase out along the spokes.
-const ferrisWheel: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const b = braille(g);
-  const t = seconds(pulse);
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (hash(x, y + 23) > 0.965) g.set(x, y, '·', g.paint.ink(0.14 + 0.25 * tri(t * 0.2 + hash(y, x))));
-  const cx = b.dw / 2 - 0.5, cy = b.dh * 0.46;
-  const radius = Math.max(2, Math.min(b.dh * 0.43, b.dw * 0.32));
-  const turn = t * 0.22;
-  const steel = g.paint.ink(0.42), cars = Math.max(6, Math.min(14, Math.round(radius / 2.1)));
-  for (const leg of [-1, 1]) b.line(cx, cy, cx + leg * radius * 0.6, b.dh - 1, g.paint.ink(0.6));
-  for (let x = 0; x < b.dw; x++) b.dot(x, b.dh - 1, g.paint.ink(0.3));
-  for (let i = 0; i < radius * 8; i++) {
-    const a = i / (radius * 8) * TAU;
-    b.dot(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, g.paint.ink(0.7));
-    b.dot(cx + Math.cos(a) * radius * 0.88, cy + Math.sin(a) * radius * 0.88, steel);
-  }
-  for (let car = 0; car < cars; car++) {
-    const a = turn + car / cars * TAU;
-    b.line(cx, cy, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, steel);
-  }
-  b.flush();
-  const cell = (x: number, y: number): [number, number] => [Math.floor(x / 2), Math.floor(y / 4)];
-  for (let car = 0; car < cars; car++) {
-    const a = turn + car / cars * TAU;
-    // Lights run outward along each spoke, one step behind the spoke before it.
-    for (let lamp = 1; lamp <= 4; lamp++) {
-      if ((lamp + car + Math.floor(t * 6)) % 3) continue;
-      const [x, y] = cell(cx + Math.cos(a) * radius * lamp / 5, cy + Math.sin(a) * radius * lamp / 5);
-      g.set(x, y, '•', g.paint.fan(tri(car / cars + t * 0.1) * 2 - 1), undefined, true);
-    }
-    const [x, y] = cell(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius + 3);
-    g.set(x, y, '■', g.paint.fan(car / cars * 2 - 1), undefined, true);
-  }
-  const [hubX, hubY] = cell(cx, cy);
-  g.set(hubX, hubY, '◉', g.paint.ink(1), undefined, true);
-  // A string of bulbs swagged across the top of the fairground.
-  const swags = Math.max(1, Math.round(g.w / 26));
-  for (let x = 0; x < g.w && g.h >= 6; x += 2) {
-    const along = fract(x / g.w * swags);
-    const y = Math.round(4 * along * (1 - along) * Math.min(2.4, g.h * 0.16));
-    const [wheelX, wheelY] = [Math.abs(x - hubX) * 2, Math.abs(y - hubY) * 4];
-    if (Math.hypot(wheelX, wheelY) < radius + 3) continue;
-    g.set(x, y, '●', mix(panelBackground, g.paint.fan(tri(x * 0.09) * 2 - 1), 0.45 + 0.55 * hash(x, Math.floor(t * 2 + hash(x, 1) * 3))));
-  }
-  return g.finish();
-};
-
 export const cabinetReceiverBuilders = {
   'rubens-tube': rubensTube,
   'sound-field': soundField,
   epicycles,
   snowflake,
-  'moon-phases': moonPhases,
   'circle-packing': circlePacking,
   'flower-of-life': flowerOfLife,
   knotwork,
   tartan,
   'fair-isle': fairIsle,
   'infinity-mirror': infinityMirror,
-  'ferris-wheel': ferrisWheel
 };

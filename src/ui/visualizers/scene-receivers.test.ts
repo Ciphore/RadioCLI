@@ -4,8 +4,8 @@ import {displayWidth} from '../format.js';
 import {buildVisualizer} from './receiver-visualizers.js';
 import {migrateReceiverStyle, receiverStyleNames} from './receiver-style-registry.js';
 
-const variations = ['gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad', 'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night',
-  'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor'] as const satisfies readonly ReceiverStyle[];
+const variations = ['gallop-ascii', 'gallop-led', 'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'golden-gate-live',
+  'skyline-dawn', 'skyline-rain', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor'] as const satisfies readonly ReceiverStyle[];
 const revised = ['constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora'] as const satisfies readonly ReceiverStyle[];
 const styles = [...variations, ...revised];
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
@@ -26,16 +26,14 @@ describe('scene variations and revised receivers', () => {
     expect(signatures.size).toBe(styles.length);
   });
 
-  it('draws the same centred horse in five different textures', () => {
+  it('draws the same centred horse in two different textures', () => {
     expect(text('gallop-ascii')).toMatch(/[.:;+=*#@]{4}/);
     expect(text('gallop-led')).toMatch(/·+●+/);
-    expect(text('gallop-quad')).toMatch(/[▘▝▀▖▌▞▛▗▚▐▜▄▙▟█]{3}/);
-    for (const style of ['gallop-silhouette', 'gallop-neon'] as const) expect(text(style), style).toMatch(/[▀▄]/);
-    for (const style of ['gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad'] as const) {
+    for (const style of ['gallop-ascii', 'gallop-led'] as const) {
       // Centred: the drawing's left and right margins match to within a few cells.
       const rows = frame(style, 60).map(row => (row.segments ?? []).map(segment => segment.backgroundColor || !/^[\s·▁]*$/.test(segment.text) ? '#'.repeat(segment.text.length) : ' '.repeat(segment.text.length)).join(''));
       const left = Math.min(...rows.filter(row => row.trim()).map(row => row.search(/\S/))), right = Math.min(...rows.filter(row => row.trim()).map(row => 80 - row.trimEnd().length));
-      expect(Math.abs(left - right), style).toBeLessThanOrEqual(style === 'gallop-silhouette' ? 80 : 4);
+      expect(Math.abs(left - right), style).toBeLessThanOrEqual(4);
       expect(migrateReceiverStyle(style)).toBe(style);
     }
     for (const retired of ['gallop-herd', 'gallop-plates', 'gallop-dust', 'gallop-echo']) expect(migrateReceiverStyle(retired)).toBe('ultracode');

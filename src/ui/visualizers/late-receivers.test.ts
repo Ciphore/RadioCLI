@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import type {PlaybackState, ReceiverStyle} from '../../types.js';
+import type {PlaybackState, ReceiverStyle, ThemeName} from '../../types.js';
 import {displayWidth} from '../format.js';
 import {buildVisualizer} from './receiver-visualizers.js';
 import {deckReceiverBuilders} from './deck-receivers.js';
@@ -19,14 +19,21 @@ import {receiverStyleNames} from './receiver-style-registry.js';
 
 const sets = {yuletide: yuletideReceiverBuilders, deck: deckReceiverBuilders, reverie: reverieReceiverBuilders, arcade: arcadeReceiverBuilders, everyday: everydayReceiverBuilders, gta: gtaReceiverBuilders, muse: museReceiverBuilders, bold: boldReceiverBuilders, encore: encoreReceiverBuilders, cityscape: cityscapeReceiverBuilders, worldtour: worldtourReceiverBuilders, finespun: finespunReceiverBuilders, wonder: wonderReceiverBuilders};
 const playback: PlaybackState = {state: 'playing', backend: 'mpv', message: 'playing', volume: 70, muted: false, ready: true};
-const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | 'ruby' = 'violet') => buildVisualizer(style, pulse, 80, 14, null, playback, theme);
+const frame = (style: ReceiverStyle, pulse: number, theme: ThemeName = 'violet') => buildVisualizer(style, pulse, 80, 14, null, playback, theme);
 const text = (style: ReceiverStyle, pulse = 60): string => frame(style, pulse).map(row => row.text).join('\n');
+
+function visibleColors(rows: ReturnType<typeof frame>): string[] {
+  return rows.flatMap(row => (row.segments ?? [row]).flatMap(segment => [
+    ...('backgroundColor' in segment && segment.backgroundColor ? [segment.backgroundColor] : []),
+    ...(/[^ \u2800]/u.test(segment.text) ? [segment.color] : [])
+  ]));
+}
 
 describe.each(Object.entries(sets))('%s receivers', (_, builders) => {
   const styles = Object.keys(builders) as ReceiverStyle[];
 
   it('registers distinct, animated scenes', () => {
-    expect(styles.length).toBeGreaterThanOrEqual(3);
+    expect(styles.length).toBeGreaterThanOrEqual(2);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -68,9 +75,7 @@ describe.each(Object.entries(sets))('%s receivers', (_, builders) => {
 describe('late receiver details', () => {
   it('shows the furniture of each old machine', () => {
     expect(text('head-unit')).toMatch(/FM1[\s\S]*MHz[\s\S]* 1 /);
-    expect(text('winamp')).toMatch(/RADIOCLI[\s\S]*\d\d:\d\d[\s\S]*kbps[\s\S]*EQUALIZER/);
     expect(text('vu-needles')).toMatch(/-20[\s\S]*VU/);
-    expect(text('graphic-eq')).toMatch(/32 +64 +125/);
     expect(text('dial-scale')).toMatch(/92 +94 +96[\s\S]*SIGNAL/);
     expect(text('compact-disc')).toMatch(/TRACK +\d\d/);
     expect(text('led-ladder')).toMatch(/L +▮+[\s\S]*R +▮+/);
@@ -84,19 +89,15 @@ describe('late receiver details', () => {
     expect(text('breathe', 60)).toMatch(/hold/);
     expect(text('breathe', 100)).toMatch(/breathe out/);
     expect(text('progress-bars', 400)).toMatch(/\d+%|ok/);
-    expect(text('typewriter', 200)).toMatch(/the radio is on in the next room/);
-    expect(text('advent-calendar', 10)).toMatch(/24/);
     // Replayed simulations give the same frame however the pulse was reached.
-    for (const style of ['falling-blocks', 'game-of-life'] as const) {
-      const first = JSON.stringify(frame(style, 120));
-      frame(style, 2000); frame(style, 30);
-      expect(JSON.stringify(frame(style, 120)), style).toBe(first);
-    }
+    const style = 'falling-blocks';
+    const first = JSON.stringify(frame(style, 120));
+    frame(style, 2000); frame(style, 30);
+    expect(JSON.stringify(frame(style, 120)), style).toBe(first);
   });
 
   it('shows what the newest machines are for', () => {
     expect(text('space-invaders')).toMatch(/SCORE \d{5}[\s\S]*WAVE \d\d/);
-    expect(text('drum-machine')).toMatch(/120 BPM[\s\S]*KICK[\s\S]*SNARE[\s\S]*HAT/);
     expect(text('boot-sequence', 60)).toMatch(/Memory Test: \d{5}K OK/);
     expect(text('boot-sequence', 200)).toMatch(/Starting RADIO-DOS[\s\S]*C:\\>radiocli/);
     expect(text('hex-dump')).toMatch(/^[0-9A-F]{6}  ([0-9A-F]{2} ){8}/m);
@@ -104,7 +105,6 @@ describe('late receiver details', () => {
     expect(text('elevator')).toMatch(/01 +│/);
     expect(text('weather-radar')).toMatch(/WX RADAR[\s\S]*AZ \d{3}°/);
     expect(text('sonar')).toMatch(/PING \d{3}[\s\S]*◆/);
-    expect(text('seismograph')).toMatch(/SEISMO +M \d\.\d/);
   });
 
   it('keeps Christmas in its own colours and greys it on mono', () => {
@@ -113,5 +113,46 @@ describe('late receiver details', () => {
         if (color) expect(new Set([color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)]).size, `${style} ${color}`).toBe(1);
       }
     }
+  });
+
+  it.each(['train-window', 'fire-ii'] as const)('keeps %s in scene colors across receiver themes', style => {
+    const mono = /^#([\da-f]{2})\1\1$/u;
+    for (const pulse of [0, 60, 124]) {
+      const colors = visibleColors(frame(style, pulse, 'green'));
+      expect(colors).toEqual(visibleColors(frame(style, pulse, 'hot-magenta')));
+      expect(colors.some(color => !mono.test(color))).toBe(true);
+      expect(visibleColors(frame(style, pulse, 'mono')).every(color => mono.test(color))).toBe(true);
+    }
+  });
+
+  it.each([
+    'ripple-tank', 'ripple-code', 'orbit-rings', 'hex-pulse-ii', 'hive-pulse', 'dot-lattice',
+    'moire-lines', 'moire-ii', 'radial-spectrum', 'marbling', 'mosaic-drift', 'kandinsky', 'knotwork', 'tartan'
+  ] as const)('keeps %s in the selected accent family', style => {
+    for (const theme of ['green', 'hot-magenta'] as const) {
+      const colors = [...new Set(visibleColors(frame(style, 60, theme)))];
+      const saturated = colors.map(color => [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16)))
+        .filter(rgb => Math.max(...rgb) - Math.min(...rgb) > 24);
+      expect(saturated.length).toBeGreaterThan(1);
+      for (const [r, g, b] of saturated) {
+        expect(theme === 'green' ? g! > Math.max(r!, b!) : g! < Math.min(r!, b!)).toBe(true);
+      }
+    }
+  });
+
+  it('draws a round Radial Spectrum center in terminal dot coordinates', () => {
+    const width = 120, height = 30;
+    const rows = buildVisualizer('radial-spectrum', 60, width, height, null, playback, 'green');
+    const masks = [[1, 8], [2, 16], [4, 32], [64, 128]];
+    const dot = (x: number, y: number): boolean => {
+      const mask = rows[Math.floor(y / 4)]!.text.charCodeAt(Math.floor(x / 2)) - 0x2800;
+      return mask > 0 && (mask & masks[y % 4]![x % 2]!) !== 0;
+    };
+    const centerX = width, centerY = height * 2;
+    const offsets = Array.from({length: 24}, (_, i) => i);
+    const horizontal = offsets.find(i => dot(centerX + i, centerY)) ?? Infinity;
+    const vertical = offsets.find(i => dot(centerX, centerY + i)) ?? Infinity;
+    expect(horizontal).toBeGreaterThan(0);
+    expect(Math.abs(horizontal - vertical)).toBeLessThanOrEqual(1);
   });
 });

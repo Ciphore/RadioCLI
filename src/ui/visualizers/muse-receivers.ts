@@ -195,12 +195,27 @@ const windTurbines: Builder = (pulse, width, height, theme) => {
   for (let cloud = 0; cloud < 5; cloud++) { const cx = ((hash(cloud, 1) * p.pw + t * (1.5 + cloud * 0.5)) % (p.pw + 30)) - 15, cy = p.ph * (0.1 + 0.3 * hash(cloud, 2)); for (const [dx, r] of [[-4, 1.6], [0, 2.4], [5, 1.8]] as const) disc(p, cx + dx, cy, r * 1.7, r * 0.7, () => c('#ffffff')); }
   const ridge = (x: number, layer: number): number => p.ph * (0.7 + layer * 0.12) - Math.sin(x * 0.03 + layer * 4) * p.ph * 0.07 - Math.sin(x * 0.08 + layer) * p.ph * 0.03;
   for (let layer = 0; layer < 2; layer++) for (let x = 0; x < p.pw; x++) for (let y = Math.round(ridge(x, layer)); y < p.ph; y++) p.px(x, y, c(mix(layer ? '#4f9a4a' : '#7ab86a', '#2a5a30', clamp((y - ridge(x, layer)) / (p.ph * 0.3)) + (noise((x - t * 3) * 0.04, y * 0.2, 6) > 0.62 ? 0.18 : 0))));
-  const wind = 0.6 + 0.8 * noise(t * 0.15, 3);
+  // Vary the angular speed gently while keeping it positive for the entire run.
+  const rotorPhase = 1.8 * t + 2.4 * Math.sin(t * 0.18);
   for (let mill = 0; mill < Math.max(2, Math.round(p.pw / 22)); mill++) {
     const x = (mill + 0.5) * p.pw / Math.max(2, Math.round(p.pw / 22)) + (hash(mill, 4) - 0.5) * 6, foot = ridge(x, 0), tall = p.ph * (0.32 + 0.14 * hash(mill, 5)), hubY = foot - tall, blade = tall * 0.6;
     stroke(p, x, foot, x, hubY, 0.6, c('#f2f4f6'));
-    const turn = t * 2.4 * wind + mill * 0.9;
-    for (let n = 0; n < 3; n++) stroke(p, x, hubY, x + Math.cos(turn + n * TAU / 3) * blade * 1.25, hubY + Math.sin(turn + n * TAU / 3) * blade, 0.45, c('#ffffff'));
+    const turn = rotorPhase + mill * 0.9;
+    for (let n = 0; n < 3; n++) {
+      const angle = turn + n * TAU / 3;
+      const dx = Math.cos(angle) * blade * 1.25, dy = Math.sin(angle) * blade;
+      const lengthSquared = dx * dx + dy * dy;
+      // Blend fractional pixel coverage so small blades don't pop in and out.
+      for (let py = Math.floor(Math.min(hubY, hubY + dy) - 1); py <= Math.ceil(Math.max(hubY, hubY + dy) + 1); py++) {
+        for (let px = Math.floor(Math.min(x, x + dx) - 1); px <= Math.ceil(Math.max(x, x + dx) + 1); px++) {
+          const base = p.at(px, py);
+          if (!base) continue;
+          const along = clamp(((px - x) * dx + (py - hubY) * dy) / lengthSquared);
+          const coverage = clamp(1.05 - Math.hypot(px - x - along * dx, py - hubY - along * dy));
+          if (coverage) p.px(px, py, mix(base, '#ffffff', coverage));
+        }
+      }
+    }
     disc(p, x, hubY, 1.3, 1.1, () => c('#c8ccd2'));
   }
   p.flush();
@@ -234,53 +249,6 @@ const balloonFiesta: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A comet rounding the sun: a bright head, a curved veil of dust, and a straight blue thread pointing dead away from the light.
-const comet: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const night = (y: number): string => mix('#02030a', mix(panelBackground, g.paint.fan(-0.7), 0.2), y / p.ph);
-  wash(p, night);
-  for (let star = 0; star < p.pw * p.ph / 55; star++) p.px(Math.floor(hash(star, 1) * p.pw), Math.floor(hash(star, 2) * p.ph), mix(night(0), '#ffffff', 0.15 + 0.6 * hash(star, 3) * tri(t * 0.15 + hash(star, 4))));
-  const way = fract(t / 28), a = Math.PI * (1.1 - way * 1.2), hx = p.pw * 0.5 + Math.cos(a) * p.pw * 0.55, hy = p.ph * 1.25 + Math.sin(a) * p.ph * 1.05;
-  // The sun is below and off to the left of frame; both tails lean away from it, the dust one lagging along the orbit.
-  const awayX = hx - p.pw * 0.5, awayY = hy - p.ph * 1.6, far = Math.hypot(awayX, awayY) || 1, ax = awayX / far, ay = awayY / far, lagX = -Math.sin(a), lagY = Math.cos(a);
-  const long = p.pw * 0.5;
-  for (let k = 0; k < long * 5; k++) {
-    const s = hash(k, 5) ** 1.6 * long, spread = (hash(k, 6) - 0.5) * s * 0.34;
-    const x = hx + ax * s + lagX * s * s / long * -0.5 + -ay * spread, y = hy + ay * s * 0.6 + lagY * s * s / long * -0.3 + ax * spread * 0.6;
-    p.px(Math.round(x), Math.round(y), mix(under(p, x, y, night(y)), '#fff0c8', 0.4 * (1 - s / long) ** 1.5));
-  }
-  for (let s = 0; s < long * 1.25; s++) { const x = hx + ax * s, y = hy + ay * s * 0.6 + Math.sin(s * 0.3 - t * 3) * 0.3; p.px(Math.round(x), Math.round(y), mix(under(p, x, y, night(y)), g.paint.fan(-0.8), 0.7 * (1 - s / (long * 1.25)))); }
-  disc(p, hx, hy, 3.4, 2.6, (dx, dy, x, y) => mix(under(p, x, y, night(y)), '#ffffff', (1 - Math.hypot(dx, dy)) ** 1.2));
-  p.flush();
-  return g.finish();
-};
-
-// A dark beach where the sea lights up when it moves: every breaking wave a line of cold blue fire that fades on the sand.
-const bioluminescence: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const horizon = Math.round(p.ph * 0.3), sand = Math.round(p.ph * 0.9), glow = theme === 'mono' ? '#e0e0e0' : mix('#35e8ff', g.paint.accent, 0.25);
-  wash(p, y => y < horizon ? mix('#02030a', '#0a1024', y / horizon) : y < sand ? mix('#03060f', '#020409', (y - horizon) / (sand - horizon)) : '#0c0b0a');
-  for (let star = 0; star < p.pw * horizon / 40; star++) p.px(Math.floor(hash(star, 1) * p.pw), Math.floor(hash(star, 2) * horizon), mix('#0a1024', '#ffffff', 0.2 + 0.6 * tri(t * 0.2 + hash(star, 3))));
-  for (let wave = 0; wave < 5; wave++) {
-    const run = fract(t * 0.07 + wave / 5), near = run ** 1.7;
-    for (let x = 0; x < p.pw; x++) {
-      const y = horizon + near * (sand - horizon) + Math.sin(x * 0.07 + wave * 2 + t * 0.3) * (1 + near * 2);
-      // Far out it is a faint thread; as it steepens it brightens, and the last few rows are all sparks.
-      const thick = 1 + Math.round(near * 3);
-      for (let d = 0; d < thick; d++) { const spark = hash(x * 3 + d, Math.floor(t * 9) + wave); p.px(x, Math.round(y) + d, mix(under(p, x, y + d, '#03060f'), glow, clamp((0.15 + near * 0.95) * (d === 0 ? 1 : 0.55) * (near > 0.75 ? 0.35 + spark : 0.7 + 0.3 * spark)))); }
-      if (near > 0.82 && hash(x, wave + Math.floor(t * 4)) > 0.7) for (let d = 0; d < 3; d++) p.px(x, Math.min(p.ph - 1, Math.round(y) + thick + d), mix('#0c0b0a', glow, 0.5 * (1 - d / 3)));
-    }
-  }
-  // Footprints: someone has walked along the wet sand, and each step is still glowing.
-  for (let step = 0; step < p.pw / 5; step++) { const age = fract(t * 0.05 - step / (p.pw / 5)); p.px(step * 5 + (step % 2), sand + 1 + (step % 2), mix('#0c0b0a', glow, (1 - age) ** 3)); }
-  p.flush();
-  return g.finish();
-};
-
 export const museReceiverBuilders = {
   'moon-jellies': moonJellies,
   starlings,
@@ -292,6 +260,4 @@ export const museReceiverBuilders = {
   'bubble-wrap': bubbleWrap,
   'wind-turbines': windTurbines,
   'balloon-fiesta': balloonFiesta,
-  comet,
-  bioluminescence
 };

@@ -16,7 +16,6 @@ import {reverieReceiverBuilders} from './reverie-receivers.js';
 import {oelReceiverBuilders} from './oel-receivers.js';
 import {playervizReceiverBuilders} from './playerviz-receivers.js';
 import {atelierReceiverBuilders} from './atelier-receivers.js';
-import {viceCollabReceiverBuilders} from './vice-collab-receivers.js';
 import {arcadeReceiverBuilders} from './arcade-receivers.js';
 import {everydayReceiverBuilders} from './everyday-receivers.js';
 import {gtaReceiverBuilders} from './gta-receivers.js';
@@ -27,9 +26,10 @@ import {cityscapeReceiverBuilders} from './cityscape-receivers.js';
 import {worldtourReceiverBuilders} from './worldtour-receivers.js';
 import {finespunReceiverBuilders} from './finespun-receivers.js';
 import {wonderReceiverBuilders} from './wonder-receivers.js';
-import {aurora, constellation, equalizer, motionContour, gallopAscii, gallopLed, gallopNeon, gallopQuad, gallopSilhouette, rippleTank, starfield, tesseract} from './revised-receivers.js';
-import {goldenGateFog, goldenGateSunset, goldenGateNight, skylineDawn, skylineRain, skylineSynth, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
+import {aurora, constellation, equalizer, motionContour, gallopAscii, gallopLed, rippleTank, starfield, tesseract} from './revised-receivers.js';
+import {goldenGateFog, goldenGateSunset, goldenGateNight, goldenGateLive, skylineDawn, skylineRain, manhattanHenge, manhattanSnow, manhattanHarbor} from './scene-receivers.js';
 import {receiverStyleMetadata} from './receiver-style-registry.js';
+import type {ReceiverData} from './cell-canvas.js';
 
 type VisualLine = {
   text: string;
@@ -55,10 +55,11 @@ type VisualizerBuilder = (
   pulse: number,
   width: number,
   height: number,
-  theme: ThemeName
+  theme: ThemeName,
+  data?: ReceiverData
 ) => VisualLine[];
 
-const receiverStyleBuilders = {
+const receiverStyleBuilders: Record<ReceiverStyle, VisualizerBuilder> = {
   ...finespunReceiverBuilders,
   ...worldtourReceiverBuilders,
   ...cityscapeReceiverBuilders,
@@ -66,7 +67,6 @@ const receiverStyleBuilders = {
   ...boldReceiverBuilders,
   ...wonderReceiverBuilders,
   ...museReceiverBuilders,
-  ...viceCollabReceiverBuilders,
   ...gtaReceiverBuilders,
   ...atelierReceiverBuilders,
   ...playervizReceiverBuilders,
@@ -84,17 +84,14 @@ const receiverStyleBuilders = {
   ...playroomReceiverBuilders,
   ...cabinetReceiverBuilders,
   ...festiveReceiverBuilders,
-  'gallop-silhouette': gallopSilhouette,
   'gallop-ascii': gallopAscii,
   'gallop-led': gallopLed,
-  'gallop-neon': gallopNeon,
-  'gallop-quad': gallopQuad,
   'golden-gate-fog': goldenGateFog,
   'golden-gate-sunset': goldenGateSunset,
   'golden-gate-night': goldenGateNight,
+  'golden-gate-live': goldenGateLive,
   'skyline-dawn': skylineDawn,
   'skyline-rain': skylineRain,
-  'skyline-synth': skylineSynth,
   'manhattan-henge': manhattanHenge,
   'manhattan-snow': manhattanSnow,
   'manhattan-harbor': manhattanHarbor,
@@ -106,7 +103,6 @@ const receiverStyleBuilders = {
   hologram: buildHologram,
   cube: buildAsciiCube,
   fire: buildAsciiFire,
-  fireworks: buildAsciiFireworks,
   'spinning-donut': buildAsciiDonut,
   starfield,
   mesh: buildMesh,
@@ -117,7 +113,6 @@ const receiverStyleBuilders = {
   constellation,
   'pulse-grid': buildPulseGrid,
   lissajous: buildLissajous,
-  'braille-wave': buildBrailleWave,
   'radial-eq': buildRadialEq,
   spectrogram: buildSpectrogram,
   nebula: buildNebula,
@@ -132,7 +127,6 @@ const receiverStyleBuilders = {
   fern: buildFern,
   chladni: buildChladni,
   tesseract,
-  'torus-knot': buildTorusKnot,
   rotozoomer: buildRotozoomer,
   'fractal-tree': buildFractalTree,
   julia: buildJulia,
@@ -150,7 +144,6 @@ const receiverStyleBuilders = {
   'neural-net': buildNeuralNet,
   flyover: buildFlyover,
   skyline: buildSkyline,
-  'golden-gate': buildGoldenGate,
   manhattan: buildManhattan,
   alpine: buildAlpine,
   'ordered-dither': buildOrderedDither,
@@ -160,7 +153,7 @@ const receiverStyleBuilders = {
   phosphene: buildPhosphene,
   planetarium: buildPlanetarium,
   'sumi-ocean': buildSumiOcean
-} satisfies Record<ReceiverStyle, VisualizerBuilder>;
+};
 
 export function buildVisualizer(
   style: ReceiverStyle,
@@ -170,17 +163,18 @@ export function buildVisualizer(
   _station: Station | null,
   playback: PlaybackState,
   theme: ThemeName,
-  viewport: 'standard' | 'micro' = 'standard'
+  viewport: 'standard' | 'micro' = 'standard',
+  data?: ReceiverData
 ): VisualLine[] {
   if (!playbackHasVisualSignal(style, playback)) {
     return buildZeroSignalVisualizer(width, height, theme);
   }
 
   if (viewport === 'micro') {
-    return buildMicroVisualizer(style, pulse, width, height, theme);
+    return buildMicroVisualizer(style, pulse, width, height, theme, data);
   }
 
-  return receiverStyleBuilders[style](pulse, width, height, theme);
+  return receiverStyleBuilders[style](pulse, width, height, theme, data);
 }
 
 function buildMicroVisualizer(
@@ -188,18 +182,19 @@ function buildMicroVisualizer(
   pulse: number,
   width: number,
   height: number,
-  theme: ThemeName
+  theme: ThemeName,
+  data?: ReceiverData
 ): VisualLine[] {
   const targetWidth = Math.max(1, width);
   const targetHeight = Math.max(1, height);
   if (microNativeScaleStyles.has(style)) {
-    return receiverStyleBuilders[style](pulse, targetWidth, targetHeight, theme);
+    return receiverStyleBuilders[style](pulse, targetWidth, targetHeight, theme, data);
   }
 
   const sourceHeight = Math.max(targetHeight, receiverStyleMetadata[style].minRows);
   const scale = sourceHeight / targetHeight;
   const sourceWidth = Math.max(targetWidth, Math.min(96, Math.round(targetWidth * scale)));
-  const sourceRows = receiverStyleBuilders[style](pulse, sourceWidth, sourceHeight, theme);
+  const sourceRows = receiverStyleBuilders[style](pulse, sourceWidth, sourceHeight, theme, data);
   return resampleVisualizer(sourceRows, sourceWidth, sourceHeight, targetWidth, targetHeight, themeAccent(theme));
 }
 
@@ -222,7 +217,6 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(oelReceiverBuilders) as (keyof typeof oelReceiverBuilders)[],
   ...Object.keys(playervizReceiverBuilders) as (keyof typeof playervizReceiverBuilders)[],
   ...Object.keys(atelierReceiverBuilders) as (keyof typeof atelierReceiverBuilders)[],
-  ...Object.keys(viceCollabReceiverBuilders) as (keyof typeof viceCollabReceiverBuilders)[],
   ...Object.keys(arcadeReceiverBuilders) as (keyof typeof arcadeReceiverBuilders)[],
   ...Object.keys(everydayReceiverBuilders) as (keyof typeof everydayReceiverBuilders)[],
   ...Object.keys(gtaReceiverBuilders) as (keyof typeof gtaReceiverBuilders)[],
@@ -234,8 +228,8 @@ const microNativeScaleStyles = new Set<ReceiverStyle>([
   ...Object.keys(finespunReceiverBuilders) as (keyof typeof finespunReceiverBuilders)[],
   ...Object.keys(wonderReceiverBuilders) as (keyof typeof wonderReceiverBuilders)[],
   'constellation', 'tesseract', 'starfield', 'ripple-tank', 'aurora', 'equalizer', 'motion-contour',
-  'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad',
-  'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
+  'gallop-ascii', 'gallop-led',
+  'golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'golden-gate-live', 'skyline-dawn', 'skyline-rain', 'manhattan-henge', 'manhattan-snow', 'manhattan-harbor',
   'pulse-grid',
   'hex-pulse',
   'galaxy',
@@ -830,148 +824,6 @@ function buildAsciiFire(
   return grid.map(row => lineFromCells(row, accent));
 }
 
-function buildAsciiFireworks(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const grid = emptyMotionGrid(width, height, '#06060e');
-  const palette =
-    theme === 'mono'
-      ? ['#888888', '#b0b0b0', '#d8d8d8', '#ffffff']
-      : ['#ff5f87', '#ffd166', '#53a8ff', '#8df084', '#c06cff', '#ff9345', '#5eead4', '#ffffff'];
-
-  // Dim star dust so the sky isn't empty between bursts
-  for (let s = 0; s < Math.floor((width * height) / 28); s += 1) {
-    const sx = Math.floor(hashNoise(s, 1, 0) * width);
-    const sy = Math.floor(hashNoise(s, 2, 0) * height);
-    if (hashNoise(s, 3, Math.floor(pulse / 20)) > 0.55) {
-      paintCell(grid, sx, sy, '·', '#2a2a40');
-    }
-  }
-
-  const showCount = Math.max(5, Math.min(10, Math.floor(width / 14)));
-  // Slower overall tempo — launches and blooms linger longer
-  const tempo = 0.78;
-  // Staggered generations so bursts appear at different places over time
-  for (let show = 0; show < showCount; show += 1) {
-    const period = 52 + (show % 5) * 9;
-    const phaseOffset = show * 14.5 + hashNoise(show, 7, 0) * 22;
-    const t = ((pulse * tempo + phaseOffset) % period + period) % period;
-    // Re-roll burst origin each generation so they don't always fire in the same spot
-    const gen = Math.floor((pulse * tempo + phaseOffset) / period);
-    const originX = Math.floor(
-      width * (0.1 + hashNoise(show, gen, 11) * 0.8)
-    );
-    const peakY = Math.floor(
-      height * (0.12 + hashNoise(show, gen, 22) * 0.42)
-    );
-    const color = palette[Math.floor(hashNoise(show, gen, 33) * palette.length) % palette.length] ?? accent;
-    const secondary = palette[(show + gen + 2) % palette.length] ?? color;
-
-    // Launch trail climbing from ground
-    const launchLen = 14;
-    if (t < launchLen) {
-      const progress = t / launchLen;
-      const y = Math.round(height - 1 - progress * (height - 1 - peakY));
-      const trailLen = 2 + Math.floor(progress * 4);
-      for (let k = 0; k < trailLen; k += 1) {
-        const fade = 1 - k / trailLen;
-        const glyph = k === 0 ? (progress > 0.85 ? '●' : '│') : k < 2 ? '│' : '┊';
-        const c = fade > 0.7 ? '#ffffff' : fade > 0.4 ? color : '#555566';
-        paintCell(grid, originX, y + k, glyph, c);
-        if (k === 0 && progress > 0.5) {
-          paintCell(grid, originX - 1, y, '·', color);
-          paintCell(grid, originX + 1, y, '·', color);
-        }
-      }
-      continue;
-    }
-
-    // Explosion life: expand, glitter, then fade with gravity droop
-    const age = t - launchLen;
-    const life = 30 + (show % 4) * 4;
-    if (age > life) {
-      continue;
-    }
-    const lifeT = age / life;
-    // Expand then slow drift
-    const expand = 1 - Math.pow(1 - Math.min(1, lifeT * 1.2), 2.2);
-    const maxR = (2.2 + hashNoise(show, gen, 44) * 3.5 + (show % 3)) * Math.min(width, height * 2.2) * 0.08;
-    const radius = expand * maxR;
-    const gravity = lifeT * lifeT * height * 0.22;
-    const fade = clampNumber(1 - lifeT * 1.05, 0, 1);
-    if (fade < 0.04) {
-      continue;
-    }
-
-    const rays = 18 + (show % 6) * 4 + Math.floor(hashNoise(show, gen, 55) * 8);
-    const rings = lifeT < 0.25 ? 1 : lifeT < 0.55 ? 2 : 3;
-
-    for (let ring = 0; ring < rings; ring += 1) {
-      const ringScale = 1 - ring * 0.28;
-      const ringR = radius * ringScale;
-      for (let ray = 0; ray < rays; ray += 1) {
-        const angle =
-          (ray / rays) * Math.PI * 2 +
-          show * 0.4 +
-          gen * 0.15 +
-          Math.sin(ray + gen) * 0.08;
-        // Slight ellipse + asymmetric petal lengths
-        const petal = 0.75 + 0.45 * hashNoise(ray, show, gen);
-        const px = originX + Math.cos(angle) * ringR * petal * 1.85;
-        const py = peakY + Math.sin(angle) * ringR * petal * 0.72 + gravity * (0.6 + ring * 0.2);
-        // Sparkle trail behind each particle
-        const trailSteps = lifeT < 0.5 ? 3 : 2;
-        for (let s = 0; s < trailSteps; s += 1) {
-          const back = s * 0.35;
-          const tx = px - Math.cos(angle) * back * petal;
-          const ty = py - Math.sin(angle) * back * petal * 0.5 + s * 0.15;
-          const sparkFade = fade * (1 - s / trailSteps) * (1 - ring * 0.15);
-          if (sparkFade < 0.08) {
-            continue;
-          }
-          let glyph: string;
-          if (lifeT < 0.2 && s === 0) {
-            glyph = ['✦', '★', '*', '✸'][ray % 4]!;
-          } else if (lifeT < 0.45) {
-            glyph = s === 0 ? ['*', '+', 'x', '●'][ray % 4]! : '·';
-          } else if (lifeT < 0.7) {
-            glyph = s === 0 ? [':', '+', '.', '°'][ray % 4]! : '·';
-          } else {
-            glyph = sparkFade > 0.35 ? '·' : '˙';
-          }
-          const c =
-            sparkFade > 0.75
-              ? '#ffffff'
-              : sparkFade > 0.4
-                ? ring === 0
-                  ? color
-                  : secondary
-                : '#666680';
-          paintCell(grid, Math.round(tx), Math.round(ty), glyph, c);
-        }
-      }
-    }
-
-    // Bright flash core at detonation
-    if (lifeT < 0.12) {
-      const core = ['✸', '✦', '●'];
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          if (dx * dx + dy * dy <= 2) {
-            paintCell(grid, originX + dx, peakY + dy, core[(dx + dy + 2) % 3]!, '#ffffff');
-          }
-        }
-      }
-    }
-  }
-
-  return grid.map(row => lineFromCells(row, accent));
-}
-
 /**
  * The classic spinning torus, ray-marched per cell so the surface has no gaps
  * and the hole stays a hole at every size. One tone: the shading is the glyphs.
@@ -1335,49 +1187,6 @@ function spectrumSample(band: number, p: number): number {
     0,
     1
   );
-}
-
-function buildBrailleWave(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const canvas = createBraille(width, height);
-  const colors = themeContributionColors(theme);
-  const accent = themeAccent(theme);
-  const dotsWide = width * 2;
-  const dotsHigh = height * 4;
-  const mid = (dotsHigh - 1) / 2;
-  let previousY = -1;
-
-  for (let x = 0; x < dotsWide; x += 1) {
-    const nx = x / Math.max(1, dotsWide - 1);
-    const wave =
-      Math.sin(nx * Math.PI * 4 - pulse * 0.22) * 0.5 +
-      Math.sin(nx * Math.PI * 9 + pulse * 0.13) * 0.28 +
-      Math.sin(nx * Math.PI * 2 - pulse * 0.07) * 0.2;
-    const envelope = 0.35 + 0.65 * Math.sin(nx * Math.PI);
-    const amplitude = wave * envelope;
-    const y = mid - amplitude * mid * 0.82;
-    const colorIndex = Math.min(colors.length - 1, 1 + Math.round(Math.abs(amplitude) * (colors.length - 2)));
-    const color = colors[colorIndex] ?? accent;
-
-    const target = Math.round(y);
-    if (previousY < 0) {
-      previousY = target;
-    }
-
-    const low = Math.min(previousY, target);
-    const high = Math.max(previousY, target);
-    for (let yy = low; yy <= high; yy += 1) {
-      brailleSet(canvas, x, yy, color);
-    }
-
-    previousY = target;
-  }
-
-  return brailleToLines(canvas, accent);
 }
 
 function buildRadialEq(
@@ -1930,53 +1739,6 @@ function buildChladni(
         brailleSet(canvas, xx, yy, ramp[Math.min(ramp.length - 1, 2 + Math.floor(v * (ramp.length - 2)))] ?? accent);
       }
     }
-  }
-
-  return brailleToLines(canvas, accent);
-}
-
-function buildTorusKnot(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const canvas = createBraille(width, height);
-  const ramp = themeContributionColors(theme);
-  const accent = themeAccent(theme);
-  const dotsWide = width * 2;
-  const dotsHigh = height * 4;
-  const cx = (dotsWide - 1) / 2;
-  const cy = (dotsHigh - 1) / 2;
-  const p = 2;
-  const q = 3;
-  const tilt = 0.6 + 0.3 * Math.sin(pulse * 0.01);
-  const spin = pulse * 0.02;
-  const scale = Math.min(dotsWide, dotsHigh) * 0.17;
-  const samples = 1400;
-  let previous: {x: number; y: number} | null = null;
-
-  for (let i = 0; i <= samples; i += 1) {
-    const theta = (i / samples) * Math.PI * 2;
-    const r = Math.cos(q * theta) + 2;
-    let x = r * Math.cos(p * theta);
-    let y = r * Math.sin(p * theta);
-    let z = -Math.sin(q * theta);
-    const xs = x * Math.cos(spin) + z * Math.sin(spin);
-    z = -x * Math.sin(spin) + z * Math.cos(spin);
-    x = xs;
-    const ys = y * Math.cos(tilt) - z * Math.sin(tilt);
-    z = y * Math.sin(tilt) + z * Math.cos(tilt);
-    y = ys;
-    const persp = 3.2 / (3.2 - z);
-    const sx = cx + x * scale * persp;
-    const sy = cy + y * scale * persp;
-    const color = ramp[Math.min(ramp.length - 1, 1 + Math.round(clampNumber((z + 3) / 6, 0, 1) * (ramp.length - 2)))] ?? accent;
-    if (previous) {
-      drawBrailleLine(canvas, previous.x, previous.y, sx, sy, color);
-    }
-
-    previous = {x: sx, y: sy};
   }
 
   return brailleToLines(canvas, accent);
@@ -3083,313 +2845,6 @@ function sceneOverlay(grid: VisualCell[][], x: number, y: number, text: string, 
   row[Math.round(x)] = bold
     ? {text, color, backgroundColor: cell.backgroundColor, bold}
     : {text, color, backgroundColor: cell.backgroundColor};
-}
-
-/** Golden Gate at midday — stippled cumulus, international-orange span, shimmering bay. */
-function buildGoldenGate(
-  pulse: number,
-  width: number,
-  height: number,
-  theme: ThemeName
-): VisualLine[] {
-  const accent = themeAccent(theme);
-  const P = (color: string, mono: string): string => artColor(theme, color, mono);
-  const skyTop = P('#0f3c8e', '#12121a');
-  const skyMid = P('#4a90d8', '#34343e');
-  const skyLow = P('#aad4f4', '#5c5c68');
-  const cloudCore = P('#fff8e6', '#f2f2f2');
-  const cloudMid = P('#f6e4bc', '#d2d2d2');
-  const cloudShade = P('#d9c298', '#9e9e9e');
-  const headland = P('#4c5c40', '#24242c');
-  const bluff = P('#2e3f26', '#17171d');
-  const bluffLight = P('#4c6234', '#2e2e36');
-  const waterNear = P('#1a5a9e', '#26262e');
-  const waterFar = P('#0d3160', '#121218');
-  const glint = P('#d9ecfc', '#c4c4c4');
-  const orange = P('#e0521f', '#7c7c7c');
-  const orangeLight = P('#ff8148', '#b4b4b4');
-  const orangeDark = P('#a83a12', '#4e4e4e');
-  const sunCore = P('#fffdf4', '#ffffff');
-  const sunHalo = P('#fff2c8', '#e8e8e8');
-  const fogTint = P('#e8ecf2', '#c8c8c8');
-  const carWhite = P('#e8e8e8', '#d0d0d0');
-  const carRed = P('#c8352a', '#6a6a6a');
-  const carBlue = P('#2a4a7c', '#4a4a4a');
-  const grid = emptyMotionGrid(width, height, skyTop);
-
-  const horizon = Math.max(2, Math.round(height * 0.58));
-  const deckY = horizon;
-  const towerTopY = Math.max(1, Math.round(height * 0.15));
-  const towerAX = Math.round(width * 0.26);
-  const towerBX = Math.round(width * 0.64);
-  const waterStart = Math.min(height - 1, deckY + 1);
-
-  // Sky wash with a fine offset dot grain.
-  const skyBg: string[] = [];
-  for (let y = 0; y < horizon; y += 1) {
-    const t = y / Math.max(1, horizon - 1);
-    const bg = t < 0.55 ? interpolateHex(skyTop, skyMid, t / 0.55) : interpolateHex(skyMid, skyLow, (t - 0.55) / 0.45);
-    skyBg.push(bg);
-    for (let x = 0; x < width; x += 1) {
-      const dot = (x + y) % 2 === 0 && hashNoise(x * 0.9, y * 1.7, 0) > 0.66;
-      sceneCell(grid, x, y, dot ? '˙' : ' ', dot ? interpolateHex(bg, '#ffffff', 0.3) : bg, bg);
-    }
-  }
-
-  // High afternoon sun with a soft halo over the ocean side.
-  const sunX = Math.round(width * 0.8);
-  const sunY = Math.max(1, Math.round(horizon * 0.22));
-  const sunR = Math.max(1.1, height * 0.08);
-  for (let y = Math.floor(sunY - sunR * 2.2); y <= Math.ceil(sunY + sunR * 2.2); y += 1) {
-    if (y < 0 || y >= horizon) {
-      continue;
-    }
-
-    for (let x = Math.floor(sunX - sunR * 2); x <= Math.ceil(sunX + sunR * 2); x += 1) {
-      if (x < 0 || x >= width) {
-        continue;
-      }
-
-      const dx = (x - sunX) / 1.9;
-      const dy = y - sunY;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d <= sunR) {
-        sceneCell(grid, x, y, d < sunR * 0.62 ? '●' : '•', d < sunR * 0.55 ? sunCore : sunHalo, skyBg[y], d < sunR * 0.5);
-      } else if (d <= sunR * 1.9 && hashNoise(x, y, 0) > 0.84) {
-        sceneOverlay(grid, x, y, '˙', sunHalo);
-      }
-    }
-  }
-
-  // Slow-drifting stippled cumulus with shaded bellies.
-  const clouds = [
-    {cx: 0.14, cy: 0.18, rx: 0.11, ry: 0.2, seed: 5},
-    {cx: 0.42, cy: 0.1, rx: 0.15, ry: 0.16, seed: 9},
-    {cx: 0.72, cy: 0.26, rx: 0.1, ry: 0.18, seed: 13},
-    {cx: 0.93, cy: 0.08, rx: 0.09, ry: 0.13, seed: 19}
-  ];
-  for (const cloud of clouds) {
-    const drift = ((cloud.cx + pulse * 0.0016) % 1.3) - 0.15;
-    const cx = drift * width;
-    const cy = cloud.cy * horizon;
-    const rx = Math.max(3, cloud.rx * width);
-    const ry = Math.max(1.2, cloud.ry * horizon);
-    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y += 1) {
-      if (y < 0 || y >= horizon) {
-        continue;
-      }
-
-      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x += 1) {
-        if (x < 0 || x >= width) {
-          continue;
-        }
-
-        const dx = (x - cx) / rx;
-        const dy = (y - cy) / ry;
-        const d = dx * dx + dy * dy * 1.3;
-        if (d > 1) {
-          continue;
-        }
-
-        const fluff = (1 - d) * (0.5 + 0.5 * hashNoise(x * 1.9 + cloud.seed, y * 2.7, cloud.seed));
-        if (fluff < 0.3) {
-          continue;
-        }
-
-        const shade = dy > 0.32;
-        sceneCell(
-          grid,
-          x,
-          y,
-          fluff > 0.64 ? '●' : fluff > 0.44 ? '•' : '·',
-          shade ? cloudShade : fluff > 0.6 ? cloudCore : cloudMid,
-          skyBg[y],
-          fluff > 0.8
-        );
-      }
-    }
-  }
-
-  // Tiny gulls high above the strait, bobbing on the wind.
-  for (let b = 0; b < 4; b += 1) {
-    const bx = Math.floor((hashNoise(b, 21, 0) * width + pulse * 0.06) % width);
-    const by = Math.floor(hashNoise(b, 22, 0) * Math.max(1, horizon * 0.45)) + (Math.sin(pulse * 0.18 + b * 2.2) > 0.55 ? 1 : 0);
-    sceneOverlay(grid, bx, by, '~', P('#2c3c58', '#686868'));
-  }
-
-  // Distant Marin ridgeline just above the horizon.
-  for (let x = 0; x < width; x += 1) {
-    const lift = 0.5 + 0.5 * Math.sin((x / Math.max(1, width)) * 7.3 + 1.2);
-    const ridge = horizon - 1 - Math.round(lift * height * 0.04);
-    sceneCell(grid, x, ridge, '░', headland, skyBg[ridge]);
-    if (ridge + 1 < horizon) {
-      sceneCell(grid, x, ridge + 1, '▒', headland, headland);
-    }
-  }
-
-  // Bay water: gradient body, tidal streaks, lapping glints, whitecap flecks.
-  for (let y = waterStart; y < height; y += 1) {
-    const depth = (y - waterStart) / Math.max(1, height - 1 - waterStart);
-    const bg = interpolateHex(waterNear, waterFar, depth);
-    for (let x = 0; x < width; x += 1) {
-      const lap = hashNoise(x * 0.6, y * 3.1, Math.floor(pulse / 3));
-      const still = hashNoise(x * 1.7, y * 2.9, 0);
-      const streak = depth < 0.4 && hashNoise(x * 0.35, y * 6.3, Math.floor(pulse / 4)) > 0.94;
-      const text = streak ? '~' : lap > 0.9 ? '·' : still > 0.86 ? '˙' : ' ';
-      const color = lap > 0.965 ? glint : streak ? interpolateHex(glint, bg, 0.35) : interpolateHex(glint, bg, 0.55);
-      sceneCell(grid, x, y, text, color, bg);
-    }
-  }
-
-  // Sunlight glitter lane wobbling across the channel.
-  for (let y = waterStart; y < height; y += 1) {
-    const depth = (y - waterStart) / Math.max(1, height - 1 - waterStart);
-    const laneX = Math.round(sunX + Math.sin(y * 0.9 + pulse * 0.22) * (1 + depth * 2));
-    for (let dx = -1; dx <= 1; dx += 1) {
-      if (hashNoise(laneX + dx, y * 3.7, Math.floor(pulse / 2)) > 0.52) {
-        sceneOverlay(grid, laneX + dx, y, hashNoise(laneX + dx, y, 3) > 0.5 ? '·' : '˙', interpolateHex(glint, waterFar, depth * 0.35));
-      }
-    }
-  }
-
-  // Foreground bluff on the left anchorage side.
-  const bluffW = Math.max(3, Math.round(width * 0.09));
-  for (let x = 0; x < bluffW; x += 1) {
-    const falloff = x / bluffW;
-    const ridge = Math.round(height * (0.68 + falloff * 0.22) + hashNoise(x, 3, 0) * 1.5);
-    for (let y = Math.max(waterStart, ridge); y < height; y += 1) {
-      const fleck = hashNoise(x * 1.9, y * 2.3, 0);
-      sceneCell(grid, x, y, fleck > 0.62 ? '▒' : fleck > 0.3 ? '░' : ' ', fleck > 0.62 ? bluffLight : bluff, bluff);
-    }
-  }
-
-  // Fort Point crouched at the waterline under the south anchorage.
-  const fortBrick = P('#7a5a44', '#4a4a4a');
-  const fortRoof = P('#3a2c22', '#2c2c2c');
-  const fortX = Math.min(bluffW + 1, Math.max(1, width - 8));
-  sceneCell(grid, fortX, waterStart, '█', fortBrick, fortRoof);
-  sceneCell(grid, fortX + 1, waterStart, '░', P('#d9c8a8', '#9a9a9a'), fortBrick);
-  sceneCell(grid, fortX + 2, waterStart, '█', fortBrick, fortRoof);
-
-  // Broken tower reflections trembling in the water.
-  for (const tx of [towerAX, towerBX]) {
-    for (let y = waterStart + 1; y < height; y += 1) {
-      const depth = (y - waterStart) / Math.max(1, height - 1 - waterStart);
-      for (let dx = -2; dx <= 3; dx += 1) {
-        const shimmerX = tx + dx + (hashNoise(y, dx * 7, 15) > 0.5 ? 1 : 0);
-        if (hashNoise(shimmerX * 2.9, y * 1.3, Math.floor(pulse / 4)) > 0.5 + depth * 0.25) {
-          sceneOverlay(grid, shimmerX, y, depth > 0.45 ? '·' : '•', depth > 0.45 ? orangeDark : orange);
-        }
-      }
-    }
-  }
-
-  // Main cables: straight backstays, parabolic main span, dotted suspenders.
-  const sagBottom = deckY - 2;
-  const mainSpan = Math.max(1, towerBX - towerAX);
-  const cableY = (x: number): number => {
-    if (x < towerAX) {
-      return deckY - 1 + (towerTopY - (deckY - 1)) * clampNumber(x / Math.max(1, towerAX), 0, 1);
-    }
-
-    if (x > towerBX) {
-      return towerTopY + (deckY - 1 - towerTopY) * clampNumber((x - towerBX) / Math.max(1, width - 1 - towerBX), 0, 1);
-    }
-
-    const t = (x - towerAX) / mainSpan;
-    return towerTopY + (sagBottom - towerTopY) * 4 * t * (1 - t);
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    sceneOverlay(grid, x, cableY(x), '•', orangeDark);
-  }
-
-  for (let x = 2; x < width - 1; x += 2) {
-    const top = Math.round(cableY(x));
-    for (let y = top + 1; y < deckY; y += 1) {
-      sceneOverlay(grid, x, y, '│', orangeDark);
-    }
-  }
-
-  // Deck with a sunlit top chord.
-  for (let x = 0; x < width; x += 1) {
-    sceneCell(grid, x, deckY, '▀', orangeLight, orange);
-  }
-
-  // Commuter traffic humming across the deck in both directions.
-  for (let i = 0; i < Math.max(2, Math.floor(width / 26)); i += 1) {
-    const east = Math.round((pulse * 0.7 + i * 29) % (width + 4)) - 2;
-    const west = Math.round(width + 1 - ((pulse * 0.55 + i * 23) % (width + 4)));
-    const eastPaint = [carWhite, carRed, carBlue][i % 3] ?? carWhite;
-    sceneCell(grid, east, deckY, '▀', eastPaint, orangeDark);
-    sceneCell(grid, west, deckY, '▀', i % 2 === 0 ? carRed : carWhite, orangeDark);
-  }
-
-  // Art-deco towers: tapered saddles, portal struts, woven brace under the deck.
-  for (const tx of [towerAX, towerBX]) {
-    const legL = tx - 3;
-    const legR = tx + 1;
-    const base = Math.min(height - 1, waterStart + 2);
-    const taperRows = Math.max(1, Math.round((deckY - towerTopY) * 0.18));
-    for (let y = towerTopY; y <= base; y += 1) {
-      const legs = y < towerTopY + taperRows ? [legL, legR + 1] : [legL, legL + 1, legR, legR + 1];
-      for (const lx of legs) {
-        const edge = lx === legL || lx === legR + 1;
-        sceneCell(grid, lx, y, '█', edge ? orangeLight : orange, orangeDark);
-      }
-
-      if (y > deckY) {
-        const weave = (y - deckY) % 3;
-        if (weave !== 2) {
-          sceneCell(grid, legL + 2 + weave, y, weave === 0 ? '╲' : '╱', orange, orangeDark);
-          sceneCell(grid, legR - 1 - weave, y, weave === 0 ? '╱' : '╲', orange, orangeDark);
-        }
-      }
-    }
-
-    for (let s = 0; s < 4; s += 1) {
-      const sy = towerTopY + Math.round(((deckY - towerTopY) * s) / 3);
-      for (let x = legL; x <= legR + 1; x += 1) {
-        sceneCell(grid, x, sy, '█', orangeLight, orangeDark);
-      }
-    }
-
-    sceneOverlay(grid, legL, towerTopY - 1, '▀', orangeLight);
-    sceneOverlay(grid, legR, towerTopY - 1, '▀', orangeLight);
-    if (towerTopY >= 2 && Math.sin(pulse * 0.3 + tx) > 0) {
-      sceneOverlay(grid, legL, towerTopY - 2, '•', P('#ff5566', '#ffffff'));
-    }
-  }
-
-  // A lone sloop heeling across the strait, wake trailing astern.
-  const sail = P('#f4f2e8', '#e2e2e2');
-  const hullWood = P('#3a3a34', '#4c4c4c');
-  const boatX = 2 + Math.floor((width * 0.4 + pulse * 0.11) % Math.max(1, width - 6));
-  const boatY = Math.min(height - 2, waterStart + 1);
-  sceneOverlay(grid, boatX, boatY - 1, '│', hullWood);
-  sceneOverlay(grid, boatX - 1, boatY, '▲', sail);
-  sceneOverlay(grid, boatX + 1, boatY, '▲', sail);
-  sceneOverlay(grid, boatX, boatY, '│', hullWood);
-  sceneOverlay(grid, boatX - 1, boatY + 1, '▄', hullWood);
-  sceneOverlay(grid, boatX, boatY + 1, '▄', hullWood);
-  sceneOverlay(grid, boatX + 1, boatY + 1, '▄', hullWood);
-  sceneOverlay(grid, boatX - 2, boatY + 1, '·', glint);
-  sceneOverlay(grid, boatX - 3, boatY + 1, '˙', interpolateHex(glint, waterFar, 0.4));
-
-  // Karl the Fog spilling through the Gate while the towers poke clear.
-  const fogDrift = Math.floor(pulse * 0.15);
-  const fogBase = towerTopY + Math.max(2, Math.round((deckY - towerTopY) * 0.55));
-  for (let y = fogBase; y <= Math.min(height - 1, waterStart + 1); y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const bank = hashNoise((x - fogDrift) * 0.16, y * 2.3, 5);
-      const shred = hashNoise((x - fogDrift) * 0.55, y * 4.1, 0);
-      if (x < width * (0.3 + bank * 0.45) && shred > 0.58 && bank > 0.42) {
-        sceneOverlay(grid, x, y, shred > 0.8 ? '░' : '·', fogTint);
-      }
-    }
-  }
-
-  return grid.map(row => lineFromCells(row, accent));
 }
 
 /** Manhattan at night — landmark silhouettes, lit windows, Hudson reflections. */

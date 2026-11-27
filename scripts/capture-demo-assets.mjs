@@ -287,7 +287,7 @@ function writeSeedStore() {
 
 function receiverTour(receiverStyleNames) {
   const styles = [
-    'ultracode', 'moire', 'gallop-fine', 'braille-wave', 'cube',
+    'ultracode', 'moire', 'gallop-fine', 'braille-wave-ii', 'cube',
     'spinning-donut', 'fire', 'sumi-ocean', 'manhattan', 'crossfade'
   ];
   const steps = [];

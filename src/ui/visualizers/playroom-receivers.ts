@@ -1,18 +1,9 @@
 import {panelBackground} from '../theme.js';
-import {TAU, clamp, fract, grid, hash, kick, mix, mulberry, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {TAU, clamp, fract, grid, hash, kick, mix, pixels, seconds, stroke, tri, type Builder} from './cell-canvas.js';
 
 const pad2 = (n: number): string => String(Math.floor(n)).padStart(2, '0');
 /** Distance travelled back and forth inside a range, as a position. */
 const fold = (distance: number, range: number): number => range > 0 ? range - Math.abs(distance % (2 * range) - range) : 0;
-/** Paint a sprite written as rows of palette keys; spaces are see-through. */
-const sprite = (p: Pixels, rows: readonly string[], left: number, top: number, palette: Record<string, string>, scale = 1): void => {
-  rows.forEach((row, y) => {
-    for (let x = 0; x < row.length; x++) {
-      if (row[x] === ' ') continue;
-      for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) p.px(left + x * scale + dx, top + y * scale + dy, palette[row[x]!]!);
-    }
-  });
-};
 
 // The bouncing ball that sold a computer: a chequered sphere, a ruled wall, and a shadow that proves there is depth.
 const boingBall: Builder = (pulse, width, height, theme) => {
@@ -58,53 +49,6 @@ const boingBall: Builder = (pulse, width, height, theme) => {
         p.px(x, y, mix('#000000', check ? red : '#ffffff', lit));
       }
     }
-  }
-  p.flush();
-  return g.finish();
-};
-
-const TOASTER = [[
-  '  ww         ',
-  ' wwww        ',
-  '  wwwhhhhhh  ',
-  '   whbsssssb ',
-  '    bbbbbbbbb',
-  '    bbbbbbbkb',
-  '    bbbbbbbbb',
-  '     bbbbbbb '
-], [
-  '             ',
-  '             ',
-  '     hhhhhh  ',
-  '    hbsssssb ',
-  '   wbbbbbbbbb',
-  '  wwwbbbbbbkb',
-  ' wwwwbbbbbbbb',
-  '  ww bbbbbbb '
-]] as const;
-const TOAST = [' ccccc ', 'ctttttc', 'ctttttc', 'ctttttc', ' ccccc '] as const;
-
-// Chrome toasters on the wing, and the toast that goes with them, crossing the night from corner to corner.
-const flyingToasters: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const scale = p.ph >= 40 ? 2 : 1;
-  const flock = Math.round(clamp(p.pw * p.ph / (330 * scale * scale), 2, 14));
-  const chrome = mix('#c4c8d2', g.paint.accent, 0.22);
-  const fliers = Array.from({length: flock + Math.ceil(flock / 2)}, (_, i) => ({i, toast: i >= flock, speed: 5 + 7 * hash(i, 1)}))
-    .sort((a, b) => a.speed - b.speed);
-  const spanX = p.pw + 16 * scale, spanY = p.ph + 10 * scale;
-  for (const {i, toast, speed} of fliers) {
-    // Slower fliers are further away: dimmer, and drawn first.
-    const near = 0.45 + 0.55 * (speed - 5) / 7;
-    const tone = (color: string): string => mix(panelBackground, color, near);
-    const x = Math.round(p.pw + 2 - ((t * speed * scale + hash(i, 2) * spanX) % spanX));
-    const y = Math.round(-9 * scale + (t * speed * scale * 0.45 + hash(i, 3) * spanY) % spanY);
-    if (toast) sprite(p, TOAST, x, y, {c: tone(mix(g.paint.fan(0.85), '#000000', 0.45)), t: tone(g.paint.fan(0.85))}, scale);
-    else sprite(p, TOASTER[Math.floor(t * 6 + i * 0.7) & 1]!, x, y, {
-      w: tone('#ffffff'), h: tone(mix(chrome, '#ffffff', 0.6)), b: tone(chrome), s: tone('#101216'), k: tone(g.paint.fan(0.9))
-    }, scale);
   }
   p.flush();
   return g.finish();
@@ -208,37 +152,6 @@ const minesweeper: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Loading from tape: a steady pilot tone in the border, then the data, with the program's name waiting in the middle.
-const tapeLoading: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const local = t % 14;
-  const pilot = local < 3.2;
-  const frame = Math.floor(t * 12.5);
-  const tones = pilot ? [g.paint.fan(-1), g.paint.fan(0.9)] : [g.paint.fan(-0.35), g.paint.fan(0.35)];
-  let y = 0, bit = 0;
-  while (y < p.ph) {
-    // Pilot bars are even and roll steadily; data bars are as wide as the bits happen to be.
-    const thick = pilot ? 1 : 1 + Math.floor(hash(y * 7 + bit, frame) * 3);
-    const tone = tones[pilot ? Math.floor((y + t * 34) / 3) & 1 : bit++ & 1]!;
-    for (let row = y; row < Math.min(p.ph, y + thick); row++) for (let x = 0; x < p.pw; x++) p.px(x, row, tone);
-    y += thick;
-  }
-  p.flush();
-  const marginX = Math.max(2, Math.round(g.w * 0.14)), marginY = g.h >= 5 ? Math.max(1, Math.round(g.h * 0.2)) : 0;
-  const paper = '#0a0c10';
-  for (let row = marginY; row < g.h - marginY; row++) for (let x = marginX; x < g.w - marginX; x++) g.set(x, row, ' ', paper, paper);
-  const lines = pilot
-    ? ['', local > 1.6 ? 'FOUND RADIOCLI' : 'SEARCHING', '']
-    : ['LOADING RADIOCLI', '', `BLOCK ${pad2(local * 2.3)}   ${fract(t * 2) < 0.5 ? '█' : ' '}`];
-  const top = Math.max(marginY, Math.floor((g.h - lines.length) / 2));
-  lines.forEach((line, i) => {
-    if (top + i < g.h - marginY || g.h < 3) g.write(marginX + 2, Math.min(g.h - 1, top + i), line.slice(0, Math.max(0, g.w - marginX * 2 - 3)), g.paint.ink(0.95), paper);
-  });
-  return g.finish();
-};
-
 const ENGINE = [
   '   ++      _____  ',
   '   ||_____|[] []|_',
@@ -293,77 +206,6 @@ const steamTrain: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-type Sprig = {x: number; y: number; glyph: string; leaf: boolean; born: number};
-const groves = new Map<string, {sprigs: Sprig[]; age: number}>();
-
-/** Grow one tree: a wandering trunk that throws shoots to either side, each ending in a crown. */
-function bonsaiTree(seed: number, tall: number): {sprigs: Sprig[]; age: number} {
-  const key = `${seed}/${tall}`;
-  const cached = groves.get(key);
-  if (cached) return cached;
-  const random = mulberry(seed);
-  const sprigs: Sprig[] = [];
-  let age = 0;
-  const shoot = (x: number, y: number, lean: number, life: number, born: number): void => {
-    while (life-- > 0) {
-      const up = random() < (lean ? 0.42 : 0.8);
-      const dx = lean ? (random() < 0.7 ? lean : 0) || (up ? 0 : lean) : up ? Math.round((random() - 0.5) * 1.15) : random() < 0.5 ? -1 : 1;
-      x += dx; y -= up ? 1 : 0;
-      if (-y > tall) break;
-      born++;
-      const glyph = up ? (dx < 0 ? '\\' : dx > 0 ? '/' : '|') : lean ? '_' : '~';
-      sprigs.push({x, y, glyph, leaf: false, born});
-      if (!lean && life > tall * 0.6) sprigs.push({x: x + 1, y, glyph: up ? '|' : '~', leaf: false, born});
-      if (!lean && life % 3 === 0 && life > 2) shoot(x, y, random() < 0.5 ? -1 : 1, Math.round(3 + life * 0.3 + random() * 3), born);
-      if (lean && life % 4 === 1) sprigs.push({x: x + Math.round((random() - 0.5) * 3), y: y - 1, glyph: '&', leaf: true, born: born + 2});
-    }
-    for (let leaf = 0; leaf < 16; leaf++) {
-      // A crown is a low dome of leaves over the tip.
-      const across = (random() - 0.5) * 9;
-      sprigs.push({x: x + Math.round(across), y: y + 1 - Math.round(random() * (2.6 - Math.abs(across) * 0.4)), glyph: '&', leaf: true, born: born + 1 + leaf * 0.3});
-    }
-    age = Math.max(age, born + 5);
-  };
-  shoot(0, 0, 0, Math.round(tall * 1.5), 0);
-  if (groves.size >= 12) groves.delete(groves.keys().next().value!);
-  const tree = {sprigs, age};
-  groves.set(key, tree);
-  return tree;
-}
-
-// A bonsai grown one character at a time: it leafs out, holds, sheds, and a different tree takes the pot.
-const bonsai: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const pot = g.h >= 6 ? 2 : g.h >= 3 ? 1 : 0;
-  const trees = Math.max(1, Math.round(g.w / 50));
-  const bark = mix(g.paint.fan(0.85), panelBackground, 0.25);
-  for (let tree = 0; tree < trees; tree++) {
-    const cx = Math.round((tree + 0.5) * g.w / trees);
-    const clock = t + tree * 9.7;
-    const epoch = Math.floor(clock / 27), local = clock - epoch * 27;
-    const {sprigs, age} = bonsaiTree(epoch * 131 + tree * 17 + g.h, Math.max(1, g.h - pot - 1));
-    const grown = smooth(local / 14) * age;
-    const shed = clamp((local - 23) / 4);
-    for (const sprig of sprigs) {
-      if (sprig.born > grown) continue;
-      if (!sprig.leaf) { if (shed < 0.92) g.set(cx + sprig.x, g.h - pot - 1 + sprig.y, sprig.glyph, bark, undefined, true); continue; }
-      // Leaves let go one by one and sway on the way down.
-      const loose = clamp((shed - hash(sprig.x, sprig.y) * 0.6) / 0.4);
-      const fall = loose * loose * g.h;
-      const y = g.h - pot - 1 + sprig.y + Math.round(fall);
-      if (y >= g.h - pot || loose >= 1) continue;
-      const shimmer = hash(sprig.x * 3 + sprig.y, Math.floor(t * 1.5 + hash(sprig.y, sprig.x) * 4));
-      g.set(cx + sprig.x + Math.round(Math.sin(fall * 0.9 + sprig.x) * (loose ? 1.4 : 0)), y, '&', shimmer > 0.5 ? g.paint.accent : g.paint.fan(-0.35), undefined, shimmer > 0.8);
-    }
-    if (pot === 2) {
-      g.write(cx - 6, g.h - 2, ':___________:', g.paint.ink(0.62));
-      g.write(cx - 5, g.h - 1, '\\_________/', g.paint.ink(0.62));
-    } else if (pot === 1) g.write(cx - 4, g.h - 1, '(_______)', g.paint.ink(0.62));
-  }
-  return g.finish();
-};
-
 const PLACES = ['TOKYO', 'LAGOS', 'LIMA', 'OSLO', 'PARIS', 'HAVANA', 'NAIROBI', 'MUMBAI', 'BERLIN', 'SEOUL', 'BOGOTA', 'CAIRO', 'DUBLIN', 'SYDNEY', 'LISBON', 'ACCRA'];
 /** One line of the report the printer is working through. */
 const reportLine = (line: number, wide: number): string => {
@@ -406,74 +248,6 @@ const dotMatrix: Builder = (pulse, width, height, theme) => {
     }
     if (y === printing && struck < wide) g.set(strip + (backwards ? wide - 1 - struck : struck), y, '█', g.paint.accent, paper);
   }
-  return g.finish();
-};
-
-const pathCache = new Map<string, Int16Array>();
-/** A single unbroken line that visits every cell of a rectangle: the generalised Hilbert curve. */
-function wanderingLine(columns: number, rows: number): Int16Array {
-  const key = `${columns}x${rows}`;
-  const cached = pathCache.get(key);
-  if (cached) return cached;
-  const out: number[] = [];
-  const walk = (x: number, y: number, ax: number, ay: number, bx: number, by: number): void => {
-    const w = Math.abs(ax + ay), h = Math.abs(bx + by);
-    const dax = Math.sign(ax), day = Math.sign(ay), dbx = Math.sign(bx), dby = Math.sign(by);
-    if (h === 1) { for (let i = 0; i < w; i++) { out.push(x, y); x += dax; y += day; } return; }
-    if (w === 1) { for (let i = 0; i < h; i++) { out.push(x, y); x += dbx; y += dby; } return; }
-    let ax2 = Math.floor(ax / 2), ay2 = Math.floor(ay / 2), bx2 = Math.floor(bx / 2), by2 = Math.floor(by / 2);
-    if (2 * w > 3 * h) {
-      if (Math.abs(ax2 + ay2) % 2 && w > 2) { ax2 += dax; ay2 += day; }
-      walk(x, y, ax2, ay2, bx, by);
-      walk(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by);
-    } else {
-      if (Math.abs(bx2 + by2) % 2 && h > 2) { bx2 += dbx; by2 += dby; }
-      walk(x, y, bx2, by2, ax2, ay2);
-      walk(x + bx2, y + by2, ax, ay, bx - bx2, by - by2);
-      walk(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby), -bx2, -by2, -(ax - ax2), -(ay - ay2));
-    }
-  };
-  if (columns >= rows) walk(0, 0, columns, 0, 0, rows); else walk(0, 0, 0, rows, columns, 0);
-  if (pathCache.size >= 6) pathCache.delete(pathCache.keys().next().value!);
-  const path = Int16Array.from(out);
-  pathCache.set(key, path);
-  return path;
-}
-
-// Two knobs and one line that never lifts: the stylus fills the whole screen, then the toy is shaken clean.
-const etchASketch: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const frame = g.h >= 6 && g.w >= 16 ? 1 : 0;
-  const screen = mix(panelBackground, '#c9ccc2', 0.46), line = '#14161a', casing = mix(panelBackground, g.paint.accent, 0.8);
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-    const edge = frame && (y === 0 || y === g.h - 1 || x < 2 || x >= g.w - 2);
-    g.set(x, y, ' ', edge ? casing : screen, edge ? casing : screen);
-  }
-  if (frame) for (const x of [3, g.w - 4]) g.set(x, g.h - 1, '●', '#ffffff', casing, true);
-  const left = frame * 2 + 1, top = frame;
-  const columns = Math.max(1, Math.floor((g.w - left * 2) / 2)), rows = Math.max(1, g.h - top * 2);
-  const path = wanderingLine(columns, rows);
-  const cells = path.length / 2;
-  const local = t % 26;
-  const drawn = Math.min(cells, Math.floor(local / 22 * cells));
-  const shaking = clamp((local - 24.2) / 1.6);
-  const jolt = shaking > 0 ? Math.round(Math.sin(t * 41) * 1.6) : 0;
-  const joints: Record<string, string> = {'02': '─', '13': '│', '01': '┌', '12': '┐', '03': '└', '23': '┘'};
-  const side = (from: number, to: number): number => {
-    const dx = path[to * 2]! - path[from * 2]!, dy = path[to * 2 + 1]! - path[from * 2 + 1]!;
-    return dx > 0 ? 0 : dy > 0 ? 1 : dx < 0 ? 2 : 3;
-  };
-  for (let i = 0; i < drawn; i++) {
-    // The shake does not wipe the line; it knocks the powder back over it, a patch at a time.
-    if (shaking > 0 && hash(i, 3) < shaking * 1.15) continue;
-    const x = left + path[i * 2]! * 2 + jolt, y = top + path[i * 2 + 1]!;
-    const a = i > 0 ? side(i, i - 1) : -1, b = i < cells - 1 && i < drawn - 1 ? side(i, i + 1) : -1;
-    const glyph = a < 0 || b < 0 ? (Math.max(a, b) % 2 ? '│' : '─') : joints[`${Math.min(a, b)}${Math.max(a, b)}`] ?? '─';
-    if (x >= left && x < g.w - left) g.set(x, y, glyph, line, screen);
-    if ((a === 0 || b === 0) && x + 1 < g.w - left && x + 1 >= left) g.set(x + 1, y, '─', line, screen);
-  }
-  if (drawn > 0 && drawn < cells) g.set(left + path[(drawn - 1) * 2]! * 2, top + path[(drawn - 1) * 2 + 1]!, '●', g.paint.fan(0.9), screen, true);
   return g.finish();
 };
 
@@ -653,13 +427,9 @@ const dominoes: Builder = (pulse, width, height, theme) => {
 
 export const playroomReceiverBuilders = {
   'boing-ball': boingBall,
-  'flying-toasters': flyingToasters,
   minesweeper,
-  'tape-loading': tapeLoading,
   'steam-train': steamTrain,
-  bonsai,
   'dot-matrix': dotMatrix,
-  'etch-a-sketch': etchASketch,
   'lcd-pet': lcdPet,
   'newtons-cradle': newtonsCradle,
   abacus,

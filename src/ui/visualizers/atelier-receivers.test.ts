@@ -12,8 +12,8 @@ const frame = (style: ReceiverStyle, pulse: number, theme: 'violet' | 'mono' | '
 const text = (style: ReceiverStyle, pulse = 80): string => frame(style, pulse).map(row => row.text).join('\n');
 
 describe('atelier receivers', () => {
-  it('registers a dozen distinct, animated signature scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers distinct, animated signature scenes', () => {
+    expect(styles).toHaveLength(6);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -21,7 +21,7 @@ describe('atelier receivers', () => {
       expect(new Set(frames).size, style).toBeGreaterThanOrEqual(4);
       signatures.add(frames[2]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('fits tiny, narrow, tall and wide viewports with consistent segment widths', () => {
@@ -75,8 +75,6 @@ describe('atelier receivers', () => {
     expect(text('astrolabe')).toMatch(/ASTROLABE[\s\S]*ALT[\s\S]*AZM/);
     expect(text('pinball')).toMatch(/PINBALL[\s\S]*SCORE[\s\S]*\d{7}/);
     expect(text('tourbillon')).toMatch(/TOURBILLON[\s\S]*28800 VPH[\s\S]*21 JEWELS/);
-    expect(text('bathysphere')).toMatch(/DEPTH \d+M[\s\S]*BAR[\s\S]*O2 94%/);
-    expect(text('switchboard')).toMatch(/EXCHANGE 4B[\s\S]*TRUNKS/);
     expect(text('chess-match', 220)).toMatch(/OPERA GAME 1858[\s\S]*1\. e4 e5[\s\S]*[♔♕♖♗♘♙]/);
     expect(text('chess-match', 560)).toMatch(/17\. Rd8#[\s\S]*CHECKMATE/);
   });

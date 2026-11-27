@@ -6,6 +6,9 @@ All notable changes to RadioCLI are documented in this file.
 
 ### Added
 
+- Golden Gate Live uses San Francisco time to blend morning fog, daylight,
+  sunset and night over the same bridge scene.
+
 - Added twenty-four finespun receivers: medium-weight braille drawings in the
   spirit of the first styles, from Ripple Code and Dot Lattice to Weave Lines
   and Sound Bloom.
@@ -74,8 +77,7 @@ All notable changes to RadioCLI are documented in this file.
   Pond, Double Helix, Pendulum Wave, Mandala, Bubble Wrap, Wind Turbines,
   Balloon Fiesta, Comet, Bioluminescence) and twelve wonder receivers (Light Prism,
   Music Box, Fresnel Lens, Tide Clock, Bonfire, Soda Fizz, Marching Band,
-  Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call). The
-  collection now has 424 animated styles.
+  Television Wall, Beehive, Potter's Wheel, Owl, Curtain Call).
 - Setup can install mpv and FFmpeg through MacPorts when Homebrew is absent,
   and prints where to get a player when no package manager is available.
 - Nearby falls back to a second location service when the first is rate limited
@@ -87,6 +89,17 @@ All notable changes to RadioCLI are documented in this file.
   launch can go straight to sound.
 
 ### Changed
+
+- New Year shows its greeting and fireworks throughout. Workshop presses
+  follow the gifts, and Wind Turbines rotate continuously.
+- Odometer displays total listening minutes, Segment Clock times active
+  playback within the style, Nixie Deck shows local time, and MiniDisc shows
+  stream time with the track or station name.
+
+- Retired 117 receiver styles during visual review and grouped the remaining
+  styles by visual similarity in the terminal player and web gallery.
+- Updated only changed terminal rows during animation and removed the shared
+  ten-second restart from gallery previews other than Ultra Code.
 
 - Constellation, Tesseract, Starfield, Ripple Tank and Aurora are redrawn:
   named star figures traced in turn, a clean hypercube, radial warp streaks,

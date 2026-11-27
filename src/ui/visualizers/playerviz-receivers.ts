@@ -1,6 +1,6 @@
 import type {ThemeName} from '../../types.js';
 import {themeAccent} from '../theme.js';
-import {TAU, band, clamp, fract, grid, hash, kick, mix, seconds, smooth, tri, type Builder} from './cell-canvas.js';
+import {TAU, band, clamp, fract, hash, kick, seconds, smooth, tri, type Builder} from './cell-canvas.js';
 
 type Cell = {text: string; color: string; backgroundColor?: string};
 type Line = {text: string; color: string; segments: Cell[]};
@@ -103,14 +103,6 @@ function surface(width: number, height: number, theme: ThemeName) {
   const gain = clamp(half / 14, 0.32, 1);
   return {w, ph, half, stretch, U, gain, put, dot, line, trace, shade, finish};
 }
-
-const safe = (theme: ThemeName) => (hex: string): string => {
-  if (theme !== 'mono') return hex;
-  const [r, g, b] = [1, 3, 5].map(o => parseInt(hex.slice(o, o + 2), 16));
-  const grey = Math.round(0.3 * r! + 0.59 * g! + 0.11 * b!).toString(16).padStart(2, '0');
-  return `#${grey}${grey}${grey}`;
-};
-const pad2 = (n: number): string => String(Math.floor(n)).padStart(2, '0');
 
 // Classic WMP "Bars and Waves": mirrored blazing spectrum pillars with hot floating peaks and a dual oscilloscope wave.
 const barsAndWaves: Builder = (pulse, width, height, theme) => {
@@ -313,62 +305,6 @@ const avsSuperscope: Builder = (pulse, width, height, theme) => {
   return s.finish();
 };
 
-// Tribute to Sonique's "Ribbon" / "Cosmic Belt": twisting 3D translucent ribbon undulating with frequency stripes.
-const soniqueRibbon: Builder = (pulse, width, height, theme) => {
-  const s = surface(width, height, theme);
-  const t = seconds(pulse);
-  const strands = 9;
-  for (let st = 0; st < strands; st++) {
-    const lane = (st / (strands - 1)) * 2 - 1;
-    const isEdge = st === 0 || st === strands - 1;
-    let prev: number | undefined;
-    for (let x = 0; x < s.w; x++) {
-      const u = x / Math.max(1, s.w - 1) * 2 - 1;
-      const spine = Math.sin(u * 2.6 + t * 1.4) * 0.42 + Math.cos(u * 1.3 - t * 0.9) * 0.18;
-      const twist = u * 3.1 + t * 1.7;
-      const widthMod = (0.32 + 0.16 * band(Math.abs(u) * 14, t) + 0.08 * kick(t)) * Math.cos(twist);
-      const depth = 0.55 + 0.45 * Math.sin(twist + lane * 0.7);
-      const v = spine + lane * widthMod;
-      const y = Math.round(s.half - 0.5 + v * s.half);
-      const tint = tri(st / strands * 0.75 + u * 0.25 + t * 0.06);
-      const lum = (isEdge ? 1.25 : 0.42 + 0.45 * (1 - Math.abs(lane))) * depth;
-      s.trace(x, y, prev, tint, lum);
-      if (isEdge) { s.put(x, y - 1, tint, lum * 0.3); s.put(x, y + 1, tint, lum * 0.3); }
-      prev = y;
-    }
-  }
-  return s.finish();
-};
-
-// Inspired by SoundSpectrum G-Force: flowing curl-noise directional streamlines carrying glowing audio waves.
-const gForceFlow: Builder = (pulse, width, height, theme) => {
-  const s = surface(width, height, theme);
-  const t = seconds(pulse);
-  // Subtle silky directional vector-field background streaks.
-  s.shade((u, v, ink) => {
-    const a = Math.sin(u * 1.9 + t * 0.5) + Math.cos(v * 2.1 - t * 0.4);
-    const flow = Math.sin((u * Math.cos(a) - v * Math.sin(a)) * 6.5 - t * 2.4);
-    ink.tint = tri(a * 0.3 + t * 0.05);
-    return Math.max(0, flow) ** 4 * 0.34;
-  });
-  // Sweeping particle streamlines advected through a smooth harmonic curl field.
-  const streams = 26, steps = 16;
-  for (let i = 0; i < streams; i++) {
-    let u = (hash(i, 1) * 2 - 1) * s.U * 1.05;
-    let v = (hash(i, 2) * 2 - 1) * 0.92;
-    const tint = tri(i / streams + t * 0.04);
-    const energy = 0.5 + 0.65 * band(i * 0.9, t);
-    for (let k = 0; k < steps; k++) {
-      const ang = Math.sin(u * 1.8 + t * 0.7) * 1.7 + Math.cos(v * 2.2 - t * 0.6) * 1.7;
-      const nu = u + Math.cos(ang) * 0.095, nv = v + Math.sin(ang) * 0.095;
-      const fade = Math.sin((k + 0.5) / steps * Math.PI) * energy * s.gain;
-      s.line(u, v, nu, nv, tint, 0.78 * fade);
-      u = nu; v = nv;
-    }
-  }
-  return s.finish();
-};
-
 // WMP "Scope" / Winamp dual-channel glowing stereo oscilloscope with center beat-spike bridges.
 const scopePeaks: Builder = (pulse, width, height, theme) => {
   const s = surface(width, height, theme);
@@ -471,79 +407,6 @@ const soundEclipse: Builder = (pulse, width, height, theme) => {
   return s.finish();
 };
 
-// Nostalgic Windows 98 / 2000 classic beveled Media Player window with live inset visualizer screen & raised transport controls.
-const win98Player: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const c = safe(theme);
-  const face = c('#c0c0c0'), hi = '#ffffff', shadow = c('#686868'), dark = c('#181818');
-  const titleBg = theme === 'mono' ? '#383838' : mix(c('#000080'), g.paint.accent, 0.22);
-  const scr = c('#05080f'), led = g.paint.accent, lit = mix(led, '#ffffff', 0.35), hot = g.paint.fan(0.95);
-  const wide = Math.min(g.w, 64), left = Math.floor((g.w - wide) / 2);
-  const tall = Math.min(g.h, 13), top = Math.floor((g.h - tall) / 2);
-  for (let y = 0; y < tall; y++) {
-    for (let x = 0; x < wide; x++) {
-      const bg = y === 0 ? titleBg : face;
-      g.set(left + x, top + y, ' ', dark, bg);
-    }
-  }
-  if (tall < 4 || wide < 16) {
-    g.write(left, top, 'Win98 Media'.slice(0, wide), '#ffffff', titleBg);
-    if (tall >= 2) g.write(left, top + 1, ('► ' + '▁▂▃▄▅▆▇█'[Math.round(band(3, t) * 7)]!.repeat(Math.max(1, wide - 2))).slice(0, wide), led, scr);
-    return g.finish();
-  }
-  // Classic blue Windows 98 title bar with minimize/maximize/close boxes.
-  g.write(left + 1, top, '♫ Media Player - RadioCLI'.slice(0, Math.max(1, wide - 9)), '#ffffff', titleBg);
-  if (wide >= 20) g.write(left + wide - 8, top, ' _ □ × ', dark, face);
-  // Menu bar (File View Play Help).
-  const hasMenu = tall >= 7;
-  if (hasMenu) g.write(left + 1, top + 1, 'File  View  Play  Help'.slice(0, wide - 2), dark, face);
-  // Inset sunken dark visualization screen.
-  const scrTop = top + (hasMenu ? 2 : 1), scrBot = top + tall - (tall >= 8 ? 4 : 2);
-  const scrL = left + 2, scrR = left + wide - 3, scrW = Math.max(1, scrR - scrL + 1), scrH = Math.max(1, scrBot - scrTop + 1);
-  for (let y = scrTop; y <= scrBot; y++) for (let x = scrL; x <= scrR; x++) g.set(x, y, ' ', led, scr);
-  // Live dancing stereo wave + mini corner equalizer bars inside the sunken screen.
-  const eqCols = scrW >= 20 ? 8 : 0;
-  for (let x = 0; x < scrW - eqCols; x++) {
-    const u = x / Math.max(1, scrW - eqCols - 1) * 2 - 1;
-    const wy = scrTop + clamp(Math.round((0.5 + wave(u, t) * 0.42) * (scrH - 1)), 0, scrH - 1);
-    g.set(scrL + x, wy, '•', lit, scr, true);
-    const wy2 = scrTop + clamp(Math.round((0.5 + wave(u + 0.35, t - 0.14) * 0.32) * (scrH - 1)), 0, scrH - 1);
-    if (wy2 !== wy) g.set(scrL + x, wy2, '·', g.paint.fan(0.75), scr);
-  }
-  for (let b = 0; b < eqCols; b++) {
-    const lv = Math.round(band(b * 2.2, t) * scrH);
-    for (let k = 0; k < lv; k++) {
-      const y = scrBot - k;
-      g.set(scrR - eqCols + 1 + b, y, '█', k >= scrH - 1 ? hot : led, scr);
-    }
-  }
-  // Seek slider, raised transport buttons, and sunken status bar.
-  const seekRow = scrBot + 1;
-  if (seekRow < top + tall) {
-    const pos = Math.round(fract(t / 180) * Math.max(0, scrW - 2));
-    g.write(scrL, seekRow, '─'.repeat(scrW), shadow, face);
-    g.write(scrL, seekRow, '━'.repeat(pos), titleBg, face);
-    g.set(scrL + pos, seekRow, '█', hi, shadow);
-  }
-  if (seekRow + 1 < top + tall) {
-    const btnRow = seekRow + 1;
-    const active = Math.floor(t / 4) % 5;
-    ['|◄', ' ►', ' ‖', ' ■', '►|'].forEach((lbl, idx) => {
-      const bx = scrL + idx * 5;
-      if (bx + 4 <= scrR + 1) g.write(bx, btnRow, ` ${lbl} `, idx === active && fract(t / 4) < 0.14 ? hi : dark, idx === active && fract(t / 4) < 0.14 ? shadow : hi);
-    });
-    if (wide >= 44) g.write(scrR - 10, btnRow, 'VOL ▁▂▃▄▅▆', dark, face);
-  }
-  if (tall >= 8) {
-    const stRow = top + tall - 1;
-    const clock = `${pad2((t % 3600) / 60)}:${pad2(t % 60)}`;
-    const status = ` Playing  ${clock}  128 kbps  Stereo`.padEnd(Math.max(0, wide - 2)).slice(0, wide - 2);
-    g.write(left + 1, stRow, status, dark, c('#b0b0b0'));
-  }
-  return g.finish();
-};
-
 export const playervizReceiverBuilders = {
   'bars-and-waves': barsAndWaves,
   'energy-bliss': energyBliss,
@@ -551,10 +414,7 @@ export const playervizReceiverBuilders = {
   'trilogy-orbs': trilogyOrbs,
   'geiss-vortex': geissVortex,
   'avs-superscope': avsSuperscope,
-  'sonique-ribbon': soniqueRibbon,
-  'g-force-flow': gForceFlow,
   'scope-peaks': scopePeaks,
   'mirror-bars': mirrorBars,
   'sound-eclipse': soundEclipse,
-  'win98-player': win98Player
 };

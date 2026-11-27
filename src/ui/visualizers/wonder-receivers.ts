@@ -1,5 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, band, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, type Builder, type Pixels} from './cell-canvas.js';
 import {season} from './festive-receivers.js';
 
 const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: (dx: number, dy: number) => string | undefined): void => {
@@ -10,7 +10,6 @@ const disc = (p: Pixels, cx: number, cy: number, rx: number, ry: number, color: 
     if (tone) p.px(x, y, tone);
   }
 };
-const wash = (p: Pixels, color: (y: number) => string): void => { for (let y = 0; y < p.ph; y++) { const tone = color(y); for (let x = 0; x < p.pw; x++) p.px(x, y, tone); } };
 
 // A Tibetan-style sand timer of colour: a prism splitting one white beam into a fan that slowly turns.
 const prism: Builder = (pulse, width, height, theme) => {
@@ -51,55 +50,6 @@ const musicBox: Builder = (pulse, width, height, theme) => {
       g.set(comb + 2 + x, row, pin(row, step) ? '●' : step % 8 === 0 ? '┊' : ' ', pin(row, step) ? mix('#3a2a10', '#fff0c0', shade) : mix(brass, '#000000', 0.45), mix('#000000', brass, shade * 0.75));
     }
   }
-  return g.finish();
-};
-
-// A lighthouse lens seen head on: rings of glass prisms turning round the lamp, throwing the light out in spokes.
-const fresnelLens: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const cx = p.pw / 2, cy = p.ph / 2, r = Math.min(p.ph * 0.49, p.pw * 0.34), lamp = theme === 'mono' ? '#ffffff' : '#fff0b0', glass = g.paint.accent;
-  wash(p, () => mix(panelBackground, '#000000', 0.4));
-  // Beams: four flat fans of light sweeping round, visible only as a glow in the dark outside the lens.
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const dx = (x + 0.5 - cx) / 1.4, dy = y + 0.5 - cy, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
-    const beam = Math.max(0, Math.cos((a - t * 0.5) * 2)) ** 24;
-    if (d > r && beam > 0.02) p.px(x, y, mix(panelBackground, lamp, beam * 0.55 * Math.max(0.2, 1 - (d - r) / (p.pw * 0.5))));
-    if (d <= r) {
-      const ring = d / r * 7, band2 = Math.floor(ring), f = ring - band2, facets = 8 + band2 * 6, seg = fract((a + t * 0.5 * (band2 % 2 ? 1 : -1) * 0.3) / TAU * facets);
-      // Each ring is a row of prisms: a bright leading edge, a body that takes the lamp's colour, and a dark joint.
-      const lit = band2 === 0 ? 1 : f < 0.14 || seg < 0.08 ? 0.08 : 0.3 + 0.7 * (1 - f) * (0.5 + 0.5 * Math.max(0, Math.cos((a - t * 0.5) * 2)) ** 3);
-      p.px(x, y, band2 === 0 ? mix(lamp, '#ffffff', 0.5 + 0.5 * kick(t)) : mix('#04080c', mix(glass, lamp, lit * 0.7), lit));
-    }
-  }
-  p.flush();
-  return g.finish();
-};
-
-// Stepping stones across a still pond in the rain: each drop a ring, each ring crossing the next, and a frog that moves when you are not looking.
-const tideClock: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  // The tide comes in and goes out once a minute; the pools it leaves hold the sky.
-  const tide = 0.5 + 0.38 * Math.sin(t * TAU / 60), sky = (y: number): string => c(mix('#f0a070', '#3a4a8a', 1 - y / (p.ph * 0.4)));
-  const shoreline = (x: number): number => p.ph * (0.42 + (1 - tide) * 0.4) + Math.sin(x * 0.09 + t * 0.6) * 1.2 + Math.sin(x * 0.03) * 2;
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const horizon = p.ph * 0.4, edge = shoreline(x);
-    if (y < horizon) { p.px(x, y, sky(y)); continue; }
-    if (y < edge) { const foam = edge - y < 1.4; p.px(x, y, foam ? c('#ffffff') : c(mix(mix('#f0a070', '#2a5a8a', (y - horizon) / (p.ph * 0.3)), '#ffffff', noise(x * 0.3 + t, y * 1.5, 3) > 0.7 ? 0.25 : 0))); continue; }
-    const wet = clamp(1 - (y - edge) / (p.ph * 0.12)), pool = noise(x * 0.08, y * 0.25, 9) > 0.66;
-    p.px(x, y, pool ? c(mix('#f0a070', '#6a7ab0', 0.5)) : c(mix(mix('#d9b88a', '#b8956a', noise(x * 0.4, y * 0.6, 5)), '#6a5a48', wet * 0.6)));
-  }
-  disc(p, p.pw * 0.72, p.ph * 0.3, p.ph * 0.1, p.ph * 0.1, () => c('#fff0c0'));
-  for (let shell = 0; shell < p.pw / 9; shell++) { const x = Math.floor(hash(shell, 1) * p.pw), y = Math.floor(p.ph * (0.86 + 0.12 * hash(shell, 2))); if (y > shoreline(x) + 1) p.px(x, y, c(hash(shell, 3) > 0.5 ? '#ffffff' : '#ffb0a0')); }
-  // A crab that walks sideways along the wet line, and stops whenever the water reaches it.
-  const cx = Math.round(p.pw * (0.5 + 0.35 * Math.sin(t * 0.25))), cy = Math.min(p.ph - 2, Math.round(shoreline(cx) + 3));
-  for (let dx = -2; dx <= 2; dx++) p.px(cx + dx, cy, c('#e0452a')); for (const leg of [-3, 3]) p.px(cx + leg, cy + (Math.floor(t * 6) % 2 ? 1 : 0), c('#e0452a')); p.px(cx - 1, cy - 1, c('#ffffff')); p.px(cx + 1, cy - 1, c('#ffffff'));
-  p.flush();
-  if (g.w > 30) g.write(1, 0, tide > 0.5 + 0.38 * Math.sin((t - 1) * TAU / 60) ? 'tide coming in' : 'tide going out', c('#fff0c0'));
   return g.finish();
 };
 
@@ -186,35 +136,6 @@ const marchingBand: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A wall of old televisions in a shop window, all tuned to different things: bars, snow, a rolling picture, the news.
-const televisionWall: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const setW = Math.max(8, Math.floor(p.pw / Math.max(1, Math.floor(p.pw / 20)))), setH = Math.max(6, Math.floor(p.ph / Math.max(1, Math.floor(p.ph / 13)))), frame = Math.floor(t * 12.5);
-  wash(p, () => c('#1a1410'));
-  for (let row = 0; row * setH < p.ph; row++) for (let col = 0; col * setW < p.pw; col++) {
-    const id = row * 17 + col, show = (Math.floor(hash(id, 1) * 6) + Math.floor((t + hash(id, 2) * 9) / 9)) % 6, x0 = col * setW + 1, y0 = row * setH + 1, w = setW - 2, h = setH - 3;
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const u = x / w, v = y / h;
-      let tone: string;
-      if (show === 0) tone = ['#c0c0c0', '#c0c000', '#00c0c0', '#00c000', '#c000c0', '#c00000', '#0000c0'][Math.floor(u * 7)]!;
-      else if (show === 1) tone = mix('#101010', '#f0f0f0', hash(x * 3.1 + y * 7.7 + id, frame));
-      else if (show === 2) { const roll = fract(v + t * 0.6); tone = roll < 0.08 ? '#000000' : mix('#203a6a', '#f0c070', Math.sin(u * 6 + roll * 9) * 0.5 + 0.5); }
-      else if (show === 3) tone = v > 0.72 ? (fract(u * 3 - t * 0.5) < 0.6 ? '#1a2a8a' : '#ffffff') : Math.hypot(u - 0.5, (v - 0.36) * 1.3) < 0.2 ? '#f2c6a0' : '#2a4a8a';
-      else if (show === 4) tone = Math.abs(v - (0.5 + 0.35 * Math.sin(u * 9 + t * 4) * band(u * 8, t))) < 0.09 ? '#3dff9a' : '#041008';
-      else tone = Math.hypot(u - 0.5, (v - 0.5) * 0.8) < 0.3 && fract(Math.atan2(v - 0.5, u - 0.5) / TAU * 12) < 0.5 ? '#ffffff' : '#404040';
-      // Every tube has scanlines and curves away at its corners.
-      const corner = (Math.abs(u - 0.5) * 2) ** 6 + (Math.abs(v - 0.5) * 2) ** 6;
-      p.px(x0 + x, y0 + y, corner > 0.9 ? c('#0a0806') : c(mix(tone, '#000000', (y % 2 ? 0.22 : 0) + corner * 0.3)));
-    }
-    p.px(x0 + w - 2, y0 + h + 1, c(fract(t + id) < 0.5 ? '#ff3020' : '#5a1810')); for (let k = 0; k < 2; k++) p.px(x0 + 1 + k * 2, y0 + h + 1, c('#8a8072'));
-  }
-  p.flush();
-  return g.finish();
-};
-
 // Honeycomb, being filled: bees land, cells take colour one at a time, and a capped cell is done.
 const honeycomb: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -238,91 +159,11 @@ const honeycomb: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A potter's wheel: the clay rises under unseen hands, swells, narrows to a neck, and collapses to start again.
-const pottersWheel: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const local = t % 24, grow = smooth(local / 16), fall = local > 21 ? smooth((local - 21) / 3) : 0, cx = p.pw / 2, base = p.ph - 3, tall = (p.ph - 5) * (0.25 + 0.75 * grow) * (1 - fall * 0.8);
-  wash(p, y => c(mix('#1a1512', '#2a211a', y / p.ph)));
-  // The profile is a stack of radii that the "hands" push in and out as the pot goes up.
-  const radius = (v: number): number => (0.5 + 0.35 * Math.sin(v * Math.PI * (0.9 + 0.5 * grow)) * grow - 0.3 * smooth((v - 0.72) / 0.2) * grow + 0.12 * smooth((v - 0.93) / 0.07) * grow + fall * 0.5 * (1 - v)) * Math.min(p.ph * 0.42, p.pw * 0.16);
-  for (let y = Math.round(base - tall); y <= base; y++) {
-    const v = (base - y) / Math.max(1, tall), r = radius(v) * 1.5;
-    for (let x = Math.round(cx - r); x <= cx + r; x++) {
-      const across = (x - cx) / r, turn = Math.asin(clamp(across, -1, 1)) + t * 5;
-      // Throwing rings and a wet highlight slide round as it spins.
-      p.px(x, y, c(mix('#3a2418', mix('#b8683a', '#e8a070', 0.5 + 0.5 * Math.sin(turn * 3 + v * 40)), clamp(0.9 - Math.abs(across + 0.3) * 0.75))));
-    }
-  }
-  for (let x = Math.round(cx - p.pw * 0.2); x <= cx + p.pw * 0.2; x++) for (let y = base + 1; y < p.ph; y++) p.px(x, y, c(fract((x - cx) / (p.pw * 0.4) + t * 2) < 0.5 ? '#5a5f6a' : '#4a4f5a'));
-  for (let drop = 0; drop < 10; drop++) { const age = fract(t * 1.3 + drop / 10), a = hash(drop, 1) * Math.PI; p.px(Math.round(cx + Math.cos(a) * (8 + age * 22) * (drop % 2 ? 1 : -1)), Math.round(base - 2 - Math.sin(a) * 6 * (1 - age) + age * 4), c('#8a5a3a')); }
-  p.flush();
-  return g.finish();
-};
-
-// A snowy owl turning its head: two eyes that follow something slowly, blink, and now and then look straight at you.
-const owl: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  wash(p, y => c(mix('#060a18', '#141c34', y / p.ph)));
-  for (let star = 0; star < p.pw * p.ph / 70; star++) p.px(Math.floor(hash(star, 1) * p.pw), Math.floor(hash(star, 2) * p.ph * 0.6), mix(c('#141c34'), '#ffffff', 0.2 + 0.6 * tri(t * 0.2 + hash(star, 3))));
-  const cx = p.pw / 2, r = Math.min(p.ph * 0.46, p.pw * 0.2), cy = p.ph * 0.56, look = Math.sin(t * 0.35) * 0.5, stare = fract(t / 13) > 0.85, gazeX = stare ? 0 : look, blink = fract(t / 4.7) < 0.05;
-  stroke(p, 0, p.ph - 2, p.pw, p.ph - 3, 1.2, c('#2a1c12'));
-  disc(p, cx, cy + r * 0.25, r * 1.25, r * 1.05, (dx, dy) => c(mix('#e8ecf2', '#9aa4b8', clamp(dy * 0.5 + 0.3) + (hash(Math.floor(dx * 9), Math.floor(dy * 9)) > 0.8 ? 0.35 : 0))));
-  disc(p, cx + gazeX * r * 0.2, cy - r * 0.35, r * 1.1, r * 0.72, (dx, dy) => c(mix('#f4f6fa', '#b8c0d0', Math.hypot(dx, dy) * 0.6)));
-  for (const side of [-1, 1]) {
-    const ex = cx + gazeX * r * 0.3 + side * r * 0.44, ey = cy - r * 0.38, er = r * 0.3;
-    disc(p, ex, ey, er * 1.3, er, (dx, dy) => blink ? (Math.abs(dy) < 0.2 ? c('#3a3020') : c('#d8dce6')) : Math.hypot(dx - gazeX * 0.45, dy) < 0.5 ? c('#07080c') : c(mix('#ffd23a', '#ff9a1a', Math.hypot(dx, dy))));
-    if (!blink) p.px(Math.round(ex + gazeX * er * 0.5 - 1), Math.round(ey - 1), '#ffffff');
-    for (let tuft = 0; tuft < r * 0.4; tuft++) p.px(Math.round(ex + side * (er * 0.6 + tuft * 0.5)), Math.round(ey - er - tuft * 0.8), c('#e8ecf2'));
-  }
-  for (let row = 0; row < r * 0.28; row++) for (let dx = -Math.floor((r * 0.28 - row) / 2); dx <= (r * 0.28 - row) / 2; dx++) p.px(Math.round(cx + gazeX * r * 0.3) + dx, Math.round(cy - r * 0.16 + row), c('#3a3020'));
-  for (const foot of [-1, 1]) for (let toe = -1; toe <= 1; toe++) p.px(Math.round(cx + foot * r * 0.4) + toe, p.ph - 3, c('#ffb040'));
-  p.flush();
-  return g.finish();
-};
-
-// The last one: a slow curtain call. Lights come up on a red curtain, it parts on a single spotlight, and it closes again.
-const curtainCall: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const local = t % 20, open = smooth(clamp((local - 3) / 4)) * (1 - smooth(clamp((local - 15) / 4))), half = p.pw / 2, gap = open * half * 0.86, stage = p.ph - Math.max(2, Math.round(p.ph * 0.14));
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const fromMid = Math.abs(x - half);
-    if (y >= stage) { p.px(x, y, c(mix('#3a2212', '#6b4a2d', (y - stage) / (p.ph - stage)))); continue; }
-    if (fromMid < gap) {
-      // Behind the curtain: darkness, a cone of light, dust drifting through it.
-      const cone = Math.abs(x - half - Math.sin(t * 0.4) * gap * 0.3) < (y / stage) * p.pw * 0.12 + 2;
-      p.px(x, y, cone ? c(mix('#1a1408', '#fff0b0', 0.22 + 0.25 * (y / stage) + (hash(x, y + Math.floor(t * 3)) > 0.97 ? 0.5 : 0))) : c('#07060a'));
-      continue;
-    }
-    // The cloth gathers as it is drawn back: folds bunch closer together toward the sides.
-    const drawn = (fromMid - gap) / (half - gap + 0.01), fold = Math.sin(drawn * (9 + open * 22) + Math.sin(y * 0.25 + t) * 0.3);
-    p.px(x, y, y < 3 ? c(mix('#8a1420', '#d6a856', y === 2 ? 0.8 : 0.2)) : c(mix('#4a0a12', '#d0283a', 0.5 + 0.5 * fold)));
-  }
-  if (open > 0.6) { const sx = Math.round(half + Math.sin(t * 0.4) * gap * 0.3); for (let dy = 0; dy < 6; dy++) p.px(sx, stage - 1 - dy, c('#c8ccd6')); disc(p, sx, stage - 8, 1.6, 2, () => c('#14141c')); disc(p, sx, stage + 1, 5, 1.2, () => c(mix('#6b4a2d', '#fff0b0', 0.5))); }
-  for (let lamp = 0; lamp < p.pw / 6; lamp++) p.px(lamp * 6 + 3, p.ph - 1, mix(c('#3a2212'), c('#ffd98a'), 0.4 + 0.6 * kick(t - lamp * 0.03)));
-  p.flush();
-  return g.finish();
-};
-
 export const wonderReceiverBuilders = {
   'light-prism': prism,
   'music-box': musicBox,
-  'fresnel-lens': fresnelLens,
-  'tide-clock': tideClock,
   bonfire: campfire,
   'soda-fizz': sodaFizz,
   'marching-band': marchingBand,
-  'television-wall': televisionWall,
   beehive: honeycomb,
-  'potters-wheel': pottersWheel,
-  owl,
-  'curtain-call': curtainCall
 };

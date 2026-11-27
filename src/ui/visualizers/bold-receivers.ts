@@ -1,6 +1,5 @@
 import {panelBackground} from '../theme.js';
-import {TAU, band, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder, type Grid} from './cell-canvas.js';
-import {lettering} from './festive-receivers.js';
+import {TAU, braille, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder, type Grid} from './cell-canvas.js';
 
 // Full-bleed graphics: every one fills the panel edge to edge and reads from across the room.
 /** Colour by hue position (-1..1) and brightness (0..1), built once per frame so per-pixel work is a table lookup. */
@@ -10,26 +9,6 @@ const palette = (g: Grid, hues = 25, levels = 13) => {
     return at < 0.8 ? mix(panelBackground, tone, at / 0.8) : mix(tone, '#ffffff', (at - 0.8) / 0.2 * 0.6);
   }));
   return (hue: number, level: number): string => table[Math.round(clamp(hue * 0.5 + 0.5) * (hues - 1))]![Math.round(clamp(level) * (levels - 1))]!;
-};
-
-// The track as a ribbon: a mirrored waveform across the whole panel, bright where it has played and dim where it has yet to.
-const soundRibbon: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
-  const mid = p.ph / 2, head = fract(t / 40) * p.pw;
-  for (let x = 0; x < p.pw; x += 1) {
-    const u = x / p.pw, bar = x % 3 !== 2;
-    // A fixed song shape, with the part under the playhead breathing with the music.
-    const shape = (0.25 + 0.75 * noise(u * 26, 3) ** 1.3) * (0.55 + 0.45 * Math.sin(u * Math.PI)) * (Math.abs(x - head) < 6 ? 1 + 0.35 * kick(t) : 1);
-    const half = Math.max(1, shape * (mid - 1));
-    if (!bar) continue;
-    for (let y = Math.round(mid - half); y < mid + half; y++) {
-      const played = x < head, edge = Math.abs(y - mid) / half;
-      p.px(x, y, ink(u * 2 - 1, played ? 0.95 - edge * 0.35 : 0.3 - edge * 0.1));
-    }
-  }
-  for (let y = 0; y < p.ph; y++) p.px(Math.round(head), y, '#ffffff');
-  p.flush();
-  return g.finish();
 };
 
 // Old-school plasma: four sine fields summed and pushed through the palette, rolling for ever.
@@ -65,15 +44,17 @@ const flowField: Builder = (pulse, width, height, theme) => {
 
 // Stained glass that will not hold still: every pane belongs to its nearest lamp, and the lamps drift.
 const mosaicDrift: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
+  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse);
+  const lead = mix('#05070a', g.paint.accent, 0.04);
   const seeds = Array.from({length: Math.round(clamp(p.pw * p.ph / 150, 6, 40))}, (_, i) => ({
-    x: p.pw * (0.5 + 0.5 * Math.sin(t * (0.1 + 0.1 * hash(i, 1)) + hash(i, 2) * TAU)), y: p.ph * (0.5 + 0.5 * Math.cos(t * (0.13 + 0.1 * hash(i, 3)) + hash(i, 4) * TAU)), hue: hash(i, 5) * 2 - 1, i
+    x: p.pw * (0.5 + 0.5 * Math.sin(t * (0.1 + 0.1 * hash(i, 1)) + hash(i, 2) * TAU)), y: p.ph * (0.5 + 0.5 * Math.cos(t * (0.13 + 0.1 * hash(i, 3)) + hash(i, 4) * TAU)), glow: 0.58 + 0.2 * hash(i, 5), i
   }));
   for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
     let first = Infinity, second = Infinity, owner = seeds[0]!;
     for (const seed of seeds) { const d = Math.hypot((x - seed.x) / 1.3, y - seed.y); if (d < first) { second = first; first = d; owner = seed; } else if (d < second) second = d; }
     // Lead between the panes; each pane brightest at its heart and lit in turn by the beat.
-    p.px(x, y, second - first < 1.1 ? '#05070a' : ink(owner.hue, 0.78 - first * 0.035 + (owner.i === Math.floor(t * 2) % seeds.length ? 0.2 * kick(t) : 0)));
+    const level = Math.max(0.08, owner.glow - first * 0.027) + (owner.i === Math.floor(t * 2) % seeds.length ? 0.15 * kick(t) : 0);
+    p.px(x, y, second - first < 1.1 ? lead : g.paint.ink(level));
   }
   p.flush();
   return g.finish();
@@ -155,12 +136,12 @@ const halftoneWave: Builder = (pulse, width, height, theme) => {
 
 // Marbled paper: inks floated on water and combed, the veins folding back on themselves as the tray is tilted.
 const marbling: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
+  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse);
   for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
     const u = x / p.ph * 0.9, v = y / p.ph * 0.9;
     const wx = u + 0.5 * noise(u * 1.4 + t * 0.05, v * 1.4, 1) + 0.25 * Math.sin(v * 5 + t * 0.2), wy = v + 0.5 * noise(u * 1.4, v * 1.4 - t * 0.05, 2) + 0.2 * Math.sin(u * 4 - t * 0.15);
     const vein = noise(wx * 2.2, wy * 2.2, 3) * 9 + wx * 1.5, band2 = Math.floor(vein), edge = Math.abs(vein - band2 - 0.5) * 2;
-    p.px(x, y, edge > 0.86 ? ink(0, 1) : ink(tri(band2 * 0.29) * 2 - 1, 0.35 + 0.45 * hash(band2, 4) + 0.1 * edge));
+    p.px(x, y, g.paint.ink(edge > 0.86 ? 0.92 : 0.22 + 0.43 * hash(band2, 4) + 0.1 * edge));
   }
   p.flush();
   return g.finish();
@@ -202,17 +183,6 @@ const sunburst: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Contour lines over shifting ground: every elevation gets its own tint, and the hills slide by underneath.
-const topoMap: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const high = (noise(x * 0.035 + t * 0.12, y * 0.07, 1) * 0.65 + noise(x * 0.09 + t * 0.12, y * 0.18 + t * 0.03, 2) * 0.35) * 9, level = Math.floor(high), into = high - level;
-    p.px(x, y, into < 0.12 ? ink(level / 4 - 1, level % 3 === 0 ? 1 : 0.7) : ink(level / 4 - 1, 0.1 + level * 0.035));
-  }
-  p.flush();
-  return g.finish();
-};
-
 // Op art: stripes that swell and pinch as a wave passes through them, until the flat panel seems to bulge.
 const rileyWaves: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
@@ -238,25 +208,6 @@ const aura: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-const WORDS = ['LOUDER', 'RADIO', 'ON AIR', 'TUNE IN', 'ALL NIGHT'];
-// Kinetic type: rows of huge lettering sliding past each other in opposite directions, filled and outlined by turns.
-const kineticType: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
-  const rows = Math.max(1, Math.round(p.ph / 14)), rowH = p.ph / rows, scale = Math.max(1, Math.floor((rowH - 1) / 5));
-  for (let row = 0; row < rows; row++) {
-    const word = WORDS[(row + Math.floor(t / 8)) % WORDS.length]! + '  ', long = word.length * 6, way = row % 2 ? -1 : 1, top = Math.round(row * rowH + (rowH - 5 * scale) / 2);
-    const solid = (row + Math.floor(t * 2)) % 2 === 0;
-    for (let y = -1; y < 5 * scale + 1; y++) for (let x = 0; x < p.pw; x++) {
-      const at = (dx: number, dy: number): boolean => { const fx = Math.floor((x + dx + way * t * 22 * scale) / scale), fy = Math.floor((y + dy) / scale); return y + dy >= 0 && lettering(word, ((fx % long) + long) % long, fy); };
-      const here = at(0, 0), rim = !here && (at(1, 0) || at(-1, 0) || at(0, 1) || at(0, -1));
-      if (here && solid) p.px(x, top + y, ink(row / Math.max(1, rows - 1) * 1.6 - 0.8, 0.92));
-      else if (rim && !solid) p.px(x, top + y, ink(row / Math.max(1, rows - 1) * 1.6 - 0.8, 0.8));
-    }
-  }
-  p.flush();
-  return g.finish();
-};
-
 // The hypnotist's wheel: two arms of a spiral turning inward, pulling the eye to the middle.
 const hypnoSpiral: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
@@ -270,30 +221,6 @@ const hypnoSpiral: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-const ruleRows = new Map<string, Uint8Array[]>();
-// One-dimensional life: a row of cells and a rule for the next row, printed line after line into lace.
-const rule110: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), ink = palette(g);
-  const rules = [110, 30, 90, 150, 73], which = Math.floor(pulse / 260) % rules.length, rule = rules[which]!, step = Math.floor(pulse) % 260, key = `${p.pw}/${rule}`;
-  let rows = ruleRows.get(key);
-  if (!rows) {
-    // The whole run is small; work it out once per width and rule.
-    rows = [Uint8Array.from({length: p.pw}, (_, x) => rule === 90 || rule === 150 ? (x === Math.floor(p.pw / 2) ? 1 : 0) : hash(x, rule) > 0.5 ? 1 : 0)];
-    for (let n = 1; n < 260 + 80; n++) { const last = rows[n - 1]!; rows.push(Uint8Array.from({length: p.pw}, (_, x) => (rule >> ((last[(x + p.pw - 1) % p.pw]! << 2) | (last[x]! << 1) | last[(x + 1) % p.pw]!)) & 1)); }
-    if (ruleRows.size >= 6) ruleRows.delete(ruleRows.keys().next().value!);
-    ruleRows.set(key, rows);
-  }
-  for (let y = 0; y < p.ph; y++) {
-    const n = step + y - p.ph + 40;
-    if (n < 0) continue;
-    const row = rows[Math.min(rows.length - 1, n)]!;
-    for (let x = 0; x < p.pw; x++) if (row[x]) p.px(x, y, ink(tri(n * 0.01 + x / p.pw * 0.5) * 2 - 1, y === p.ph - 1 ? 1 : 0.8));
-  }
-  p.flush();
-  if (g.w > 20) g.write(g.w - 9, 0, ` RULE ${rule} `.padEnd(9), panelBackground, g.paint.accent);
-  return g.finish();
-};
-
 /** Flat layered silhouettes, far to near; each layer scrolls faster than the one behind. */
 const layers = (g: Grid, t: number, count: number, crest: (x: number, layer: number, time: number) => number, tone: (layer: number, depth: number) => string, sky: (y: number) => string): ReturnType<Grid['finish']> => {
   const p = pixels(g);
@@ -304,15 +231,6 @@ const layers = (g: Grid, t: number, count: number, crest: (x: number, layer: num
   }
   p.flush();
   return g.finish();
-};
-
-// Dunes at dusk in flat colour: ridge behind ridge, each with a lit face and a shadowed one, sliding past at its own speed.
-const duneSea: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), ink = palette(g);
-  return layers(g, seconds(pulse), 5,
-    (x, layer, t) => 0.34 + layer * 0.15 - 0.24 * Math.abs(Math.sin(x * (0.035 + layer * 0.006) + layer * 2.1 + t * (0.05 + layer * 0.06))) ** 0.6,
-    (layer, depth) => ink(0.9 - layer * 0.28, 0.9 - layer * 0.1 - depth * 2.2),
-    v => ink(-0.9 + v * 1.9, 0.3 + v * 0.55));
 };
 
 // A sea in flat bands: swells rolling through at different depths, foam on every crest.
@@ -339,21 +257,6 @@ const inkBloom: Builder = (pulse, width, height, theme) => {
       if (amount > dense) { dense = amount; hue = drop.hue; }
     }
     p.px(x, y, dense > 0.03 ? ink(hue, 0.12 + dense * 0.85) : ink(-0.4, 0.05));
-  }
-  p.flush();
-  return g.finish();
-};
-
-// The spectrum as a sunrise: bars fanned in a half-circle on the horizon, pushing rays up the sky as the music climbs.
-const sunriseEq: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme), p = pixels(g), t = seconds(pulse), ink = palette(g);
-  const cx = p.pw / 2, cy = p.ph - 1, core = p.ph * 0.22, reach = Math.min(p.ph * 0.98, p.pw * 0.42) - core, bars = 40;
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const dx = (x + 0.5 - cx) / 1.35, dy = cy - y, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
-    if (d < core) { p.px(x, y, ink(0.9, 0.9)); continue; }
-    const slot = a / Math.PI * bars, index = Math.floor(slot), level = 0.2 + band(Math.abs(index - bars / 2) * 0.9, t) * 1.5, far = (d - core) / reach;
-    if (fract(slot) > 0.18 && far < level) p.px(x, y, ink(0.9 - far * 1.8, 0.95 - far * 0.25));
-    else p.px(x, y, ink(-0.7, 0.07 + 0.06 * (1 - y / p.ph)));
   }
   p.flush();
   return g.finish();
@@ -398,10 +301,10 @@ const lightWall: Builder = (pulse, width, height, theme) => {
 };
 
 export const boldReceiverBuilders = {
-  'sound-ribbon': soundRibbon, 'demo-plasma': demoPlasma, 'flow-field': flowField, 'mosaic-drift': mosaicDrift,
+  'demo-plasma': demoPlasma, 'flow-field': flowField, 'mosaic-drift': mosaicDrift,
   'retro-stripes': retroStripes, 'arc-tiles': arcTiles, 'glyph-tide': glyphTide, 'pixel-sort': pixelSort,
   'halftone-wave': halftoneWave, marbling, 'circuit-traces': circuitTraces, sunburst,
-  'topo-map': topoMap, 'riley-waves': rileyWaves, aura, 'kinetic-type': kineticType,
-  'hypno-spiral': hypnoSpiral, 'rule-110': rule110, 'dune-sea': duneSea, swell,
-  'ink-bloom': inkBloom, 'sunrise-eq': sunriseEq, 'test-card': testCard, 'light-wall': lightWall
+  'riley-waves': rileyWaves, aura,
+  'hypno-spiral': hypnoSpiral, swell,
+  'ink-bloom': inkBloom, 'test-card': testCard, 'light-wall': lightWall
 };

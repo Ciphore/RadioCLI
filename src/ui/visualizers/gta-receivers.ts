@@ -1,5 +1,5 @@
 import {clamp, fract, grid, hash, mix, noise, pixels, seconds, type Builder, type Pixels} from './cell-canvas.js';
-import {lettering, season} from './festive-receivers.js';
+import {season} from './festive-receivers.js';
 
 // A tribute in the palette of the Grand Theft Auto VI campaign: hot pink into orange over deep violet. Fixed colours; greys on mono.
 const SKY = ['#2a1458', '#7a2a8a', '#e0447c', '#ff8a4a', '#ffd070'];
@@ -106,47 +106,7 @@ const gtaViNeon: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A postcard from the Keys: the state's name in tall letters filled with sky, a speedboat cutting across, flamingos, and the greeting above.
-const gtaViPostcard: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  const horizon = Math.round(p.ph * 0.56);
-  const scene = sunset(p, t, c, horizon);
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, scene(x, y));
-  // The name stands as tall as the sky allows, even when the card is too narrow to make it wide.
-  const word = 'LEONIDA', sx = Math.max(1, Math.floor(p.pw * 0.96 / 41)), sy = Math.max(sx, Math.min(sx * 3, Math.floor((horizon - 5) / 5)));
-  const left = Math.floor((p.pw - 41 * sx) / 2), top = Math.max(p.ph >= 12 ? 4 : 1, Math.floor((horizon - 5 * sy) / 2) + 2);
-  for (const pass of [1, 0]) for (let y = 0; y < 5 * sy; y++) for (let x = 0; x < 41 * sx; x++) {
-    if (!lettering(word, Math.floor(x / sx), Math.floor(y / sy))) continue;
-    // Cream into pink with a hard drop shadow, and a stripe of cyan that travels along the word.
-    const letter = Math.floor(x / sx / 6);
-    p.px(left + x + pass, top + y + pass, pass ? c('#3a0f4a') : mix(c(mix('#fff6d8', '#ff7ab8', y / (5 * sy))), c('#35e8ff'), 0.6 * Math.exp(-((fract(t * 0.2) * 9 - 1 - letter) ** 2))));
-  }
-  const island = Math.round(p.pw * 0.14);
-  for (let dx = -9; dx <= 9; dx++) for (let dy = 0; dy < 2; dy++) if (Math.abs(dx) < 9 - dy * 3) p.px(island + dx, horizon - dy, c('#1a0b33'));
-  palm(p, island - 2, horizon - 1, Math.round(p.ph * 0.3), -3, t, c('#1a0b33')); palm(p, island + 3, horizon - 1, Math.round(p.ph * 0.22), 3, t, c('#1a0b33'));
-  // Flamingos wading at the right: an S of neck, a body, one leg tucked.
-  for (let bird = 0; bird < 3; bird++) {
-    const fx = Math.round(p.pw * 0.84 + bird * 5), fy = horizon + 2 + (bird % 2), dip = Math.sin(t * 0.8 + bird * 2) > 0.6 ? 2 : 0, pink = c('#ff7ab8');
-    for (let leg = 0; leg < 3; leg++) p.px(fx, fy - leg, c('#ffb0d0'));
-    for (let dx = -1; dx <= 1; dx++) p.px(fx + dx, fy - 3, pink); p.px(fx, fy - 4, pink);
-    p.px(fx + 2, fy - 4 + dip, pink); p.px(fx + 2, fy - 5 + dip, pink); p.px(fx + 3, fy - 6 + dip * 2, pink); p.px(fx + 4, fy - 5 + dip * 2, c('#1a0b33'));
-  }
-  const way = fract(t * 0.035), bx = Math.round(way * (p.pw + 40)) - 20, by = horizon + Math.max(2, Math.round((p.ph - horizon) * 0.55)) + Math.round(Math.sin(t * 5) * 0.6);
-  for (let wake = 1; wake < 22; wake++) for (const side of [-1, 1]) p.px(bx - wake, by + Math.round(side * wake * 0.16) + 1, mix(p.at(Math.max(0, bx - wake), by + 1) ?? '#ffffff', '#ffffff', 0.75 * (1 - wake / 22)));
-  for (let dx = 0; dx < 9; dx++) { p.px(bx + dx, by, c('#f2f2f2')); if (dx < 7) p.px(bx + dx + 1, by + 1, c('#35e8ff')); if (dx > 2 && dx < 6) p.px(bx + dx, by - 1, c('#1a0b33')); }
-  p.px(bx + 9, by - 1, c('#f2f2f2'));
-  // A stamp-edge border, so it reads as a card.
-  for (let x = 0; x < p.pw; x++) for (const y of [0, p.ph - 1]) if (x % 2 === 0) p.px(x, y, c('#fff6d8'));
-  p.flush();
-  if (g.w >= 30 && g.h >= 6) g.write(Math.floor((g.w - 24) / 2), 0, ' G R E E T I N G S  FROM ', c('#3a0f4a'), c('#fff6d8'));
-  return g.finish();
-};
-
 export const gtaReceiverBuilders = {
   'gta-vi-sunset': gtaViSunset,
   'gta-vi-neon': gtaViNeon,
-  'gta-vi-postcard': gtaViPostcard
 };

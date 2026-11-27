@@ -41,10 +41,12 @@ export function ReceiverAnimationProvider({
     playbackState: playback.state,
     playbackReady: playback.ready
   };
-  const enteredNowPlaying = screen === 'now-playing' && previousSnapshot?.screen !== 'now-playing';
+  // Continuous receivers resume their last phase when Now Playing is visible again.
+  const enteredUltraCode = receiverStyle === 'ultracode' &&
+    screen === 'now-playing' && previousSnapshot?.screen !== 'now-playing';
   const changedStyle = previousSnapshot !== null && previousSnapshot.receiverStyle !== receiverStyle;
   const resetPending =
-    enteredNowPlaying ||
+    enteredUltraCode ||
     changedStyle ||
     shouldResetReceiverPulse(previousSnapshot, currentSnapshot);
 
@@ -60,7 +62,7 @@ export function ReceiverAnimationProvider({
   useEffect(() => {
     if (
       !shouldAnimateReceiver(screen, playback) ||
-      reduceMotion ||
+      (reduceMotion && receiverStyle !== 'segment-clock') ||
       process.env.RADIOCLI_DISABLE_ANIMATION === '1' ||
       process.env.RADIO_ATLAS_DISABLE_ANIMATION === '1'
     ) {
@@ -68,16 +70,18 @@ export function ReceiverAnimationProvider({
     }
 
     const intervalMs = receiverStyle === 'skyline' ? SKYLINE_RECEIVER_PULSE_MS : LIVE_RECEIVER_PULSE_MS;
+    const tickMs = reduceMotion ? 1000 : intervalMs;
     const startedAt = performance.now();
     const startingPulse = pulseRef.current;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const schedule = (): void => {
       const elapsed = performance.now() - startedAt;
-      const completedFrames = Math.floor(elapsed / intervalMs);
-      const delay = Math.max(1, (completedFrames + 1) * intervalMs - elapsed);
+      const completedTicks = Math.floor(elapsed / tickMs);
+      const delay = Math.max(1, (completedTicks + 1) * tickMs - elapsed);
       timer = setTimeout(() => {
-        const nextFrame = Math.max(1, Math.floor((performance.now() - startedAt) / intervalMs));
+        const ticks = Math.max(1, Math.floor((performance.now() - startedAt) / tickMs));
+        const nextFrame = Math.ceil(ticks * tickMs / intervalMs);
         setPulse(startingPulse + nextFrame);
         schedule();
       }, delay);

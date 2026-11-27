@@ -11,8 +11,8 @@ const glyphs = (style: (typeof styles)[number], pulse = 30): string =>
   screensaverReceiverBuilders[style](pulse, 80, 14, 'violet').map(row => row.text).join('');
 
 describe('screensaver receivers', () => {
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers ten distinct, animated scenes', () => {
+    expect(styles).toHaveLength(10);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -20,12 +20,11 @@ describe('screensaver receivers', () => {
       expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('draws each scene with its own kind of mark', () => {
     expect(glyphs('pipes')).toMatch(/[━┃┏┓┗┛]/);
-    expect(glyphs('mystify')).toMatch(/[⠁-⣿]/);
     expect(glyphs('gyroscope')).toMatch(/[⠁-⣿]/);
     expect(glyphs('split-flap')).toMatch(/[A-Z]{4}/);
     expect(glyphs('sine-scroller')).toMatch(/[▀▄]/);
@@ -35,7 +34,6 @@ describe('screensaver receivers', () => {
     expect(glyphs('quilt')).toMatch(/^[◢◣◤◥]+$/);
     expect(glyphs('wind-map')).toMatch(/[→↘↓↙←↖↑↗]/);
     expect(glyphs('aquarium')).toMatch(/><>|<></);
-    expect(glyphs('spin-text')).toMatch(/█/);
   });
 
   it('fits tiny, narrow, tall and wide viewports with consistent segment widths', () => {

@@ -1,14 +1,11 @@
 import {panelBackground} from '../theme.js';
-import {TAU, band, braille, clamp, fract, grid, hash, kick, mix, pixels, seconds, smooth, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {band, braille, clamp, fract, grid, hash, kick, mix, pixels, seconds, smooth, tri, type Builder, type Pixels} from './cell-canvas.js';
 import {lettering} from './festive-receivers.js';
 
 const pad = (n: number, width: number): string => String(Math.floor(n)).padStart(width, '0');
 const fold = (distance: number, range: number): number => range > 0 ? range - Math.abs(((distance % (2 * range)) + 2 * range) % (2 * range) - range) : 0;
 const stamp = (p: Pixels, rows: readonly string[], left: number, top: number, color: string): void => {
   rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] !== ' ') p.px(Math.round(left) + x, Math.round(top) + y, color); });
-};
-const digits = (p: Pixels, text: string, left: number, top: number, scale: number, color: string): void => {
-  for (let y = 0; y < 5 * scale; y++) for (let x = 0; x < (text.length * 6 - 1) * scale; x++) if (lettering(text, Math.floor(x / scale), Math.floor(y / scale))) p.px(left + x, top + y, color);
 };
 
 const INVADER = [['  x   x  ', '   xxx   ', '  xxxxx  ', ' xx x xx ', ' x     x '], ['  x   x  ', 'x  xxx  x', 'x xxxxx x', ' xx x xx ', '  x   x  ']] as const;
@@ -100,90 +97,6 @@ const mazeChase: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Vector rocks tumbling across a black screen, and a small ship in the middle turning to meet them.
-const asteroids: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const b = braille(g);
-  const t = seconds(pulse);
-  const cx = b.dw / 2, cy = b.dh / 2, line = g.paint.ink(0.9);
-  const wrap = (v: number, size: number): number => ((v % size) + size) % size;
-  for (let rock = 0; rock < Math.max(3, Math.round(b.dw * b.dh / 1400)); rock++) {
-    const size = (rock % 3 === 0 ? 0.2 : rock % 3 === 1 ? 0.13 : 0.08) * b.dh;
-    const x = wrap(hash(rock, 1) * b.dw + t * (hash(rock, 2) - 0.5) * 18, b.dw + size * 2) - size, y = wrap(hash(rock, 3) * b.dh + t * (hash(rock, 4) - 0.5) * 10, b.dh + size * 2) - size;
-    const corner = (i: number): [number, number] => {
-      const a = i / 9 * TAU + t * (hash(rock, 5) - 0.5), r = size * (0.7 + 0.3 * hash(rock * 11 + (i % 9), 6));
-      return [x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r];
-    };
-    for (let i = 0; i < 9; i++) { const [x0, y0] = corner(i), [x1, y1] = corner(i + 1); b.line(x0, y0, x1, y1, g.paint.ink(0.6)); }
-  }
-  // The ship swings back and forth across the field of fire, and every shot keeps the heading it left with.
-  const aim = (when: number): number => Math.sin(when * 0.45) * 2.6 + when * 0.2;
-  const a = aim(t), nose = b.dh * 0.14;
-  const point = (turn: number, r: number): [number, number] => [cx + Math.cos(a + turn) * r, cy + Math.sin(a + turn) * r];
-  const tip = point(0, nose), port = point(2.5, nose * 0.8), star = point(-2.5, nose * 0.8), tail = point(Math.PI, nose * 0.3);
-  for (const [from, to] of [[tip, port], [port, tail], [tail, star], [star, tip]] as const) b.line(from[0], from[1], to[0], to[1], mix(g.paint.accent, '#ffffff', 0.4));
-  if (kick(t * 2) > 0.5) { const flame = point(Math.PI, nose * 0.9); b.line(tail[0], tail[1], flame[0], flame[1], g.paint.fan(0.9)); }
-  for (let shot = Math.floor(t / 0.35); shot > Math.floor(t / 0.35) - 7; shot--) {
-    const fired = shot * 0.35, far = nose + (t - fired) * b.dh * 1.1, heading = aim(fired);
-    b.dot(cx + Math.cos(heading) * far, cy + Math.sin(heading) * far, line); b.dot(cx + Math.cos(heading) * (far + 1), cy + Math.sin(heading) * (far + 1), line);
-  }
-  b.flush();
-  if (g.w > 20) g.write(1, 0, pad(t * 13, 6), g.paint.ink(0.5));
-  return g.finish();
-};
-
-// A handheld with a liquid-crystal picture: everything it can show is printed on the glass, and only one pose of each is ever dark.
-const lcdGame: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const glassTone = mix(panelBackground, '#a9b89a', 0.86), ghost = mix(glassTone, '#000000', 0.07), dark = '#161c14';
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, glassTone);
-  const tick = Math.floor(t * 2), cx = p.pw / 2, floor = p.ph - 2, reach = Math.min(p.pw * 0.36, p.ph * 1.6), lift = Math.max(3, p.ph - 12);
-  // Nine places a ball can be, on an arc from one hand to the other; three balls step round it out of phase.
-  const place = (n: number): [number, number] => { const a = Math.PI * (1 - n / 8); return [cx + Math.cos(a) * reach, floor - 6 - Math.sin(a) * lift]; };
-  const lit = new Set([0, 1, 2].map(ball => { const k = (tick + ball * 5) % 16; return k < 9 ? k : 16 - k; }));
-  for (let n = 0; n < 9; n++) { const [x, y] = place(n); stamp(p, [' xx ', 'xxxx', 'xxxx', ' xx '], x - 2, y - 2, lit.has(n) ? dark : ghost); }
-  const hands = lit.has(0) ? -1 : lit.has(8) ? 1 : 0;
-  for (const pose of [-1, 0, 1]) {
-    const tone = pose === hands ? dark : ghost;
-    for (const side of [-1, 1]) {
-      const hx = cx + side * (reach - 1) + pose * 2, hy = floor - 4 - (side === pose ? 2 : 0);
-      for (let s = 0; s <= 6; s++) p.px(Math.round(cx + side * 2 + (hx - cx - side * 2) * s / 6), Math.round(floor - 6 + (hy - floor + 6) * s / 6), tone);
-    }
-  }
-  stamp(p, [' xxx ', ' xxx ', '  x  ', 'xxxxx', ' xxx ', ' xxx ', ' x x ', 'xx xx'], cx - 2, floor - 9, dark);
-  for (let x = 0; x < p.pw; x++) p.px(x, floor, dark);
-  digits(p, pad(tick % 1000, 3), p.pw - 20, 1, 1, dark);
-  if (p.pw > 50) digits(p, 'GAME A', 2, 1, 1, dark);
-  p.flush();
-  return g.finish();
-};
-
-const TRACKS: [string, (step: number, bar: number) => boolean][] = [
-  ['KICK ', step => step % 4 === 0], ['SNARE', step => step % 8 === 4], ['HAT  ', step => step % 2 === 0], ['OPEN ', step => step % 8 === 6],
-  ['CLAP ', (step, bar) => step % 8 === 4 && bar % 2 === 1], ['TOM  ', (step, bar) => bar % 4 === 3 && step > 11], ['COW  ', (step, bar) => hash(step, bar % 4 + 9) > 0.86], ['BASS ', (step, bar) => hash(step, bar % 2 + 3) > 0.6]
-];
-
-// A step sequencer: sixteen pads a row, the pattern programmed in, and a light running across in time.
-const drumMachine: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const step = Math.floor(t * 8) % 16, bar = Math.floor(t / 2), head = g.h >= 5 ? 1 : 0;
-  const tracks = TRACKS.slice(0, Math.max(1, g.h - head)), pad2 = Math.max(2, Math.min(4, Math.floor((g.w - 7) / 16)));
-  const left = Math.floor((g.w - 6 - 16 * pad2) / 2), top = head + Math.floor((g.h - head - tracks.length) / 2);
-  if (head) g.write(left, 0, `120 BPM  PATTERN A${pad(bar % 4 + 1, 2)}  BAR ${pad(bar % 100, 2)}  ${'●○○○'.split('').map((_, i) => i === Math.floor(t * 2) % 4 ? '●' : '○').join('')}`.slice(0, g.w - left), g.paint.ink(0.6));
-  tracks.forEach(([name, on], row) => {
-    g.write(left, top + row, name, g.paint.ink(0.6));
-    for (let s = 0; s < 16; s++) {
-      const armed = on(s, bar), playing = s === step, tone = g.paint.fan(row / Math.max(1, tracks.length - 1) * 2 - 1);
-      const back = armed ? (playing ? '#ffffff' : tone) : playing ? g.paint.ink(0.3) : s % 4 === 0 ? g.paint.ink(0.13) : g.paint.ink(0.08);
-      for (let w = 0; w < pad2 - 1; w++) g.set(left + 6 + s * pad2 + w, top + row, ' ', back, back);
-    }
-  });
-  return g.finish();
-};
-
 // A record going round at thirty-three and a third: the light lies across the grooves, the label turns, and the arm tracks inward.
 const turntable: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -258,13 +171,13 @@ const hexDump: Builder = (pulse, width, height, theme) => {
 };
 
 // A mileage counter: the last wheel never stops, and each wheel to its left only turns while the one beside it passes nine.
-const odometer: Builder = (pulse, width, height, theme) => {
+const odometer: Builder = (pulse, width, height, theme, data) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
   const wheels = Math.max(2, Math.min(7, Math.floor(p.pw / 14))), scale = Math.max(1, Math.floor(Math.min((p.ph - 4) / 7, p.pw / (wheels * 7.5))));
   const cellW = 7 * scale, cellH = 7 * scale, left = Math.floor((p.pw - wheels * cellW) / 2), top = Math.floor((p.ph - cellH) / 2);
-  const value = 12345.6 * 10 + t * 4.3;
+  const value = data?.listeningSeconds === undefined ? 123456 + t * 4.3 : Math.floor(data.listeningSeconds / 60);
   for (let wheel = 0; wheel < wheels; wheel++) {
     const place = wheels - 1 - wheel, turns = value / 10 ** place;
     // A wheel shows its whole digit until the wheel to its right is in the last tenth of a turn, then rolls with it.
@@ -279,7 +192,7 @@ const odometer: Builder = (pulse, width, height, theme) => {
   }
   for (let x = left - 2; x < left + wheels * cellW + 1; x++) { p.px(x, top - 1, g.paint.ink(0.5)); p.px(x, top + cellH, g.paint.ink(0.5)); }
   p.flush();
-  if (g.h > Math.ceil((top + cellH) / 2) + 1) g.write(Math.floor(g.w / 2) - 6, Math.ceil((top + cellH) / 2) + 1, 'km  ●  TRIP A', g.paint.ink(0.45));
+  if (g.h > Math.ceil((top + cellH) / 2) + 1) g.write(Math.floor(g.w / 2) - 7, Math.ceil((top + cellH) / 2) + 1, 'MIN  ●  TOTAL', g.paint.ink(0.45));
   return g.finish();
 };
 
@@ -353,9 +266,6 @@ export const arcadeReceiverBuilders = {
   'space-invaders': spaceInvaders,
   'brick-breaker': brickBreaker,
   'maze-chase': mazeChase,
-  asteroids,
-  'lcd-game': lcdGame,
-  'drum-machine': drumMachine,
   turntable,
   'boot-sequence': bootSequence,
   'hex-dump': hexDump,

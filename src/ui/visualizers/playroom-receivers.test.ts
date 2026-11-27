@@ -11,8 +11,8 @@ const glyphs = (style: (typeof styles)[number], pulse = 30): string =>
   playroomReceiverBuilders[style](pulse, 80, 14, 'violet').map(row => row.text).join('');
 
 describe('playroom receivers', () => {
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers distinct, animated scenes', () => {
+    expect(styles).toHaveLength(8);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -20,21 +20,17 @@ describe('playroom receivers', () => {
       expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('draws what each scene is named for', () => {
     expect(glyphs('minesweeper')).toMatch(/\d{3} +(:\)|:O|B\)) +\d{3}/);
     expect(glyphs('minesweeper')).toMatch(/[1-8]/);
-    expect(glyphs('tape-loading', 150)).toMatch(/LOADING RADIOCLI/);
-    expect(glyphs('tape-loading', 10)).toMatch(/SEARCHING/);
     expect(glyphs('steam-train', 60)).toMatch(/RADIO/);
-    expect(glyphs('bonsai', 200)).toMatch(/&/);
     expect(glyphs('dot-matrix')).toMatch(/\d+\.\d MHz \|#+/);
-    expect(glyphs('etch-a-sketch', 150)).toMatch(/[┌┐└┘]/);
     expect(glyphs('abacus')).toMatch(/═/);
     expect(glyphs('dominoes', 60)).toMatch(/_ ([/\\] )+\||\| ([/\\] )+_/);
-    for (const style of ['boing-ball', 'flying-toasters', 'lcd-pet', 'newtons-cradle'] as const) expect(glyphs(style), style).toMatch(/[▀▄]/);
+    for (const style of ['boing-ball', 'lcd-pet', 'newtons-cradle'] as const) expect(glyphs(style), style).toMatch(/[▀▄]/);
   });
 
   it('counts the abacus up without ever skipping', () => {

@@ -25,7 +25,7 @@ import {panelBorderStyle, useDisplay} from './display-context.js';
 import {toAsciiSafe} from './ascii.js';
 import {buildVisualizer, visualizerHeight} from './visualizers/receiver-visualizers.js';
 import {Logo} from './components/Logo.js';
-import {useReceiverPulse} from './receiver-animation.js';
+import {useReceiverFrame} from './receiver-frame.js';
 import type {ExploreCursor} from './app-state.js';
 import {formatExploreCursor, isNewListener, newListenerHint} from './app-state.js';
 import {buildCosmoWorldMap, type CosmoMapCellKind, type CosmoMapRow} from './cosmo-world-map.js';
@@ -146,6 +146,7 @@ function AdaptiveContentBody(props: AdaptiveContentProps): React.ReactElement {
         ascii={ascii}
         theme={theme}
         receiverStyle={library.settings.receiverStyle}
+        listeningSessions={library.activity.sessions}
         reduceMotion={reduceMotion}
       />
     );
@@ -615,6 +616,7 @@ function AdaptiveNowPlaying({
   ascii,
   theme,
   receiverStyle,
+  listeningSessions,
   reduceMotion
 }: {
   mode: 'compact' | 'micro';
@@ -626,9 +628,10 @@ function AdaptiveNowPlaying({
   ascii: boolean;
   theme: ThemeName;
   receiverStyle: LibraryState['settings']['receiverStyle'];
+  listeningSessions: LibraryState['activity']['sessions'];
   reduceMotion: boolean;
 }): React.ReactElement {
-  const pulse = useReceiverPulse();
+  const {pulse, data} = useReceiverFrame(receiverStyle, station, playback, metadata, listeningSessions);
   const {screenReader, app: appBackground} = useDisplay();
   const accent = themeAccent(theme);
   const stationName = station?.name ?? 'No station tuned';
@@ -652,7 +655,8 @@ function AdaptiveNowPlaying({
     station,
     playback,
     theme,
-    mode === 'micro' ? 'micro' : 'standard'
+    mode === 'micro' ? 'micro' : 'standard',
+    data
   );
   const header = mode === 'micro'
     ? `${stationName} · ${summary}`

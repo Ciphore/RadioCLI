@@ -1067,6 +1067,37 @@ describe('JsonLibraryStore', () => {
     }
   }, 60_000);
 
+  it.each(['receiver.json', 'receiver-v2.json'])('opens a library with a retired receiver in %s', suffix => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.toggleFavorite(exampleAlarm().station);
+    store.updateSettings({theme: 'amber', volume: 37});
+    writeFileSync(`${file}.${suffix}`, JSON.stringify({
+      version: 1, receiverStyle: 'tracker', libraryReceiverStyle: 'ultracode'
+    }));
+    const reopened = new JsonLibraryStore(file);
+    expect(reopened.snapshot().settings).toMatchObject({receiverStyle: defaultReceiverStyle, theme: 'amber', volume: 37});
+    expect(reopened.snapshot().favorites).toEqual(store.snapshot().favorites);
+  });
+
+  it.each(['braille-wave', 'golden-gate', 'torus-knot'])('migrates the retired %s selection in the shared library', receiverStyle => {
+    const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
+    roots.push(root);
+    const file = join(root, 'library.json');
+    const store = new JsonLibraryStore(file);
+    store.toggleFavorite(exampleAlarm().station);
+    store.updateSettings({theme: 'amber', volume: 37});
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    saved.settings.receiverStyle = receiverStyle;
+    writeFileSync(file, JSON.stringify(saved));
+
+    const reopened = new JsonLibraryStore(file);
+    expect(reopened.snapshot().settings).toMatchObject({receiverStyle: defaultReceiverStyle, theme: 'amber', volume: 37});
+    expect(reopened.snapshot().favorites).toEqual(store.snapshot().favorites);
+  });
+
   // This matrix performs durable filesystem commits for every receiver.
   it('preserves every supported receiver and favorites through background writes', () => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
@@ -1075,10 +1106,21 @@ describe('JsonLibraryStore', () => {
     const store = new JsonLibraryStore(file);
     store.toggleFavorite(exampleAlarm().station);
     const observer = new JsonLibraryStore(file);
+    const legacyReceiverStyles = new Set([
+      'ultracode', 'pulse-grid', 'hex-pulse', 'moire', 'galaxy', 'cyclone', 'nebula', 'lava-lamp',
+      'gallop-fine', 'motion-contour', 'ribbon', 'braille-wave', 'silk', 'lissajous', 'harmonograph',
+      'spirograph', 'goniometer', 'radial-eq', 'spectrogram', 'caustics', 'ripple-tank', 'leds',
+      'matrix', 'cascade', 'ordered-dither', 'xor-texture', 'pixel-crush', 'copper-bars',
+      'rotozoomer', 'mesh', 'hologram', 'equalizer', 'tunnel', 'kaleidoscope', 'phosphene',
+      'phyllotaxis', 'chladni', 'newton', 'cube', 'spinning-donut', 'tesseract', 'torus-knot',
+      'twister', 'lorenz', 'fern', 'fractal-tree', 'julia', 'neural-net', 'constellation',
+      'starfield', 'fireworks', 'fire', 'aurora', 'stormfront', 'planetarium', 'sumi-ocean',
+      'liftoff', 'flyover', 'skyline', 'golden-gate', 'manhattan', 'alpine', 'crossfade'
+    ]);
     for (const receiverStyle of receiverStyleNames) {
       store.updateSettings({receiverStyle});
       const legacy = JSON.parse(readFileSync(file, 'utf8'));
-      expect(legacy.settings.receiverStyle).toBe(receiverStyleNames.indexOf(receiverStyle) < receiverStyleNames.indexOf('boat-lake') || receiverStyle === 'crossfade' ? receiverStyle : 'ultracode');
+      expect(legacy.settings.receiverStyle).toBe(legacyReceiverStyles.has(receiverStyle) ? receiverStyle : 'ultracode');
       expect(existsSync(`${file}.receiver.json`)).toBe(false);
       // Old stores rewrite only the fields they know, leaving the sidecar alone.
       legacy.settings.volume = 39;
@@ -1169,7 +1211,7 @@ describe('JsonLibraryStore', () => {
     expect(observer.snapshot().settings.receiverStyle).toBe('mesh');
   });
 
-  it.each(['synthwave-sun', 'neon-alley', 'safari-dusk', 'hot-air-balloons', 'deep-sea-whale', 'meteor-shower', 'volcano', 'desert-highway', 'firefly-grove', 'cherry-blossom', 'event-horizon', 'lighthouse'])('migrates retired %s selections without resetting library data', receiverStyle => {
+  it.each(['synthwave-sun', 'neon-alley', 'safari-dusk', 'hot-air-balloons', 'deep-sea-whale', 'meteor-shower', 'volcano', 'desert-highway', 'firefly-grove', 'cherry-blossom', 'event-horizon', 'lighthouse', 'fireworks', 'moon-phases'])('migrates retired %s selections without resetting library data', receiverStyle => {
     const root = mkdtempSync(join(tmpdir(), 'radiocli-'));
     roots.push(root);
     const file = join(root, 'library.json');

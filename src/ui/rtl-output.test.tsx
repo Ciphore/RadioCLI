@@ -4,14 +4,16 @@ import type {WriteStream} from 'node:tty';
 import {pathToFileURL} from 'node:url';
 import {stripVTControlCharacters} from 'node:util';
 import {act, type ComponentProps} from 'react';
-import {Box, render as inkRender, renderToString} from 'ink';
+import {Box, Text, render as inkRender, renderToString} from 'ink';
 import {cleanup, render} from 'ink-testing-library';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {rightToLeftPattern} from './bidi-ranges.js';
+import {ReceiverVisualRow} from './components/ReceiverVisualRow.js';
 import {DisplayContext, resolveDisplayMode} from './display-context.js';
 import {displayWidth} from './format.js';
 import {rtlSafeOutput} from './rtl-output.js';
 import {NowPlayingScreen} from './screens/NowPlayingScreen.js';
+import {buildVisualizer} from './visualizers/receiver-visualizers.js';
 
 const inkRequire = createRequire(import.meta.resolve('ink'));
 const inkChalk = (await import(pathToFileURL(inkRequire.resolve('chalk')).href)).default as {level: number};
@@ -299,6 +301,50 @@ it.each([{incrementalRendering: false, isolate: false}, {incrementalRendering: t
       expect(visibleText(row)).toContain(reportedName);
       expect(paintedRow(row).lastIndexOf('│')).toBe(width - 1);
     }
+  } finally {
+    act(() => { view.unmount(); view.cleanup(); });
+    input.destroy(); sink.destroy();
+  }
+});
+
+it.each([
+  {columns: 80, rows: 18, color: '3', ascii: false, transparent: false},
+  {columns: 52, rows: 11, color: '1', ascii: true, transparent: false},
+  {columns: 26, rows: 6, color: '0', ascii: true, transparent: true}
+])('repaints only changing receiver rows in a fullscreen terminal with %j', async ({columns, rows, color, ascii, transparent}) => {
+  const sink = Object.assign(new PassThrough(), {isTTY: true, columns, rows});
+  const input = Object.assign(new PassThrough(), {isTTY: true, setRawMode: () => input});
+  let written = '';
+  sink.on('data', chunk => { written += String(chunk); });
+  const display = resolveDisplayMode({asciiMode: ascii, transparentBackground: transparent}, {FORCE_COLOR: color});
+  inkChalk.level = display.colorLevel;
+  const receiver = (pulse: number) => (
+    <DisplayContext.Provider value={display}>
+      <Box flexDirection="column" width={columns} height={rows} backgroundColor={display.app}>
+        <Text>RadioCLI receiver test</Text>
+        {buildVisualizer('heartbeat', pulse, columns, rows - 2, null, props.playback, 'green').map((row, index) =>
+          <ReceiverVisualRow key={index} row={row} width={columns} ascii={ascii} backgroundColor={display.panel} />
+        )}
+        <Text>Stable footer</Text>
+      </Box>
+    </DisplayContext.Provider>
+  );
+  let view!: ReturnType<typeof inkRender>;
+  act(() => {
+    view = inkRender(receiver(124), {
+      stdout: rtlSafeOutput(sink as unknown as WriteStream), stderr: sink as unknown as WriteStream, stdin: input as unknown as NodeJS.ReadStream,
+      interactive: true, incrementalRendering: true, patchConsole: false, exitOnCtrlC: false,
+      kittyKeyboard: {mode: 'disabled'}
+    });
+  });
+  try {
+    await view.waitUntilRenderFlush();
+    expect(written).toContain('RadioCLI receiver test');
+    written = '';
+    act(() => view.rerender(receiver(125)));
+    await view.waitUntilRenderFlush();
+    expect(written).toContain('\u001B[K');
+    expect(written).not.toMatch(/\u001B\[(?:2[KJ]|3J)|RadioCLI receiver test|Stable footer/u);
   } finally {
     act(() => { view.unmount(); view.cleanup(); });
     input.destroy(); sink.destroy();

@@ -28,7 +28,7 @@ export function drawReceiver(canvas: HTMLCanvasElement, style: ReceiverStyle, pu
   context.fillStyle = '#070a0f';
   context.fillRect(0, 0, surface.width, surface.height);
   context.textBaseline = 'alphabetic';
-  const frame = buildVisualizer(style, pulse, columns, rows, null, playback, theme);
+  const frame = buildVisualizer(style, pulse, columns, rows, null, playback, theme, 'standard', {nowMs: Date.now()});
   frame.forEach((row, y) => {
     let x = 0;
     for (const segment of row.segments ?? [{text: row.text, color: row.color}]) {

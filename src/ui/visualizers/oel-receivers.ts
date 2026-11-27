@@ -184,67 +184,6 @@ const oelRacer: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Car-stereo OEL fighter-jet cockpit HUD: banking pitch ladder, airspeed/altitude tapes, and beat-locked target reticle.
-const oelJet: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const b = braille(g);
-  const t = seconds(pulse);
-  const c = safe(theme);
-  const bg = c('#030a08'), lit = mix(g.paint.accent, '#ffffff', 0.3), mid = g.paint.accent, hot = g.paint.fan(0.95), dim = mix(bg, mid, 0.32);
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) g.set(x, y, ' ', mid, bg);
-  const cx = b.dw / 2, cy = b.dh / 2;
-  const roll = Math.sin(t * 0.55) * 0.34, pitch = Math.sin(t * 0.85) * b.dh * 0.12;
-  const cs = Math.cos(roll), sn = Math.sin(roll);
-  const rot = (x: number, y: number): [number, number] => [cx + x * cs - (y + pitch) * sn, cy + x * sn + (y + pitch) * cs];
-  // Horizon bar and +/- pitch ladder rungs.
-  for (const rung of [-2, -1, 0, 1, 2]) {
-    const ry = rung * b.dh * 0.16, span = rung === 0 ? b.dw * 0.28 : b.dw * 0.16, gap = b.dw * 0.05;
-    for (const s of [-1, 1]) {
-      const [x0, y0] = rot(s * gap, ry), [x1, y1] = rot(s * span, ry);
-      b.line(x0, y0, x1, y1, rung === 0 ? lit : mid);
-      if (rung !== 0) {
-        const [tx, ty] = rot(s * span, ry + (rung > 0 ? -3 : 3));
-        b.line(x1, y1, tx, ty, mid);
-      }
-    }
-  }
-  // Fixed center boresight wings (-v-).
-  b.line(cx - 7, cy, cx - 2, cy, lit); b.line(cx + 2, cy, cx + 7, cy, lit);
-  b.line(cx - 2, cy, cx, cy + 3, lit); b.line(cx, cy + 3, cx + 2, cy, lit);
-  // Sweeping target reticle diamond that locks on-beat.
-  const tx = cx + Math.sin(t * 0.9) * b.dw * 0.22, ty = cy + Math.cos(t * 1.15) * b.dh * 0.2;
-  const locked = kick(t) > 0.45, rad = locked ? 6 : 8;
-  b.line(tx, ty - rad, tx + rad, ty, locked ? hot : lit);
-  b.line(tx + rad, ty, tx, ty + rad, locked ? hot : lit);
-  b.line(tx, ty + rad, tx - rad, ty, locked ? hot : lit);
-  b.line(tx - rad, ty, tx, ty - rad, locked ? hot : lit);
-  // Left airspeed & right altitude scrolling scale rails.
-  if (b.dw >= 44) {
-    const lx = 10, rx = b.dw - 11;
-    b.line(lx, 5, lx, b.dh - 6, dim); b.line(rx, 5, rx, b.dh - 6, dim);
-    const step = 6, off = fract(t * 1.6) * step;
-    for (let y = 6 + off; y < b.dh - 6; y += step) {
-      b.line(lx, y, lx + 3, y, mid);
-      b.line(rx - 3, y, rx, y, mid);
-    }
-  }
-  b.flush(bg);
-  // Crisp text HUD callouts and bottom afterburner thrust meters.
-  if (g.w >= 26 && g.h >= 5) {
-    const hdg = Math.floor(((t * 14) % 360 + 360) % 360);
-    g.write(Math.floor(g.w / 2) - 4, 0, `HDG ${String(hdg).padStart(3, '0')}`, lit, bg);
-    g.write(1, Math.floor(g.h / 2), `M${(1.1 + 0.4 * band(2, t)).toFixed(1)}`, mid, bg);
-    const alt = Math.round(14200 + 800 * Math.sin(t * 0.7));
-    g.write(g.w - 5, Math.floor(g.h / 2), String(alt).slice(0, 4), mid, bg);
-    const thrW = Math.max(3, Math.min(12, Math.floor((g.w - 18) / 2)));
-    const lThr = Math.round(clamp(0.4 + 0.6 * band(1, t)) * thrW), rThr = Math.round(clamp(0.4 + 0.6 * band(6, t)) * thrW);
-    g.write(1, g.h - 1, 'L ' + '▰'.repeat(lThr) + '▱'.repeat(thrW - lThr), lThr > thrW * 0.78 ? hot : lit, bg);
-    g.write(g.w - thrW - 3, g.h - 1, '▰'.repeat(rThr) + '▱'.repeat(thrW - rThr) + ' R', rThr > thrW * 0.78 ? hot : lit, bg);
-    if (g.w >= 40) g.write(Math.floor(g.w / 2) - 3, g.h - 1, locked ? ' LOCK ' : ' SCAN ', locked ? hot : dim, bg);
-  }
-  return g.finish();
-};
-
 // Pioneer OEL midnight boulevard cruise: parallax dot-matrix skyline, streetlights, and cowl equalizer.
 const oelCityCruise: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -519,71 +458,8 @@ const reelToReel: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// In-dash 6-disc car stereo CD changer: illuminated 6-slot tray magazine, motorized disc shuttle, optical laser sled & OEL display.
-const cdChanger: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = safe(theme);
-  const chassis = c('#171b24'), bay = c('#080b12'), metal = c('#b8c0d0'), lit = mix(g.paint.accent, '#ffffff', 0.32), mid = g.paint.accent, hot = g.paint.fan(0.95), dim = mix(bay, mid, 0.22);
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, chassis);
-  const cycle = t / 7, discIdx = Math.floor(cycle) % 6, phase = fract(cycle);
-  const changing = phase < 0.22;
-  const slide = changing ? Math.sin((phase / 0.22) * Math.PI) : 0;
-  // Left magazine rack of 6 disc trays.
-  const magW = Math.max(6, Math.min(26, Math.floor(p.pw * 0.38)));
-  for (let y = 2; y < p.ph - 2; y++) for (let x = 2; x < 2 + magW; x++) p.px(x, y, bay);
-  for (let slot = 0; slot < 6; slot++) {
-    const sy = Math.round(3 + (slot + 0.5) * ((p.ph - 6) / 6));
-    const active = slot === discIdx;
-    const ext = active ? Math.round(slide * Math.max(2, Math.floor(magW * 0.35))) : 0;
-    const ledColor = active ? (changing ? hot : lit) : dim;
-    p.px(3, sy, ledColor);
-    for (let x = 5 + ext; x < Math.min(p.pw - 2, magW + ext); x++) {
-      const shimmer = active && !changing && ((x + Math.floor(t * 16)) % 5 === 0);
-      p.px(x, sy, active ? (shimmer ? '#ffffff' : mix(metal, lit, 0.45)) : c('#485060'));
-    }
-  }
-  // Right OEL status bay: spinning disc profile, optical laser pickup sled & stereo meters.
-  const rx0 = magW + 5, rw = Math.max(4, p.pw - rx0 - 2);
-  if (rw >= 6) {
-    for (let y = 2; y < p.ph - 2; y++) for (let x = rx0; x < rx0 + rw; x++) p.px(x, y, y % 2 ? bay : mix(bay, mid, 0.06));
-    // Spinning disc platter edge + rainbow sheen.
-    const discY = Math.max(4, Math.floor(p.ph * 0.42)), dw = Math.max(4, Math.floor(rw * 0.72));
-    const dx0 = rx0 + Math.floor((rw - dw) / 2);
-    for (let x = 0; x < dw; x++) {
-      const sheen = Math.max(0, Math.sin((x / dw) * Math.PI * 3 - t * 6)) ** 3;
-      p.px(dx0 + x, discY, mix(metal, g.paint.fan(x / dw * 2 - 1), sheen * 0.85));
-      p.px(dx0 + x, discY - 1, mix(bay, mid, 0.2 + sheen * 0.4));
-    }
-    // Optical laser pickup sled tracking underneath the disc.
-    const laserX = dx0 + Math.round((0.15 + 0.7 * smooth(0.5 + 0.5 * Math.sin(t * 0.65))) * (dw - 1));
-    for (let x = dx0; x < dx0 + dw; x++) p.px(x, discY + 2, dim);
-    p.px(laserX, discY + 2, lit);
-    p.px(laserX, discY + 1, hot);
-    // Mini bouncing spectrum bars along the lower OEL display.
-    const bars = Math.max(3, Math.floor((rw - 2) / 3)), maxH = Math.max(1, Math.floor(p.ph * 0.25));
-    for (let b = 0; b < bars; b++) {
-      const lv = Math.round(band(b * 1.9, t) * maxH);
-      for (let k = 0; k < lv; k++) {
-        p.px(rx0 + 2 + b * 3, p.ph - 4 - k, k > maxH * 0.72 ? hot : mid);
-        p.px(rx0 + 3 + b * 3, p.ph - 4 - k, k > maxH * 0.72 ? hot : mid);
-      }
-    }
-  }
-  p.flush();
-  if (g.w >= 34 && g.h >= 6) {
-    const cellX = rx0 + 1;
-    const track = 1 + (discIdx * 3 + Math.floor(t / 12)) % 16;
-    g.write(2, 0, '6-CD CHANGER', lit, chassis);
-    g.write(cellX, 1, changing ? `LOAD DISC ${discIdx + 1}` : `DISC 0${discIdx + 1} TR ${pad2(track)}`, changing ? hot : lit, bay);
-    if (g.w - cellX >= 18) g.write(cellX, 2, `${pad2((t % 240) / 60)}:${pad2(t % 60)}  PCM 16B`, dim, bay);
-  }
-  return g.finish();
-};
-
 // Warm vintage Nixie-tube audio deck: five glowing glass cathode tubes with faint mesh & unlit numeral depth.
-const nixieDeck: Builder = (pulse, width, height, theme) => {
+const nixieDeck: Builder = (pulse, width, height, theme, data) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
@@ -592,9 +468,13 @@ const nixieDeck: Builder = (pulse, width, height, theme) => {
   const glow = theme === 'mono' ? '#d8d8d8' : mix(g.paint.accent, '#ff8b2b', 0.52);
   const core = mix(glow, c('#fff7de'), 0.58), ghost = mix(bg, glow, 0.17), rim = mix(bg, c('#b0b8c8'), 0.25);
   for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) p.px(x, y, y >= p.ph - Math.max(2, Math.floor(p.ph * 0.15)) ? base : bg);
-  const showClock = Math.floor(t / 6) % 2 === 0;
-  const freq = [88.5, 91.3, 94.7, 98.1, 101.9, 105.3][Math.floor(t / 12) % 6]!.toFixed(1).padStart(5, '0');
-  const display = showClock ? `${pad2(t / 60 % 100)}:${pad2(t % 60)}` : freq;
+  const now = data?.nowMs === undefined ? undefined : new Date(data.nowMs);
+  const display = now ? `${pad2(now.getHours())}:${pad2(now.getMinutes())}` : '12:34';
+  if (g.w < 34 || p.ph < 12) {
+    p.flush();
+    g.write(Math.max(0, Math.floor((g.w - display.length) / 2)), Math.floor(g.h / 2), display, core, glass);
+    return g.finish();
+  }
   const tubes = display.length;
   const tubeW = Math.max(3, Math.floor((p.pw - 4) / tubes) - 1);
   const scale = Math.max(1, Math.floor(Math.min((p.ph - 6) / 5, (tubeW - 2) / 5)));
@@ -614,13 +494,9 @@ const nixieDeck: Builder = (pulse, width, height, theme) => {
     // Glowing pool reflected on the walnut base plate beneath each tube.
     for (let x = tx + 1; x < tx + tubeW - 1; x++) p.px(x, Math.min(p.ph - 1, bot + 1), mix(base, glow, 0.35 * flicker));
     const gx0 = tx + Math.floor((tubeW - 5 * scale) / 2), gy0 = top + 2;
-    if (ch === ':' || ch === '.') {
+    if (ch === ':') {
       const cx = tx + Math.floor(tubeW / 2);
-      if (ch === ':') {
-        if (fract(t) < 0.72) { discPx(p, cx, top + (bot - top) * 0.35, 0.8 * scale, 0.8 * scale, core); discPx(p, cx, top + (bot - top) * 0.7, 0.8 * scale, 0.8 * scale, core); }
-      } else {
-        discPx(p, cx, bot - 2, 0.8 * scale, 0.8 * scale, core);
-      }
+      if (fract(t) < 0.72) { discPx(p, cx, top + (bot - top) * 0.35, 0.8 * scale, 0.8 * scale, core); discPx(p, cx, top + (bot - top) * 0.7, 0.8 * scale, 0.8 * scale, core); }
       continue;
     }
     for (let y = 0; y < 5 * scale; y++) {
@@ -694,11 +570,15 @@ const tubeAmp: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-  // Late-90s Sony MiniDisc / Hi-MD OLED/LCD: spinning pixel disc cartridge, big pixel clock, scrolling title & dual peak meters.
-const minidisc: Builder = (pulse, width, height, theme) => {
+// Late-90s MiniDisc LCD with a spinning disc, stream timer, scrolling title and dual peak meters.
+const minidisc: Builder = (pulse, width, height, theme, data) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
+  const streamSeconds = Math.max(0, data?.streamSeconds ?? t);
+  const hours = Math.floor(streamSeconds / 3600);
+  const shortElapsed = `${pad2(streamSeconds / 60 % 60)}:${pad2(streamSeconds % 60)}`;
+  const elapsed = hours ? `${hours}:${shortElapsed}` : shortElapsed;
   const c = safe(theme);
   const bezel = c('#1f2430'), lcd = mix(c('#07131b'), g.paint.accent, 0.08), lit = mix(g.paint.accent, '#ffffff', 0.3), mid = g.paint.accent, dim = mix(lcd, mid, 0.22), hot = g.paint.fan(0.92);
   for (let y = 0; y < p.ph; y++) {
@@ -708,9 +588,12 @@ const minidisc: Builder = (pulse, width, height, theme) => {
     }
   }
   // Spinning MiniDisc cartridge + disc window on the left of the LCD.
+  const cx = Math.min(11, Math.floor(p.pw * 0.14)), cy = Math.floor(p.ph * 0.48);
+  const r = Math.max(2.5, Math.min(5.2, p.ph * 0.2));
+  const timeLeft = Math.ceil(cx + r) + 4;
+  const digitWidth = elapsed.length * 6 - 1;
+  const pixelClock = p.pw >= timeLeft + digitWidth + 1 && p.ph >= 12;
   if (p.pw >= 28 && p.ph >= 12) {
-    const cx = Math.min(11, Math.floor(p.pw * 0.14)), cy = Math.floor(p.ph * 0.48);
-    const r = Math.max(2.5, Math.min(5.2, p.ph * 0.2));
     for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
       for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
         const dx = x + 0.5 - cx, dy = y + 0.5 - cy, d = Math.hypot(dx, dy) / r;
@@ -721,15 +604,17 @@ const minidisc: Builder = (pulse, width, height, theme) => {
       }
     }
     // Large glowing pixel-matrix elapsed time on the center-right of the LCD.
-    const elapsed = `${pad2((t % 3600) / 60)}:${pad2(t % 60)}`;
-    const scale = p.pw >= 52 && p.ph >= 20 ? 2 : 1;
-    const textW = (elapsed.length * 6 - 1) * scale;
-    const tx0 = Math.max(Math.ceil(cx + r) + 4, Math.floor((p.pw - textW) * 0.45));
+    const scale = p.pw >= timeLeft + 2 * digitWidth + 1 && p.ph >= 20 ? 2 : 1;
+    const textW = digitWidth * scale;
+    const tx0 = Math.max(timeLeft, Math.floor((p.pw - textW) * 0.45));
     const ty0 = Math.max(5, Math.floor(p.ph * 0.36) - Math.floor(5 * scale / 2));
-    for (let y = 0; y < 5 * scale; y++) {
+    if (pixelClock) for (let y = 0; y < 5 * scale; y++) {
       for (let x = 0; x < textW; x++) {
         const fx = Math.floor(x / scale), fy = Math.floor(y / scale);
-        if (elapsed[Math.floor(fx / 6)] === ':' && fract(t) >= 0.5) continue;
+        if (elapsed[Math.floor(fx / 6)] === ':') {
+          if (fx % 6 === 2 && (fy === 1 || fy === 3)) p.px(tx0 + x, ty0 + y, lit);
+          continue;
+        }
         if (lettering(elapsed, fx, fy)) p.px(tx0 + x, ty0 + y, lit);
         else if (fx % 6 !== 5 && /\d/.test(elapsed[Math.floor(fx / 6)] ?? '') && lettering('8', fx % 6, fy)) p.px(tx0 + x, ty0 + y, dim);
       }
@@ -744,20 +629,26 @@ const minidisc: Builder = (pulse, width, height, theme) => {
   }
   p.flush();
   if (g.w < 12 || g.h < 4) {
-    g.write(0, Math.floor(g.h / 2), 'MDLP ' + '▮'.repeat(Math.max(1, Math.round(band(2, t) * Math.max(1, g.w - 5)))), lit, lcd);
+    const text = g.w >= elapsed.length + 5 ? `MDLP ${elapsed}` : elapsed;
+    g.write(Math.max(0, Math.floor((g.w - text.length) / 2)), Math.floor(g.h / 2), text, lit, lcd);
     return g.finish();
   }
   const innerW = g.w - 2;
   g.write(2, 1, 'MDLP', lit, lcd);
   if (innerW >= 24) g.write(8, 1, 'ATRAC3', mid, lcd);
   if (innerW >= 36) g.write(16, 1, 'MEGABASS', kick(t) > 0.45 ? lit : dim, lcd);
-  const track = 1 + Math.floor(t / 18) % 14;
-  if (innerW >= 46) g.write(26, 1, `TR${pad2(track)}`, lit, lcd);
+  if (innerW >= 46) g.write(26, 1, data?.paused ? 'PAUSE' : 'LIVE', lit, lcd);
   const bat = ['[███]', '[██ ]', '[███]'][Math.floor(t / 4) % 3]!;
   if (innerW >= 18) g.write(g.w - 7, 1, bat, mid, lcd);
   const tickerRow = Math.max(2, g.h - (g.h >= 7 ? 4 : 2));
-  const ticker = '► RADIOCLI HI-MD  //  LATE NIGHT STEREO STREAM  //  OPTICAL IN  //  ';
-  if (innerW >= 12) g.write(2, tickerRow, scroll(ticker, t, innerW - 2, 7), mid, lcd);
+  // The one-cell LCD font uses ASCII. The receiver header still shows the original title.
+  const title = data?.title?.normalize('NFKD').replace(/\p{Mark}/gu, '').replace(/[^\x20-\x7e]/g, ' ').replace(/ +/g, ' ').trim();
+  const ticker = title ? `► ${title}  //  ` : '► RADIOCLI HI-MD  //  ';
+  const tickerWidth = innerW - 2;
+  if (innerW >= 12) {
+    g.write(2, tickerRow, ticker.length <= tickerWidth ? ticker : scroll(ticker, t, tickerWidth, 7), mid, lcd);
+  }
+  if (!pixelClock) g.write(g.w - elapsed.length - 2, g.h - 1, elapsed, lit, lcd);
   if (g.h >= 6) {
     const meterW = Math.max(4, innerW - 6);
     for (let ch = 0; ch < 2; ch++) {
@@ -779,13 +670,11 @@ const minidisc: Builder = (pulse, width, height, theme) => {
 export const oelReceiverBuilders = {
   'oel-dolphins': oelDolphins,
   'oel-racer': oelRacer,
-  'oel-jet': oelJet,
   'oel-city-cruise': oelCityCruise,
   'oel-dancers': oelDancers,
   'car-tachometer': carTachometer,
   'xplod-ring': xplodRing,
   'reel-to-reel': reelToReel,
-  'cd-changer': cdChanger,
   'nixie-deck': nixieDeck,
   'tube-amp': tubeAmp,
   minidisc

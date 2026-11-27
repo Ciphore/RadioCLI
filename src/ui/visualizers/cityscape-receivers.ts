@@ -1,5 +1,5 @@
 import {TAU, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, tri, type Builder, type Pixels} from './cell-canvas.js';
-import {disc, lettering, season, snowfall, starlight, tree, wash} from './festive-receivers.js';
+import {disc, lettering, season, starlight, wash} from './festive-receivers.js';
 
 // More places and patterns in the manner of the skyline, bridge and Christmas scenes: fixed palettes, greys on mono.
 type Tone = (hex: string) => string;
@@ -38,73 +38,6 @@ const tokyoRain = scene((p, t, c, accent) => {
   for (let dx = 0; dx < 44; dx++) { p.px(tx + dx, rail - 1, c(dx % 11 === 10 ? '#0a0c18' : '#d8dce6')); p.px(tx + dx, rail - 2, c(dx % 11 === 10 ? '#0a0c18' : dx % 3 ? '#ffe9a0' : '#d8dce6')); }
   mirror(p, base, t, c('#05060e'), 0.62);
   rain(p, t, c('#b9c6e6'));
-});
-
-// Paris waking: the tower in iron lace against a pink sky, rooftops with their chimney pots, and the lamp at the top still turning.
-const parisDawn = scene((p, t, c) => {
-  const base = p.ph - Math.max(2, Math.round(p.ph * 0.2)), sky = (y: number): string => c(ramp(['#39407e', '#b66a9a', '#ff9e7a', '#ffe0a8'], y / base));
-  wash(p, y => y < base ? sky(y) : c('#2a2333'));
-  disc(p, p.pw * 0.26, base - p.ph * 0.06, p.ph * 0.14, p.ph * 0.14, (_, dy) => base - p.ph * 0.06 + dy * p.ph * 0.14 < base ? c('#fff0c0') : undefined);
-  for (let cloud = 0; cloud < 4; cloud++) { const cx = ((hash(cloud, 1) * p.pw + t * (0.6 + cloud * 0.3)) % (p.pw + 30)) - 15, cy = p.ph * (0.12 + 0.2 * hash(cloud, 2)); for (let dx = -8; dx <= 8; dx++) p.px(Math.round(cx + dx), Math.round(cy), mix(sky(cy), '#ffd9d0', 0.6)); }
-  const cx = Math.round(p.pw * 0.62), top = 2, tall = base - top, iron = c('#2a1f2e');
-  for (let y = top; y < base; y++) {
-    const v = (y - top) / tall, half = 0.6 + v ** 2.4 * tall * 0.42;
-    // Two legs that curve apart, joined by three platforms and cross-bracing in between.
-    for (const leg of [-1, 1]) for (let w = 0; w < Math.max(1, Math.round(1 + v * 2)); w++) p.px(Math.round(cx + leg * half) - leg * w, y, iron);
-    if (Math.abs(v - 0.34) < 0.012 || Math.abs(v - 0.62) < 0.015 || Math.abs(v - 0.86) < 0.012) for (let dx = -Math.round(half) - 1; dx <= half + 1; dx++) p.px(cx + dx, y, iron);
-    else if (v < 0.86 && half > 2) { const k = fract(v * 9); p.px(Math.round(cx - half + k * half * 2), y, iron); p.px(Math.round(cx + half - k * half * 2), y, iron); }
-    else if (v >= 0.86) { const arch = Math.sqrt(Math.max(0, 1 - ((v - 0.86) / 0.14) ** 2)) * half * 0.8; p.px(Math.round(cx - arch), y, iron); p.px(Math.round(cx + arch), y, iron); }
-  }
-  p.px(cx, top - 1, iron); if (fract(t * 0.4) < 0.5) for (let dx = 1; dx < 9; dx++) p.px(cx + dx * (Math.floor(t * 0.4) % 2 ? 1 : -1), top, mix(sky(top), '#ffffff', 0.7 - dx * 0.07));
-  towers(p, p.ph, 40, 0.14, 0.26, (n, dx, y, roof, w) => y === roof ? c('#5a6480') : y < roof + 3 ? c('#3d4660') : dx % 3 === 1 && (y - roof) % 3 === 1 ? c(hash(n * 7 + dx, y) > 0.6 ? '#ffd98a' : '#1c1826') : (dx === w - 2 && y === roof + 3 ? c('#1c1826') : c('#d9c8b8')));
-});
-
-// London after dark: two gothic towers and a walkway between them, the bascules lit, and the river carrying the lights away.
-const londonNight = scene((p, t, c) => {
-  const river = Math.round(p.ph * 0.72), deck = Math.round(p.ph * 0.56), sky = (y: number): string => c(mix('#050818', '#1b2450', y / river));
-  wash(p, y => y < river ? sky(y) : c('#04060f')); starlight(p, t, river * 0.6, c('#ffffff'), c('#0a1030'));
-  disc(p, p.pw * 0.84, p.ph * 0.2, p.ph * 0.09, p.ph * 0.09, () => c('#fdf3c8'));
-  towers(p, river, 77, 0.06, 0.22, (n, dx, y) => lit(n, dx, y, river, 0.5) ? c('#ffd98a') : c('#080b18'));
-  const stone = c('#b8a888'), dark = c('#5c5038'), blue = c('#6fb8ff'), a = Math.round(p.pw * 0.36), b = Math.round(p.pw * 0.64), w = Math.max(3, Math.round(p.pw * 0.045)), top = Math.round(p.ph * 0.16);
-  for (let x = 0; x < p.pw; x++) {
-    const out = x < a ? a - x : x > b ? x - b : 0;
-    // Outside the towers the chains sag to the banks; between them, two high walkways.
-    if (out) { const y = Math.round(top + 6 + (deck - top - 6) * (out / Math.max(a, 1)) ** 0.8); p.px(x, y, blue); if (x % 3 === 0) for (let h = y + 1; h < deck; h++) p.px(x, h, mix(sky(h), blue, 0.5)); if (x % 6 === 0) p.px(x, y, c('#ffffff')); }
-    else for (const y of [top + 5, top + 7]) p.px(x, y, blue);
-    for (let d = 0; d < 2; d++) p.px(x, deck + d, d ? dark : stone);
-    if (x % 5 === 2) p.px(x, deck - 1, c('#ffe9a0'));
-  }
-  for (const x of [a, b]) for (let dx = -w; dx <= w; dx++) for (let y = top - 4; y < p.ph; y++) {
-    const spire = y < top && Math.abs(dx) > (y - top + 5) * w / 5;
-    if (spire) continue;
-    const win = Math.abs(dx) < w - 1 && dx % 2 === 0 && (y - top) % 4 === 2 && y < deck - 2;
-    p.px(x + dx, y, y >= river ? mix(c('#04060f'), stone, 0.35) : win ? c('#ffd98a') : Math.abs(dx) === w ? dark : stone);
-  }
-  for (const x of [a, b]) { p.px(x, top - 5, c('#ffd24a')); p.px(x, top - 6, c('#ffd24a')); }
-  const bus = Math.round((t * 9) % (p.pw + 20)) - 10; for (let dx = 0; dx < 7; dx++) for (let dy = 0; dy < 2; dy++) p.px(bus + dx, deck - 1 - dy, dx % 2 && dy ? c('#ffe9a0') : c('#e0281e'));
-  mirror(p, river, t, c('#04060f'), 0.6);
-});
-
-// Brooklyn at sunset: stone towers with their twin pointed arches, a web of stays fanning from each, and the sun going down through it.
-const brooklynSunset = scene((p, t, c) => {
-  const river = Math.round(p.ph * 0.76), deck = Math.round(p.ph * 0.6), sky = (y: number): string => c(ramp(['#27205a', '#8a3a7a', '#f0683a', '#ffc86a'], y / river)), sunX = p.pw * 0.5, sunY = river - p.ph * 0.16, sunR = p.ph * 0.2;
-  wash(p, y => y < river ? sky(y) : c('#3a2238'));
-  disc(p, sunX, sunY, sunR * 1.25, sunR, (_, dy) => sunY + dy * sunR < river ? c(mix('#fff3b0', '#ff8a4a', (dy + 1) / 2)) : undefined);
-  towers(p, river, 55, 0.05, 0.3, () => c('#2a1630'));
-  const ink = c('#1c0f22'), a = Math.round(p.pw * 0.27), b = Math.round(p.pw * 0.73), w = Math.max(3, Math.round(p.pw * 0.04)), top = Math.round(p.ph * 0.1);
-  for (let x = 0; x < p.pw; x++) {
-    const u = x < a ? 1 - x / a : x > b ? (x - b) / (p.pw - 1 - b) : Math.abs((x - a) / (b - a) * 2 - 1), cable = x < a || x > b ? top + (deck - top) * u ** 1.2 : deck - 2 - (deck - 2 - top) * u * u;
-    p.px(x, Math.round(cable), ink); for (let d = 0; d < 2; d++) p.px(x, deck + d, ink);
-    if (x % 2 === 0) for (let y = Math.round(cable) + 1; y < deck; y++) if ((y + x) % 2 === 0) p.px(x, y, mix(sky(y), ink, 0.55));
-    // Diagonal stays cross the hangers near each tower, which is what makes this bridge look like a harp.
-    for (const tx of [a, b]) { const far = Math.abs(x - tx); if (far < p.pw * 0.16 && far % 4 === 0) { const y = Math.round(top + (deck - top) * far / (p.pw * 0.16)); if (y < deck) p.px(x, y, ink); } }
-  }
-  for (const x of [a, b]) for (let dx = -w; dx <= w; dx++) for (let y = top - 2; y < p.ph; y++) {
-    const v = (y - top) / (deck - top), arch = v > 0.25 && v < 0.85 && Math.abs(Math.abs(dx) - w * 0.5) < w * 0.28 * Math.min(1, (v - 0.25) * 6);
-    if (!arch) p.px(x + dx, y, y >= river ? mix(c('#3a2238'), ink, 0.5) : ink);
-  }
-  mirror(p, river, t, c('#3a2238'), 0.55);
-  const boat = Math.round(fract(t * 0.012) * (p.pw + 20)) - 10; for (let dx = -4; dx <= 4; dx++) p.px(boat + dx, river + 3, ink); for (let dx = -2; dx <= 1; dx++) p.px(boat + dx, river + 2, c('#fff3b0'));
 });
 
 // Miami in neon: a striped sun, palms in silhouette, pastel hotel fronts outlined in tube, and a grid road running out to sea.
@@ -150,29 +83,6 @@ const sydneyHarbor = scene((p, t, c, accent) => {
   mirror(p, water, t, c('#05060f'), 0.6);
 });
 
-// Candy Cane Lane: a street of gingerbread-roofed houses, every eave strung with lights, striped canes along the path, and a tree in each garden.
-const candyLane = scene((p, t, c, accent) => {
-  const ground = p.ph - Math.max(3, Math.round(p.ph * 0.18)), sky = (y: number): string => c(mix('#0a1030', '#2a2f66', y / ground)), bulbs = ['#ff3b4a', '#ffd23a', '#3ddc5a', '#3a8dff', accent].map(c);
-  wash(p, y => y < ground ? sky(y) : c('#eef2f8')); starlight(p, t, ground * 0.5, c('#ffffff'), c('#0f163a'));
-  const wide = Math.max(16, Math.round(p.ph * 1.1)), walls = ['#b84a3a', '#5a7fb8', '#c9a24a', '#7a9a5a', '#a45a8a'];
-  for (let n = 0; n * wide < p.pw + wide; n++) {
-    const x0 = n * wide + 2, w = wide - 7, tall = Math.round(p.ph * (0.3 + 0.1 * hash(n, 1))), eave = ground - tall, peak = Math.round(w * 0.36);
-    for (let dx = -1; dx <= w; dx++) {
-      const roof = eave - Math.max(0, Math.round((1 - Math.abs(dx - (w - 1) / 2) / (w / 2)) * peak));
-      for (let y = roof; y < ground; y++) p.px(x0 + dx, y, y < roof + 2 ? c('#f4f7fb') : y < eave ? c('#6b3a26') : dx < 0 || dx >= w ? sky(y) : c(walls[n % 5]!));
-      // Icicle lights along the eave, chasing left to right.
-      p.px(x0 + dx, eave + 1, (dx + Math.floor(t * 5) + n) % 3 ? bulbs[(dx + n + 5) % 5]! : mix(bulbs[(dx + n + 5) % 5]!, '#000000', 0.6));
-    }
-    for (const wx of [Math.round(w * 0.2), Math.round(w * 0.62)]) for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) p.px(x0 + wx + dx, eave + 3 + dy, dx === 1 || dy === 1 ? c('#6b3a26') : c('#ffd98a'));
-    for (let dy = 0; dy < 5; dy++) for (let dx = 0; dx < 3; dx++) p.px(x0 + Math.round(w * 0.42) + dx, ground - 1 - dy, dy === 4 ? c('#2f8a3e') : c('#7a2a22'));
-    for (let dy = 0; dy < 4; dy++) p.px(x0 + w - 3, eave - peak + dy - 1, dy ? c('#6b3a26') : c('#f4f7fb'));
-    tree(p, x0 + w + 2, ground + 1, Math.round(p.ph * 0.28), t + n, c, accent, n + 3);
-  }
-  for (let x = 0; x < p.pw; x++) for (let y = ground - Math.round(noise(x * 0.1, 2) * 1.5); y < p.ph; y++) p.px(x, y, mix(c('#f6f9fc'), c('#b9c6de'), (y - ground + 2) / (p.ph - ground + 2)));
-  for (let x = 3; x < p.pw; x += 7) { for (let dy = 0; dy < 5; dy++) p.px(x, p.ph - 2 - dy, (dy + Math.floor(t * 2)) % 2 ? c('#e0281e') : c('#ffffff')); p.px(x + 1, p.ph - 7, c('#e0281e')); p.px(x + 2, p.ph - 6, c('#ffffff')); }
-  snowfall(p, t, Math.round(p.pw * p.ph / 40), c('#ffffff'));
-});
-
 // Argyle: knitted diamonds in three yarns with fine diagonal stitching laid over them, the whole cloth sliding slowly sideways.
 const argyle = scene((p, t, c, accent) => {
   const s = Math.max(6, Math.round(p.ph / 2.2)), yarns = [mix(accent, '#000000', 0.35), accent, c('#efe6d0'), mix(accent, '#ffffff', 0.45)], slide = t * 3;
@@ -200,20 +110,6 @@ const popPanels = scene((p, t, c, accent) => {
   }
 });
 
-// A star quilt: eight-pointed blocks pieced from triangles, each block turning its colours over one patch at a time.
-const quiltStars = scene((p, t, c, accent) => {
-  const s = Math.max(8, Math.round(p.ph / (p.ph >= 30 ? 2 : 1))), cloth = [c('#f2ead8'), accent, mix(accent, '#000000', 0.45), mix(accent, '#ffffff', 0.5), c('#c0392b'), c('#2a4a7a')];
-  for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-    const bx = Math.floor(x / (s * 1.3)), by = Math.floor(y / s), u = fract(x / (s * 1.3)) * 4, v = fract(y / s) * 4, i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j, turn = Math.floor(t / 2 + hash(bx, by) * 4);
-    // A four-by-four block: plain corners, a square centre, and split squares between them that form the star's points.
-    const centre = i > 0 && i < 3 && j > 0 && j < 3, corner = (i === 0 || i === 3) && (j === 0 || j === 3);
-    const diag = (i < 2) === (j < 2) ? fu + fv > 1 : fu > fv, point = (i === 0 || j === 0) ? !diag : diag;
-    const tone = centre ? cloth[1 + (bx + by + turn) % 5]! : corner ? cloth[0]! : point === ((i + j) % 2 === 0) ? cloth[1 + (bx * 2 + by + turn + 2) % 5]! : cloth[0]!;
-    const seam = fu < 0.07 || fv < 0.1 || (i === 0 && fu < 0.12 && j === 0);
-    p.px(x, y, seam ? mix(tone, '#000000', 0.28) : mix(tone, '#000000', ((x + y) & 1) * 0.05));
-  }
-});
-
 // Every idle logo at once: a dozen shapes rattling round the panel, trading colours whenever two of them cross, and flashing when one finds a corner.
 const bounceParty = scene((p, t, c, accent) => {
   wash(p, () => c('#05060c'));
@@ -230,7 +126,7 @@ const bounceParty = scene((p, t, c, accent) => {
 });
 
 export const cityscapeReceiverBuilders = {
-  'tokyo-rain': tokyoRain, 'paris-dawn': parisDawn, 'london-night': londonNight, 'brooklyn-sunset': brooklynSunset,
-  'miami-synth': miamiSynth, 'chicago-snow': chicagoSnow, 'sydney-harbor': sydneyHarbor, 'candy-lane': candyLane,
-  'argyle': argyle, 'pop-panels': popPanels, 'quilt-stars': quiltStars, 'bounce-party': bounceParty
+  'tokyo-rain': tokyoRain,
+  'miami-synth': miamiSynth, 'chicago-snow': chicagoSnow, 'sydney-harbor': sydneyHarbor,
+  'argyle': argyle, 'pop-panels': popPanels, 'bounce-party': bounceParty
 };

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { vhsFont } from '@/lib/vhs-font';
 import { getHomeJsonLd, serializeJsonLd, siteDescription } from '@/lib/seo';
 import { ReceiverGallery } from '@/components/receiver-gallery';
+import { receiverStyleNames } from '@/lib/receiver-engine';
 import { ProductDemo } from '@/components/product-demo';
 import { InstallCommand } from '@/components/install-command';
 import { Brand } from '@/lib/layout.shared';
@@ -81,7 +82,7 @@ export default function HomePage() {
       </div>
 
       <ReceiverGallery preview />
-      <Link className="rc-text-link rc-gallery-link" href="/receivers">Try all 424 receiver styles →</Link>
+      <Link className="rc-text-link rc-gallery-link" href="/receivers">Try all {receiverStyleNames.length} receiver styles →</Link>
 
       <div className="rc-visual-features">
         {features.filter((_, index) => index > 1 && index !== 4).map(feature => <VisualFeature key={feature.demo} feature={feature} />)}

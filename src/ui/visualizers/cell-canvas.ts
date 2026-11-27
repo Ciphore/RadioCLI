@@ -3,7 +3,15 @@ import {panelBackground, themeAccent} from '../theme.js';
 
 type Cell = {text: string; color: string; backgroundColor?: string; bold?: boolean};
 type Line = {text: string; color: string; segments: Cell[]};
-export type Builder = (pulse: number, width: number, height: number, theme: ThemeName) => Line[];
+export type ReceiverData = {
+  nowMs?: number;
+  listeningSeconds?: number;
+  streamSeconds?: number;
+  stopwatchSeconds?: number;
+  title?: string;
+  paused?: boolean;
+};
+export type Builder = (pulse: number, width: number, height: number, theme: ThemeName, data?: ReceiverData) => Line[];
 export type Rgb = [number, number, number];
 
 export const TAU = Math.PI * 2;
@@ -19,6 +27,14 @@ const hexOf = (color: number[]): string => '#' + color.map(channel => Math.round
 export const mix = (a: string, b: string, t: number): string => {
   const from = rgb(a), to = rgb(b);
   return hexOf(from.map((channel, index) => channel + (to[index]! - channel) * clamp(t)));
+};
+
+/** Keep a scene's own palette, with a grayscale rendering in Mono. */
+export const sceneColors = (theme: ThemeName) => (hex: string): string => {
+  if (theme !== 'mono') return hex;
+  const [r, g, b] = rgb(hex);
+  const grey = 0.3 * r + 0.59 * g + 0.11 * b;
+  return hexOf([grey, grey, grey]);
 };
 
 type Paint = {accent: string; ink(level: number): string; fan(turn: number): string};

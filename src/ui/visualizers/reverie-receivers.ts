@@ -237,41 +237,6 @@ const nightDrive: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-type Colony = {alive: Uint8Array; age: Uint8Array; spare: Uint8Array; random: () => number};
-const colonies = new Map<string, Run<Colony>>();
-
-// Four rules and a random start: gliders set off, blinkers blink, and what survives grows old in a different colour.
-const gameOfLife: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const life = 260, step = Math.floor(pulse / 2);
-  const tick = (colony: Colony): void => {
-    for (let y = 0; y < p.ph; y++) for (let x = 0; x < p.pw; x++) {
-      let around = 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) around += colony.alive[((y + dy + p.ph) % p.ph) * p.pw + (x + dx + p.pw) % p.pw]!;
-      const at = y * p.pw + x, lives = around === 3 || (around === 2 && colony.alive[at] === 1);
-      colony.spare[at] = lives ? 1 : 0;
-      colony.age[at] = lives ? Math.min(250, colony.age[at]! + 1) : 0;
-    }
-    [colony.alive, colony.spare] = [colony.spare, colony.alive];
-    // A little rain keeps the world from going quiet.
-    for (let seed = 0; seed < 2; seed++) {
-      const x = Math.floor(colony.random() * (p.pw - 3)), y = Math.floor(colony.random() * (p.ph - 3));
-      if (colony.random() < 0.3) for (const [dx, dy] of [[1, 0], [2, 1], [0, 2], [1, 2], [2, 2]] as const) colony.alive[(y + dy) * p.pw + x + dx] = 1;
-    }
-  };
-  const colony = replay(colonies, `${p.pw}x${p.ph}`, Math.floor(step / life), step % life, epoch => {
-    const random = mulberry(epoch * 2203 + p.pw * 3 + p.ph);
-    const fresh: Colony = {alive: new Uint8Array(p.pw * p.ph), age: new Uint8Array(p.pw * p.ph), spare: new Uint8Array(p.pw * p.ph), random};
-    for (let i = 0; i < fresh.alive.length; i++) fresh.alive[i] = random() < 0.3 ? 1 : 0;
-    return fresh;
-  }, tick);
-  const tones = Array.from({length: 12}, (_, i) => i === 0 ? '#ffffff' : mix(g.paint.fan(0.9 - i / 11 * 1.6), panelBackground, i / 11 * 0.35));
-  for (let i = 0; i < colony.alive.length; i++) if (colony.alive[i]) p.px(i % p.pw, Math.floor(i / p.pw), tones[Math.min(11, colony.age[i]!)]!);
-  p.flush();
-  return g.finish();
-};
-
 // An hourglass: the top empties grain by grain through the neck, the heap below grows, and then it is turned over.
 const hourglass: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -356,35 +321,6 @@ const progressBars: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-const VERSE = ['the radio is on in the next room', 'someone far away is reading the news', 'a song you had forgotten', 'finds you anyway', '', 'it is late where they are', 'it is early where you are', 'the same signal', 'crossing the same dark', '', 'stay a while', 'the kettle is nearly there'];
-
-// A typewriter with something on its mind: letters arrive one at a time, the carriage returns, and the page moves up.
-const typewriter: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const paper = mix(panelBackground, '#efe6cf', 0.92), ink = '#2a2622', margin = Math.max(1, Math.floor((g.w - 44) / 2));
-  for (let y = 0; y < g.h; y++) for (let x = margin - 1; x < g.w - margin + 1; x++) g.set(x, y, ' ', paper, paper);
-  const starts: number[] = [];
-  let total = 0;
-  for (const line of VERSE) { starts.push(total); total += line.length + 5; }
-  const at = (t * 11) % (total + 40);
-  const current = Math.max(0, starts.filter(start => start <= at).length - 1);
-  const typeRow = Math.min(g.h - 1, Math.max(0, g.h - 2));
-  for (let line = 0; line <= current; line++) {
-    const y = typeRow - (current - line);
-    if (y < 0) continue;
-    const shown = Math.floor(clamp(at - starts[line]!, 0, VERSE[line]!.length));
-    for (let c = 0; c < shown; c++) {
-      // Every key lands slightly differently: some letters are heavier, a few sit a touch high.
-      const weight = hash(line * 40 + c, 7);
-      g.set(margin + c, y, VERSE[line]![c]!, mix(paper, ink, 0.62 + 0.38 * weight), paper, weight > 0.6);
-    }
-    if (line === current && shown < VERSE[line]!.length) g.set(margin + shown, y, '▁', mix(paper, g.paint.accent, 0.8), paper);
-  }
-  if (at > total && g.h > 2) g.write(margin, typeRow, fract(t) < 0.5 ? '▁' : ' ', ink, paper);
-  return g.finish();
-};
-
 export const reverieReceiverBuilders = {
   'falling-blocks': fallingBlocks,
   serpent,
@@ -393,9 +329,7 @@ export const reverieReceiverBuilders = {
   breathe,
   'rain-window': rainWindow,
   'night-drive': nightDrive,
-  'game-of-life': gameOfLife,
   hourglass,
   metronome,
   'progress-bars': progressBars,
-  typewriter
 };

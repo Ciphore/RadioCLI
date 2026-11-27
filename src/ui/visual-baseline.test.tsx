@@ -148,7 +148,7 @@ describe('receiver baseline / full / unicode', () => {
   it.each(receiverStyleNames)('%s', receiverStyle => capture({name: receiverStyle, screen: 'now-playing', receiverStyle}, sizes[0], profiles[0]));
 });
 
-const representativeReceivers = ['gallop-fine', 'pulse-grid', 'ultracode', 'braille-wave', 'manhattan'] as const;
+const representativeReceivers = ['gallop-fine', 'pulse-grid', 'ultracode', 'manhattan'] as const;
 for (const size of sizes) {
   for (const profile of profiles.filter(profile => !profile.noColor && (size.name !== 'full' || profile.ascii))) {
     describe(`receiver baseline / ${size.name} / ${profile.name}`, () => {

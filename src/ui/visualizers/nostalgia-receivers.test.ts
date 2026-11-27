@@ -13,8 +13,8 @@ const glyphs = (style: (typeof styles)[number], pulse = 150): string =>
   nostalgiaReceiverBuilders[style](pulse, 80, 14, 'violet').map(row => row.text).join('\n');
 
 describe('nostalgia receivers', () => {
-  it('registers a dozen distinct, animated scenes', () => {
-    expect(styles).toHaveLength(12);
+  it('registers distinct, animated scenes', () => {
+    expect(styles).toHaveLength(7);
     const signatures = new Set<string>();
     for (const style of styles) {
       expect(receiverStyleNames).toContain(style);
@@ -22,35 +22,30 @@ describe('nostalgia receivers', () => {
       expect(new Set(frames).size, style).toBe(5);
       signatures.add(frames[1]!);
     }
-    expect(signatures.size).toBe(12);
+    expect(signatures.size).toBe(styles.length);
   });
 
   it('draws what each scene is named for', () => {
     expect(glyphs('defrag')).toMatch(/Defragmenting drive C: +\d+% complete/);
     expect(glyphs('solitaire')).toMatch(/[AKQJ\d][♥♠♦♣]/);
     expect(glyphs('maze-3d')).toMatch(/[▀▄]/);
-    expect(glyphs('tracker')).toMatch(/C-2 01 C40/);
-    expect(glyphs('teletext')).toMatch(/P1\d\d[\s\S]*RADIOTEXT[\s\S]*[▘▝▖▗▚▞▙▟▛▜▌▐][\s\S]*101 NOW PLAYING/);
-    expect(glyphs('vhs')).toMatch(/PLAY[\s\S]*0:00:12/);
     expect(glyphs('galton-board')).toMatch(/●[\s\S]*█/);
-    expect(glyphs('sheet-music')).toMatch(/─[♩♪♫]/);
     expect(glyphs('string-art')).toMatch(/[⠁-⣿]/);
     expect(glyphs('shortwave')).toMatch(/•/);
   });
 
   it('replays simulations to the same frame however the pulse was reached', () => {
-    for (const style of ['slime-mold', 'sand'] as const) {
-      const stepped = [58, 59, 60, 61].map(pulse => frame(style, pulse));
-      // A backwards jump and a cold start in another epoch both rebuild the run from its seed.
-      frame(style, 2000);
-      expect(frame(style, 60), style).toBe(stepped[2]);
-      frame(style, 5);
-      expect(frame(style, 61), style).toBe(stepped[3]);
-      // Other viewports keep their own runs.
-      frame(style, 61, 40, 9);
-      expect(frame(style, 59), style).toBe(stepped[1]);
-      expect(new Set(stepped).size, style).toBe(4);
-    }
+    const style = 'sand';
+    const stepped = [58, 59, 60, 61].map(pulse => frame(style, pulse));
+    // A backwards jump and a cold start in another epoch both rebuild the run from its seed.
+    frame(style, 2000);
+    expect(frame(style, 60), style).toBe(stepped[2]);
+    frame(style, 5);
+    expect(frame(style, 61), style).toBe(stepped[3]);
+    // Other viewports keep their own runs.
+    frame(style, 61, 40, 9);
+    expect(frame(style, 59), style).toBe(stepped[1]);
+    expect(new Set(stepped).size, style).toBe(4);
   });
 
   it('fits tiny, narrow, tall and wide viewports with consistent segment widths', () => {

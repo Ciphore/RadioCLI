@@ -1,14 +1,9 @@
-import type {ThemeName} from '../../types.js';
-import {TAU, clamp, fract, grid, hash, kick, mix, noise, pixels, seconds, smooth, stroke, textPixel, tri, type Builder, type Pixels} from './cell-canvas.js';
+import {TAU, clamp, fract, grid, hash, kick, mix, noise, pixels, sceneColors, seconds, smooth, stroke, textPixel, tri, type Builder, type Pixels} from './cell-canvas.js';
 
 // These scenes keep the colours the season is known by; only their lights follow the theme. Mono gets the same scenes in greys.
-export const RED = '#d8283c', GREEN = '#1f8f4d', PINE = '#12613a', GOLD = '#f6c453', SNOW = '#f2f6fb', EMBER = '#ff8a2a', NIGHT = '#0b1630', WOOD = '#7a4a2a', INK = '#05070c';
-export const season = (theme: ThemeName) => (hex: string): string => {
-  if (theme !== 'mono') return hex;
-  const [r, g, b] = [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
-  const grey = Math.round(0.3 * r! + 0.59 * g! + 0.11 * b!).toString(16).padStart(2, '0');
-  return `#${grey}${grey}${grey}`;
-};
+export const RED = '#d8283c', GREEN = '#1f8f4d', PINE = '#12613a', GOLD = '#f6c453', SNOW = '#f2f6fb', NIGHT = '#0b1630', WOOD = '#7a4a2a', INK = '#05070c';
+const EMBER = '#ff8a2a';
+export const season = sceneColors;
 const DIGITS = [[14, 17, 17, 17, 14], [4, 12, 4, 4, 14], [30, 1, 14, 16, 31], [30, 1, 14, 1, 30], [18, 18, 31, 2, 2], [31, 16, 30, 1, 30], [14, 16, 30, 17, 14], [31, 1, 2, 4, 4], [14, 17, 14, 17, 14], [14, 17, 15, 1, 14]];
 
 /** Is this pixel lit in a line of letters and digits on a six-pixel advance? */
@@ -291,53 +286,6 @@ const fireside: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// A village asleep under snow: lit windows, chimney smoke, a steeple, and more snow on the way down.
-const winterVillage: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const p = pixels(g);
-  const t = seconds(pulse);
-  const c = season(theme);
-  wash(p, y => mix(c('#0c1433'), c('#3a3f75'), (y / p.ph) ** 1.4));
-  starlight(p, t, p.ph * 0.55, c(SNOW), c('#111a3a'));
-  const hill = (x: number, depth: number): number => p.ph * (0.62 + depth * 0.2) + Math.sin(x * 0.045 + depth * 5) * p.ph * 0.07 + Math.sin(x * 0.11 + depth * 2) * p.ph * 0.03;
-  for (let x = 0; x < p.pw; x++) for (let y = Math.round(hill(x, 0)); y < p.ph; y++) p.px(x, y, c('#6f7fb0'));
-  // Far firs along the back ridge.
-  for (let fir = 0; fir < p.pw / 7; fir++) {
-    const x = Math.round((fir + hash(fir, 1)) * 7), root = Math.round(hill(x, 0)), tall = 3 + Math.floor(hash(fir, 2) * 4);
-    for (let row = 0; row < tall; row++) for (let dx = -Math.floor(row / 2); dx <= Math.floor(row / 2); dx++) p.px(x + dx, root - tall + row, row === 0 || (dx === -Math.floor(row / 2) && row % 2 === 0) ? c('#c9d6ee') : c('#1d3a3a'));
-  }
-  for (let x = 0; x < p.pw; x++) for (let y = Math.round(hill(x, 1)); y < p.ph; y++) p.px(x, y, mix(c(SNOW), c('#a9bbe0'), clamp((y - hill(x, 1)) / (p.ph * 0.3))));
-  let x = 2, house = 0;
-  while (x < p.pw - 6) {
-    const church = house % 5 === 2 && p.ph >= 16;
-    const wide = church ? 7 : 7 + Math.floor(hash(house, 3) * 5), tall = Math.max(3, Math.round(p.ph * (church ? 0.3 : 0.16 + 0.07 * hash(house, 4))));
-    const foot = Math.round(hill(x + wide / 2, 1)) + 1, eave = foot - tall;
-    const wall = c(['#7a3b33', '#8a6a48', '#5b4a6b', '#6d3f52'][house % 4]!);
-    for (let dx = 0; dx < wide; dx++) {
-      const ridge = eave - Math.round((wide / 2 - Math.abs(dx - (wide - 1) / 2)) * (church ? 1.5 : 0.7));
-      for (let y = ridge; y < foot; y++) p.px(x + dx, y, y <= ridge + (church ? 0 : 1) ? c(SNOW) : y < eave ? c('#3b2a2e') : wall);
-    }
-    if (church) for (let y = eave - Math.round(wide * 0.75) - 5; y < eave - Math.round(wide * 0.75); y++) p.px(x + Math.floor(wide / 2), y, c(y < eave - Math.round(wide * 0.75) - 3 ? GOLD : '#3b2a2e'));
-    for (let pane = 0; pane < (wide > 8 ? 2 : 1); pane++) {
-      const lit = c(mix('#4a3515', '#ffd070', 0.6 + 0.4 * noise(t * 0.7, house * 3.3 + pane)));
-      for (let wy = 0; wy < 2; wy++) for (let wx = 0; wx < 2; wx++) p.px(x + 1 + pane * 4 + wx + (wide > 8 ? 1 : Math.floor(wide / 2) - 2), eave + 1 + wy, lit);
-    }
-    if (!church) {
-      const flue = x + wide - 3;
-      for (let y = eave - 3; y < eave; y++) p.px(flue, y, y === eave - 3 ? c(SNOW) : c('#3b2a2e'));
-      for (let puff = 0; puff < 7; puff++) {
-        const age = fract(t * 0.16 + puff / 7 + house * 0.13);
-        const py = Math.round(eave - 4 - age * p.ph * 0.36);
-        if (py >= 0) p.px(Math.round(flue + age * 6 + Math.sin(age * 7 + house) * 1.5), py, mix(c('#3a3f75'), c('#c7cfe6'), 0.75 * (1 - age)));
-      }
-    }
-    x += wide + 2 + Math.floor(hash(house, 6) * 6); house++;
-  }
-  snowfall(p, t, Math.round(p.pw * p.ph / 32), c(SNOW));
-  p.flush();
-  return g.finish();
-};
-
 // Brass bells on a bough, swinging in turn and ringing on the beat, over the words everyone is waiting for.
 const sleighBells: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -392,39 +340,36 @@ const sleighBells: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// Ten beats of counting down over a waiting city, then the year turns and the sky goes up.
+// An ongoing fireworks show over the city, with the greeting always visible.
 const newYear: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
   const c = season(theme);
-  const local = t % 24;
-  const counting = local < 10;
   const sky = (y: number): string => mix(c('#05060f'), c('#1a1740'), (y / p.ph) ** 1.5);
   wash(p, y => sky(y));
   starlight(p, t, p.ph * 0.7, c(SNOW), c('#0a0b1c'));
   const sparks = [c(GOLD), c('#ff5d73'), c('#63e6ff'), c('#b0ff7a'), c('#d59bff'), g.paint.accent];
-  if (!counting) {
-    // A shell every seven tenths of a second: it bursts, spreads, sags and fades.
-    for (let shell = Math.floor((local - 10) / 0.7); shell > Math.floor((local - 10) / 0.7) - 5; shell--) {
-      if (shell < 0) continue;
-      const age = local - 10 - shell * 0.7, epoch = Math.floor(t / 24) * 31 + shell;
-      const bx = (0.1 + 0.8 * hash(epoch, 1)) * p.pw, by = (0.16 + 0.4 * hash(epoch, 2)) * p.ph;
-      const tone = sparks[Math.floor(hash(epoch, 3) * sparks.length)]!;
-      const reach = p.ph * (0.3 + 0.2 * hash(epoch, 4)) * (1 - Math.exp(-age * 2.6));
-      for (let ray = 0; ray < 34; ray++) {
-        const a = ray / 34 * TAU + hash(epoch, 5), spread = 0.72 + 0.28 * hash(ray, epoch);
-        for (let tail = 0; tail < 4; tail++) {
-          const r = reach * spread * (1 - tail * 0.07);
-          const y = by + Math.sin(a) * r + age * age * p.ph * 0.05;
-          p.px(Math.round(bx + Math.cos(a) * r), Math.round(y), mix(sky(y), tail ? tone : mix(tone, '#ffffff', 0.5), clamp(1.25 - age * 0.55 - tail * 0.2)));
-        }
+  const newest = Math.floor(t / 0.7);
+  for (let shell = newest - 4; shell <= newest; shell++) {
+    const age = t - shell * 0.7;
+    const bx = (0.1 + 0.8 * hash(shell, 1)) * p.pw, by = (0.16 + 0.4 * hash(shell, 2)) * p.ph;
+    const tone = sparks[Math.floor(hash(shell, 3) * sparks.length)]!;
+    const reach = p.ph * (0.3 + 0.2 * hash(shell, 4)) * (1 - Math.exp(-age * 2.6));
+    for (let ray = 0; ray < 34; ray++) {
+      const a = ray / 34 * TAU + hash(shell, 5), spread = 0.72 + 0.28 * hash(ray, shell);
+      for (let tail = 0; tail < 4; tail++) {
+        const brightness = clamp(1.25 - age * 0.55 - tail * 0.2);
+        if (!brightness) break;
+        const r = reach * spread * (1 - tail * 0.07);
+        const y = by + Math.sin(a) * r + age * age * p.ph * 0.05;
+        p.px(Math.round(bx + Math.cos(a) * r), Math.round(y), mix(sky(y), tail ? tone : mix(tone, '#ffffff', 0.5), brightness));
       }
     }
-    for (let piece = 0; piece < p.pw * p.ph / 70; piece++) {
-      const y = fract(hash(piece, 11) + (local - 10) * (0.05 + 0.07 * hash(piece, 12))) * p.ph;
-      p.px(Math.floor(hash(piece, 13) * p.pw + Math.sin(t * 2 + piece) * 2), Math.floor(y), sparks[piece % sparks.length]!);
-    }
+  }
+  for (let piece = 0; piece < p.pw * p.ph / 70; piece++) {
+    const y = fract(hash(piece, 11) + t * (0.05 + 0.07 * hash(piece, 12))) * p.ph;
+    p.px(Math.floor(hash(piece, 13) * p.pw + Math.sin(t * 2 + piece) * 2), Math.floor(y), sparks[piece % sparks.length]!);
   }
   // The city: flat-topped towers with their own lights on.
   let x = 0, tower = 0;
@@ -432,33 +377,25 @@ const newYear: Builder = (pulse, width, height, theme) => {
     const wide = 4 + Math.floor(hash(tower, 21) * 6), tall = Math.round(p.ph * (0.1 + 0.22 * hash(tower, 22)));
     for (let dx = 0; dx < wide; dx++) for (let y = p.ph - tall; y < p.ph; y++) {
       const pane = dx % 2 === 1 && (p.ph - y) % 2 === 0 && hash(tower * 17 + dx, y) > 0.45;
-      p.px(x + dx, y, pane ? c(mix('#3a3320', '#ffd77a', counting ? 0.6 : 0.6 + 0.4 * kick(t))) : c('#0b0c18'));
+      p.px(x + dx, y, pane ? c(mix('#3a3320', '#ffd77a', 0.6 + 0.4 * kick(t))) : c('#0b0c18'));
     }
     x += wide + 1; tower++;
   }
-  if (counting) {
-    const number = String(10 - Math.floor(local));
-    const scale = Math.max(1, Math.floor(Math.min(p.ph * 0.6 / 5, p.pw * 0.5 / (number.length * 6 - 1))));
-    const swell = 1 - fract(local);
-    const left = Math.floor((p.pw - (number.length * 6 - 1) * scale) / 2), top = Math.floor(p.ph * 0.42 - 2.5 * scale);
-    // A ring closes round the number as its second runs out.
-    const hoop = scale * 5.2;
-    for (let i = 0; i < hoop * 7 * swell; i++) {
-      const a = i / (hoop * 7) * TAU - Math.PI / 2;
-      p.px(Math.round(p.pw / 2 + Math.cos(a) * hoop), Math.round(p.ph * 0.42 + Math.sin(a) * hoop), g.paint.accent);
-    }
-    write(p, number, left, top, scale, () => mix(c(GOLD), '#ffffff', swell * swell));
-  } else {
-    const lines = p.pw >= 90 ? ['HAPPY NEW YEAR'] : ['HAPPY', 'NEW YEAR'];
+  const greeting = 'HAPPY NEW YEAR';
+  const lines = p.pw >= 90 ? [greeting] : ['HAPPY', 'NEW YEAR'];
+  const pixelGreeting = p.pw >= 47 && p.ph >= 12;
+  if (pixelGreeting) {
     const scale = Math.max(1, Math.floor(Math.min(p.pw * 0.92 / (Math.max(...lines.map(line => line.length)) * 6 - 1), p.ph * 0.36 / (lines.length * 6))));
+    const top = Math.max(0, Math.floor(p.ph * 0.4 - lines.length * 3 * scale));
     lines.forEach((line, row) => {
       const left = Math.floor((p.pw - (line.length * 6 - 1) * scale) / 2);
-      write(p, line, left, Math.floor(p.ph * 0.4 - lines.length * 3 * scale) + row * 6 * scale, scale, (letter, lx) => {
+      write(p, line, left, top + row * 6 * scale, scale, (letter, lx) => {
         return mix(sparks[(letter + row * 2 + Math.floor(t * 2)) % sparks.length]!, '#ffffff', 0.55 * tri(t * 1.5 + lx * 0.03));
       });
     });
   }
   p.flush();
+  if (!pixelGreeting) g.write(Math.max(0, Math.floor((g.w - greeting.length) / 2)), Math.floor(g.h * 0.4), greeting, c(GOLD), c('#15142e'));
   return g.finish();
 };
 
@@ -688,7 +625,6 @@ export const festiveReceiverBuilders = {
   'santa-sleigh': santaSleigh,
   'christmas-tree': christmasTree,
   fireside,
-  'winter-village': winterVillage,
   'sleigh-bells': sleighBells,
   'new-year': newYear,
   diwali,

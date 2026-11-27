@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {
   IcyNowPlaying,
+  ListeningSession,
   PlaybackDiagnostics,
   PlaybackState,
   ReceiverStyle,
@@ -15,7 +16,7 @@ import {panelBorderStyle, useDisplay} from '../display-context.js';
 import {toAsciiSafe} from '../ascii.js';
 import {ScreenHeader} from '../components/ScreenHeader.js';
 import {buildVisualizer, visualizerHeight} from '../visualizers/receiver-visualizers.js';
-import {useReceiverPulse} from '../receiver-animation.js';
+import {useReceiverFrame} from '../receiver-frame.js';
 import {ReceiverVisualRow} from '../components/ReceiverVisualRow.js';
 
 type NowPlayingProps = {
@@ -28,6 +29,7 @@ type NowPlayingProps = {
   showDiagnostics: boolean;
   stationTime: string;
   receiverStyle: ReceiverStyle;
+  listeningSessions?: ListeningSession[];
   trackHistory: TrackPlay[];
   width: number;
   height: number;
@@ -49,11 +51,12 @@ export function NowPlayingScreen({
   showDiagnostics,
   stationTime,
   receiverStyle,
+  listeningSessions,
   trackHistory,
   width,
   height
 }: NowPlayingProps): React.ReactElement {
-  const pulse = useReceiverPulse();
+  const {pulse, data} = useReceiverFrame(receiverStyle, station, playback, metadata, listeningSessions);
   const {panel: panelBackground, ascii, screenReader} = useDisplay();
   // In ASCII mode route every rendered string through the glyph mapper so no
   // braille, block, box-drawing, or punctuation (·, ★) leaks to the terminal.
@@ -72,7 +75,7 @@ export function NowPlayingScreen({
     panelHeight - (showDiagnostics ? 10 : 5) - visualizerGutterRows,
     innerWidth
   );
-  const visualRows = screenReader ? [] : buildVisualizer(receiverStyle, pulse, innerWidth, visualHeight, station, playback, theme);
+  const visualRows = screenReader ? [] : buildVisualizer(receiverStyle, pulse, innerWidth, visualHeight, station, playback, theme, 'standard', data);
   const receiverState = playback.state.toUpperCase();
   const identityWidth = Math.max(8, innerWidth - displayWidth(receiverState) - 2);
   const stationIdentity = receiverStationIdentity(station, identityWidth);

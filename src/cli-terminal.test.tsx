@@ -45,6 +45,7 @@ describe('CLI terminal entry point', () => {
     expect(configure.mock.calls[0]?.[1]).toMatchObject({isTTY: Boolean(stdoutTty)});
     expect(render).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       interactive: stdoutTty ? undefined : false,
+      incrementalRendering: Boolean(stdoutTty),
       debug: !stdoutTty,
       kittyKeyboard: expect.objectContaining({mode: stdoutTty ? 'auto' : 'disabled'})
     }));
@@ -60,6 +61,7 @@ describe('CLI terminal entry point', () => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
     await import('./cli.js');
     expect(render.mock.calls[0]?.[1].stdout).toBe(process.stdout);
+    expect(render.mock.calls[0]?.[1].incrementalRendering).toBe(false);
   });
 
   it('prints actionable help and exits before rendering when terminal input is absent', async () => {

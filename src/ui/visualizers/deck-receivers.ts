@@ -74,53 +74,6 @@ const vfdSpectrum: Builder = (pulse, width, height, theme) => {
   return g.finish();
 };
 
-// The player everyone had: title bar, running time, a crawling song title, the little analyser, a seek bar and five buttons.
-const winamp: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const wide = Math.min(g.w, 58), left = Math.floor((g.w - wide) / 2);
-  const tall = Math.min(g.h, 12), top = Math.floor((g.h - tall) / 2);
-  const body = '#23252f', bar = '#16182a', lcd = '#04060a', led = g.paint.accent, ink = '#aeb4c6';
-  for (let y = 0; y < tall; y++) for (let x = 0; x < wide; x++) g.set(left + x, top + y, ' ', body, y === 0 ? bar : body);
-  g.write(left + 1, top, '≡ RADIOCLI ' + '═'.repeat(Math.max(0, wide - 20)) + ' _ □ ×', g.paint.fan(0.8), bar);
-  if (tall < 5) { g.write(left + 1, top + 1, `► ${clock(t)}  ${scroll(TITLE, t, wide - 12)}`, led, lcd); return g.finish(); }
-  const panel = Math.min(15, Math.floor(wide * 0.3));
-  for (let y = 1; y <= 3; y++) for (let x = 1; x < wide - 1; x++) if (x < panel + 1 || (y === 1 && x > panel + 1)) g.set(left + x, top + y, ' ', lcd, lcd);
-  g.write(left + 2, top + 1, fract(t) < 0.5 ? '►' : ' ', led, lcd);
-  g.write(left + 4, top + 1, clock(t), mix(led, '#ffffff', 0.3), lcd);
-  for (let b = 0; b < panel - 2; b++) {
-    const level = band(b * 1.6, t) * 16;
-    g.set(left + 2 + b, top + 3, ' ▁▂▃▄▅▆▇█'[clamp(Math.round(level), 0, 8)]!, led, lcd);
-    g.set(left + 2 + b, top + 2, ' ▁▂▃▄▅▆▇█'[clamp(Math.round(level - 8), 0, 8)]!, g.paint.fan(0.9), lcd);
-  }
-  g.write(left + panel + 3, top + 1, scroll(TITLE, t, wide - panel - 5), led, lcd);
-  g.write(left + panel + 3, top + 2, '128 kbps  44 kHz', ink, body);
-  if (wide - panel > 34) g.write(left + wide - 14, top + 2, 'mono ', '#555a6c', body), g.write(left + wide - 9, top + 2, 'stereo', led, body);
-  const vol = Math.max(4, Math.floor((wide - panel - 8) * 0.6));
-  g.write(left + panel + 3, top + 3, '━'.repeat(vol), g.paint.fan(0.6), body);
-  g.set(left + panel + 3 + Math.round(vol * 0.78), top + 3, '▮', '#e6e8f0', body);
-  if (tall >= 6) {
-    const seek = wide - 4, at = Math.round(fract(t / 215) * (seek - 1));
-    g.write(left + 2, top + 4, '─'.repeat(seek), '#555a6c', body);
-    g.write(left + 2, top + 4, '━'.repeat(at), ink, body);
-    g.write(left + 2 + at, top + 4, '▰▰', '#e6e8f0', body);
-    const pressed = Math.floor(t / 3) % 5;
-    ['|◄', ' ►', ' ‖', ' ■', '►|'].forEach((label, n) => g.write(left + 2 + n * 5, top + 5, ` ${label} `, n === pressed && fract(t / 3) < 0.15 ? body : ink, n === pressed && fract(t / 3) < 0.15 ? ink : '#343746'));
-    if (wide > 44) g.write(left + wide - 16, top + 5, ' SHUFFLE  REP ', '#7c8298', '#343746');
-  }
-  // The equaliser window underneath, sliders riding the music.
-  if (tall >= 10) {
-    g.write(left + 1, top + 6, '≡ EQUALIZER ' + '═'.repeat(Math.max(0, wide - 14)), g.paint.fan(0.8), bar);
-    const sliders = Math.min(10, Math.floor((wide - 14) / 4)), track = tall - 8;
-    g.write(left + 2, top + 7, 'ON', led, body); g.write(left + 5, top + 7, 'AUTO', '#555a6c', body);
-    for (let s = 0; s < sliders; s++) {
-      const x = left + 12 + s * 4, knob = Math.round((1 - (0.2 + 0.6 * smooth(0.5 + 0.5 * Math.sin(s * 0.9 + t * 0.35)) + 0.2 * band(s * 2, t))) * (track - 1));
-      for (let y = 0; y < track; y++) g.set(x, top + 7 + y, y === knob ? '█' : '│', y === knob ? '#e6e8f0' : mix(g.paint.fan(-0.8), g.paint.fan(0.9), 1 - y / Math.max(1, track - 1)), body);
-    }
-  }
-  return g.finish();
-};
-
 // A pair of moving-coil meters: needles that overshoot and settle, a red sector past zero, and a lamp when the peak clips.
 const vuNeedles: Builder = (pulse, width, height, theme) => {
   const g = grid(width, height, theme);
@@ -187,42 +140,35 @@ const tapeDeck: Builder = (pulse, width, height, theme) => {
 };
 
 // Nothing but the time: tall segmented digits, a blinking colon, and a thin row of level lamps underneath.
-const segmentClock: Builder = (pulse, width, height, theme) => {
+const segmentClock: Builder = (pulse, width, height, theme, data) => {
   const g = grid(width, height, theme);
   const p = pixels(g);
   const t = seconds(pulse);
   const tube = g.paint.accent, ghost = mix(panelBackground, tube, 0.1);
-  const text = clock(t);
-  const scale = Math.max(1, Math.floor(Math.min((p.ph - (p.ph >= 12 ? 5 : 0)) / 5, p.pw * 0.92 / 29)));
-  const left = Math.floor((p.pw - 29 * scale) / 2), top = Math.max(0, Math.floor((p.ph - 5 * scale) / 2) - (p.ph >= 12 ? 2 : 0));
-  glass(p, fract(t) < 0.5 ? text : text.replace(':', ' '), left, top, scale, mix(tube, '#ffffff', 0.3), ghost);
-  if (p.ph >= 12) for (let lamp = 0; lamp < Math.floor(29 * scale / 3); lamp++) {
-    const on = lamp / (29 * scale / 3) < band(4, t) * 1.2;
-    for (let w = 0; w < 2; w++) p.px(left + lamp * 3 + w, top + 5 * scale + 3, on ? (lamp / (29 * scale / 3) > 0.8 ? g.paint.fan(0.95) : tube) : ghost);
+  const elapsed = data?.stopwatchSeconds ?? t;
+  const text = `${pad2(elapsed / 60)}:${pad2(elapsed % 60)}`;
+  const digitWidth = text.length * 6 - 1;
+  const lit = mix(tube, '#ffffff', 0.3);
+  if (p.pw < digitWidth || p.ph < 5) {
+    g.write(Math.max(0, Math.floor((g.w - text.length) / 2)), Math.floor(g.h / 2), text, lit, panelBackground);
+    return g.finish();
+  }
+  const scale = Math.max(1, Math.floor(Math.min((p.ph - (p.ph >= 12 ? 5 : 0)) / 5, p.pw * 0.92 / digitWidth)));
+  const left = Math.floor((p.pw - digitWidth * scale) / 2), top = Math.max(0, Math.floor((p.ph - 5 * scale) / 2) - (p.ph >= 12 ? 2 : 0));
+  glass(p, text, left, top, scale, lit, ghost);
+  if (fract(t) < 0.5) {
+    const colon = left + (text.indexOf(':') * 6 + 2) * scale;
+    for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) {
+      p.px(colon + dx, top + scale + dy, lit);
+      p.px(colon + dx, top + 3 * scale + dy, lit);
+    }
+  }
+  const lampCount = Math.floor(digitWidth * scale / 3);
+  if (p.ph >= 12) for (let lamp = 0; lamp < lampCount; lamp++) {
+    const on = lamp / lampCount < band(4, t) * 1.2;
+    for (let w = 0; w < 2; w++) p.px(left + lamp * 3 + w, top + 5 * scale + 3, on ? (lamp / lampCount > 0.8 ? g.paint.fan(0.95) : tube) : ghost);
   }
   p.flush();
-  return g.finish();
-};
-
-// A graphic equaliser: a row of sliders riding up and down their slots, with the curve they make drawn through the knobs.
-const graphicEq: Builder = (pulse, width, height, theme) => {
-  const g = grid(width, height, theme);
-  const t = seconds(pulse);
-  const labels = ['32', '64', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
-  const pitch = Math.max(3, Math.floor(g.w / 10)), sliders = Math.min(10, Math.floor(g.w / pitch)), left = Math.floor((g.w - sliders * pitch) / 2);
-  const rows = g.h - (g.h >= 6 ? 1 : 0), slot = g.paint.ink(0.16);
-  for (let s = 0; s < sliders; s++) {
-    const x = left + s * pitch + Math.floor(pitch / 2);
-    const level = clamp(0.5 + 0.34 * Math.sin(s * 0.8 + t * 0.5) + 0.22 * (band(s * 2.4, t) - 0.3));
-    const knob = Math.round((1 - level) * (rows - 1));
-    for (let y = 0; y < rows; y++) {
-      const centre = y === Math.floor(rows / 2);
-      g.set(x, y, y === knob ? '█' : '│', y === knob ? mix(g.paint.accent, '#ffffff', 0.5) : y > knob ? g.paint.fan(s / Math.max(1, sliders - 1) * 2 - 1) : slot, undefined, y === knob);
-      if (y === knob) { g.set(x - 1, y, '▐', g.paint.ink(0.8)); g.set(x + 1, y, '▌', g.paint.ink(0.8)); }
-      else if (centre) { g.set(x - 1, y, '─', slot); g.set(x + 1, y, '─', slot); }
-    }
-    if (rows < g.h) g.write(x - Math.floor(labels[s]!.length / 2), g.h - 1, labels[s]!, g.paint.ink(0.42));
-  }
   return g.finish();
 };
 
@@ -363,11 +309,9 @@ const ledLadder: Builder = (pulse, width, height, theme) => {
 export const deckReceiverBuilders = {
   'head-unit': headUnit,
   'vfd-spectrum': vfdSpectrum,
-  winamp,
   'vu-needles': vuNeedles,
   'tape-deck': tapeDeck,
   'segment-clock': segmentClock,
-  'graphic-eq': graphicEq,
   marquee,
   'dial-scale': dialScale,
   'compact-disc': compactDisc,

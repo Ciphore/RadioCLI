@@ -20,7 +20,7 @@ assert.equal(typeof global.gc, 'function', 'Run Node with --expose-gc');
 const frames = Number(process.argv.find(value => value.startsWith('--frames='))?.split('=')[1] ?? 2000);
 assert(Number.isInteger(frames) && frames >= 1000, '--frames must be an integer >= 1000');
 const playback = {state: 'playing', ready: true, backend: 'mpv', volume: 70, muted: false};
-const scenes = ['manhattan', 'skyline', 'golden-gate', 'alpine', 'flyover', 'planetarium', 'sumi-ocean', 'boat-lake'];
+const scenes = ['manhattan', 'skyline', 'golden-gate-fog', 'alpine', 'flyover', 'planetarium', 'sumi-ocean', 'boat-lake'];
 const viewports = [{width: 100, height: 14}, {width: 50, height: 7}, {width: 24, height: 3}];
 const env = {FORCE_COLOR: '3'};
 await configureTerminalRenderer(env);

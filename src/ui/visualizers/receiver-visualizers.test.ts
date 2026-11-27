@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {describe, expect, it} from 'vitest';
 import {defaultReceiverStyle, receiverStyleNames, type PlaybackState, type ReceiverStyle, type Station} from '../../types.js';
 import {buildVisualizer, visualizerHeight} from './receiver-visualizers.js';
+import {migrateReceiverStyle} from './receiver-style-registry.js';
 
 const station: Station = {
   id: 'station-1',
@@ -58,7 +59,7 @@ function visibleCellCount(rows: ReturnType<typeof buildVisualizer>): number {
 }
 
 const cubeGlyph = /[.:;=+*#%@/\\|_\-]/;
-const asciiAnimationStyles = ['fire', 'fireworks', 'spinning-donut', 'starfield'] as const;
+const asciiAnimationStyles = ['fire', 'spinning-donut', 'starfield'] as const;
 const newlyResponsiveStyles = [
   'ultracode',
   'motion-contour',
@@ -68,7 +69,6 @@ const newlyResponsiveStyles = [
   'equalizer',
   'cube',
   'fire',
-  'fireworks',
   'spinning-donut',
   'starfield'
 ] as const;
@@ -231,89 +231,53 @@ describe('receiver visualizers', () => {
     expect(receiverStyleNames).toEqual(expect.arrayContaining([...immersiveReceiverStyles]));
   });
 
-  it('preserves the original receiver order and defaults to ultracode', () => {
+  it('groups related receivers and defaults to ultracode', () => {
     expect(defaultReceiverStyle).toBe('ultracode');
-    expect(receiverStyleNames.slice(0, 8)).toEqual([
-      'ultracode',
-      'pulse-grid',
-      'hex-pulse',
-      'moire',
-      'galaxy',
-      'cyclone',
-      'nebula',
-      'lava-lamp'
-    ]);
-    expect(receiverStyleNames[receiverStyleNames.indexOf('lava-lamp') + 1]).toBe('gallop-fine');
-    expect(receiverStyleNames[receiverStyleNames.indexOf('gallop-fine') + 1]).toBe('motion-contour');
-    expect(receiverStyleNames).toHaveLength(424);
-    expect(receiverStyleNames.slice(61, 64)).toEqual(['alpine', 'boat-lake', 'crossfade']);
-    expect(receiverStyleNames.slice(64)).toEqual([
-      'ambience', 'alchemy', 'ocean-mist', 'battery', 'plenoptic', 'spikes',
-      'musical-colors', 'milkdrop', 'laser-show', 'disco', 'ridgeline', 'afterglow',
-      'pipes', 'mystify', 'split-flap', 'sine-scroller', 'bounce', 'gem',
-      'piano-roll', 'quilt', 'gyroscope', 'wind-map', 'aquarium', 'spin-text',
-      'defrag', 'solitaire', 'maze-3d', 'tracker', 'teletext', 'vhs',
-      'slime-mold', 'sand', 'galton-board', 'sheet-music', 'string-art', 'shortwave',
-      'mondrian', 'starry-night', 'seurat', 'rothko', 'pollock', 'kandinsky',
-      'lichtenstein', 'haring', 'klimt', 'schotter', 'vasarely', 'zellige',
-      'boing-ball', 'flying-toasters', 'minesweeper', 'tape-loading', 'steam-train', 'bonsai',
-      'dot-matrix', 'etch-a-sketch', 'lcd-pet', 'newtons-cradle', 'abacus', 'dominoes',
-      'rubens-tube', 'sound-field', 'epicycles', 'snowflake', 'moon-phases', 'circle-packing',
-      'flower-of-life', 'knotwork', 'tartan', 'fair-isle', 'infinity-mirror', 'ferris-wheel',
-      'merry-christmas', 'santa-sleigh', 'christmas-tree', 'fireside', 'winter-village', 'sleigh-bells',
-      'new-year', 'diwali', 'lunar-new-year', 'eid-night', 'menorah', 'holi',
-      'gallop-silhouette', 'gallop-ascii', 'gallop-led', 'gallop-neon', 'gallop-quad', 'golden-gate-fog',
-      'golden-gate-sunset', 'golden-gate-night', 'skyline-dawn', 'skyline-rain', 'skyline-synth', 'manhattan-henge',
-      'manhattan-snow', 'manhattan-harbor', 'santa-claus', 'chimney', 'snow-globe', 'gingerbread',
-      'candy-cane', 'advent-calendar', 'nutcracker', 'wreath', 'ornaments', 'snowman',
-      'workshop', 'christmas-lights', 'fireworks-skyline', 'head-unit', 'vfd-spectrum', 'winamp',
-      'vu-needles', 'tape-deck', 'segment-clock', 'graphic-eq', 'marquee', 'dial-scale',
-      'compact-disc', 'boombox', 'led-ladder', 'falling-blocks', 'serpent', 'paddle-ball',
-      'heartbeat', 'breathe', 'rain-window', 'night-drive', 'game-of-life', 'hourglass',
-      'metronome', 'progress-bars', 'typewriter', 'space-invaders', 'brick-breaker', 'maze-chase',
-      'asteroids', 'lcd-game', 'drum-machine', 'turntable', 'boot-sequence', 'hex-dump',
-      'odometer', 'telegraph', 'radio-tower', 'train-window', 'city-windows', 'cat-nap',
-      'coffee-steam', 'laundromat', 'subway-map', 'weather-radar', 'sonar', 'seismograph',
-      'dandelion', 'kites', 'elevator', 'gta-vi-sunset', 'gta-vi-neon', 'gta-vi-postcard',
-      'oel-dolphins', 'oel-racer', 'oel-jet', 'oel-city-cruise', 'oel-dancers', 'car-tachometer',
-      'xplod-ring', 'reel-to-reel', 'cd-changer', 'nixie-deck', 'tube-amp', 'minidisc',
-      'bars-and-waves', 'energy-bliss', 'blazing-colors', 'trilogy-orbs', 'geiss-vortex', 'avs-superscope',
-      'sonique-ribbon', 'g-force-flow', 'scope-peaks', 'mirror-bars', 'sound-eclipse', 'win98-player',
-      'astrolabe', 'pinball', 'terrarium', 'loom-weave', 'sea-beacon', 'tourbillon',
-      'bathysphere', 'zen-garden', 'rose-window', 'switchboard', 'marble-run', 'chess-match',
-      'vice-radio-wheel', 'leonida-chase', 'vice-billboard', 'moon-jellies', 'starlings', 'paper-lanterns',
-      'koi-pond', 'double-helix', 'pendulum-wave', 'mandala', 'bubble-wrap', 'wind-turbines',
-      'balloon-fiesta', 'comet', 'bioluminescence', 'light-prism', 'music-box', 'fresnel-lens',
-      'tide-clock', 'bonfire', 'soda-fizz', 'marching-band', 'television-wall', 'beehive',
-      'potters-wheel', 'owl', 'curtain-call', 'sound-ribbon', 'demo-plasma', 'flow-field',
-      'mosaic-drift', 'retro-stripes', 'arc-tiles', 'glyph-tide', 'pixel-sort', 'halftone-wave',
-      'marbling', 'circuit-traces', 'sunburst', 'topo-map', 'riley-waves', 'aura',
-      'kinetic-type', 'hypno-spiral', 'rule-110', 'dune-sea', 'swell', 'ink-bloom',
-      'sunrise-eq', 'test-card', 'light-wall', 'ultracode-ii', 'pulse-grid-ii', 'hex-pulse-ii',
-      'moire-ii', 'galaxy-ii', 'cyclone-ii', 'nebula-ii', 'lava-lamp-ii', 'ribbon-ii',
-      'braille-wave-ii', 'silk-ii', 'lissajous-ii', 'harmonograph-ii', 'spirograph-ii', 'goniometer-ii',
-      'radial-eq-ii', 'spectrogram-ii', 'caustics-ii', 'leds-ii', 'matrix-ii', 'cascade-ii',
-      'ordered-dither-ii', 'xor-texture-ii', 'pixel-crush-ii', 'copper-bars-ii', 'rotozoomer-ii', 'mesh-ii',
-      'hologram-ii', 'tunnel-ii', 'kaleidoscope-ii', 'phosphene-ii', 'phyllotaxis-ii', 'chladni-ii',
-      'newton-ii', 'torus-knot-ii', 'twister-ii', 'lorenz-ii', 'fern-ii', 'fractal-tree-ii',
-      'julia-ii', 'neural-net-ii', 'fireworks-ii', 'fire-ii', 'stormfront-ii', 'planetarium-ii',
-      'sumi-ocean-ii', 'liftoff-ii', 'flyover-ii', 'alpine-ii', 'boat-lake-ii', 'crossfade-ii',
-      'tokyo-rain', 'paris-dawn', 'london-night', 'brooklyn-sunset', 'miami-synth', 'chicago-snow',
-      'sydney-harbor', 'candy-lane', 'argyle', 'pop-panels', 'quilt-stars', 'bounce-party',
-      'hong-kong-harbor', 'venice-dusk', 'times-square', 'seattle-drizzle', 'dubai-dusk', 'rio-sunset',
-      'amsterdam-canal', 'shanghai-neon', 'cairo-dusk', 'santorini', 'moscow-snow', 'vegas-strip',
-      'istanbul-dusk', 'havana-sunset', 'kyoto-lanterns', 'aurora-cabin', 'storm-lighthouse', 'houndstooth',
-      'kilim', 'pop-city', 'log-cabin-quilt', 'drive-in', 'pier-lights', 'harbor-cranes',
-      'ripple-code', 'dot-lattice', 'hive-pulse', 'moire-lines', 'spiral-arms', 'eye-wall',
-      'star-nursery', 'wax-flow', 'contour-stack', 'twin-ribbons', 'wave-braid', 'silk-fold',
-      'lissajous-tube', 'harmonograph-ink', 'spiro-rose', 'phase-scope', 'radial-spectrum', 'spectrum-fall',
-      'pool-light', 'led-field', 'wave-interference', 'orbit-rings', 'weave-lines', 'sound-bloom'
-    ]);
-    expect(receiverStyleNames.indexOf('cascade')).toBe(receiverStyleNames.indexOf('matrix') + 1);
-    expect(receiverStyleNames.indexOf('equalizer')).toBe(receiverStyleNames.indexOf('hologram') + 1);
-    expect(receiverStyleNames.indexOf('braille-wave')).toBe(receiverStyleNames.indexOf('ribbon') + 1);
-    expect(receiverStyleNames.indexOf('caustics')).toBe(receiverStyleNames.indexOf('spectrogram') + 1);
-    expect(receiverStyleNames.indexOf('spinning-donut')).toBe(receiverStyleNames.indexOf('cube') + 1);
+    expect(receiverStyleNames[0]).toBe(defaultReceiverStyle);
+    expect(receiverStyleNames).toHaveLength(308);
+    expect(new Set(receiverStyleNames).size).toBe(receiverStyleNames.length);
+    const groups = [
+      ['ultracode', 'pulse-grid', 'ripple-code', 'orbit-rings'],
+      ['moire', 'moire-ii', 'moire-lines'],
+      ['lissajous', 'lissajous-ii', 'lissajous-tube'],
+      ['matrix', 'matrix-ii', 'cascade'],
+      ['golden-gate-fog', 'golden-gate-sunset', 'golden-gate-night', 'golden-gate-live'],
+      ['gallop-fine', 'gallop-ascii', 'gallop-led']
+    ] as const;
+    for (const group of groups) {
+      const start = receiverStyleNames.indexOf(group[0]);
+      expect(receiverStyleNames.slice(start, start + group.length)).toEqual(group);
+    }
+  });
+
+  it('retires the rejected receivers and migrates their saved IDs', () => {
+    const retired = [
+      'tracker', 'teletext', 'slime-mold', 'starry-night', 'seurat', 'rothko',
+      'tape-loading', 'etch-a-sketch', 'gallop-silhouette', 'gallop-neon', 'gallop-quad', 'skyline-synth',
+      'chimney', 'gingerbread', 'nutcracker', 'snowman', 'winamp', 'graphic-eq',
+      'game-of-life', 'typewriter', 'drum-machine', 'gta-vi-postcard', 'win98-player', 'bathysphere',
+      'zen-garden', 'switchboard', 'marble-run', 'vice-radio-wheel', 'leonida-chase', 'vice-billboard',
+      'comet', 'bioluminescence', 'fresnel-lens', 'potters-wheel', 'owl', 'curtain-call',
+      'sound-ribbon', 'kinetic-type', 'rule-110', 'ultracode-ii', 'pulse-grid-ii', 'lava-lamp-ii',
+      'ribbon-ii', 'cascade-ii', 'twister-ii', 'neural-net-ii', 'sumi-ocean-ii', 'wave-interference',
+      'led-field', 'spiro-rose', 'sound-bloom', 'spirograph-ii', 'phyllotaxis-ii', 'goniometer-ii',
+      'julia-ii', 'twin-ribbons', 'sonique-ribbon', 'wave-braid', 'braille-wave', 'dune-sea',
+      'sunrise-eq', 'sheet-music', 'rotozoomer-ii', 'xor-texture-ii', 'log-cabin-quilt', 'quilt-stars',
+      'oel-jet', 'advent-calendar', 'stormfront-ii', 'ferris-wheel', 'havana-sunset', 'dubai-dusk',
+      'paris-dawn', 'asteroids', 'coffee-steam',
+      'loom-weave', 'kilim', 'vhs', 'television-wall', 'liftoff-ii', 'candy-lane',
+      'sea-beacon', 'boat-lake-ii', 'tide-clock', 'golden-gate', 'drive-in', 'cd-changer',
+      'bonsai', 'radial-eq-ii', 'harmonograph-ink', 'torus-knot', 'g-force-flow',
+      'topo-map', 'seismograph', 'nebula-ii', 'alpine-ii',
+      'galaxy-ii', 'chladni-ii', 'flyover-ii', 'fractal-tree-ii', 'vasarely', 'pollock',
+      'mystify', 'spin-text', 'moon-phases', 'fireworks', 'winter-village', 'brooklyn-sunset',
+      'london-night', 'harbor-cranes', 'amsterdam-canal', 'venice-dusk', 'rio-sunset',
+      'lcd-game', 'flying-toasters', 'cat-nap', 'laundromat'
+    ];
+    for (const style of retired) {
+      expect(receiverStyleNames).not.toContain(style);
+      expect(migrateReceiverStyle(style)).toBe(defaultReceiverStyle);
+    }
   });
 
   it('keeps every immersive style inside its viewport with reconstructable segments', () => {
@@ -785,17 +749,6 @@ describe('receiver visualizers', () => {
       const total = frameText(rows).replace(/\n/g, '').length;
       expect(visibleCellCount(rows) / Math.max(1, total)).toBeGreaterThan(0.25);
     }
-  });
-
-  it('moves fireworks burst origins across generations', () => {
-    const height = visualizerHeight('fireworks', 14);
-    const frames = [0, 40, 80, 120].map(p =>
-      frameText(buildVisualizer('fireworks', p, 80, height, station, playback, 'ruby'))
-    );
-    // Not all frames should be identical — bursts re-roll positions
-    const unique = new Set(frames);
-    expect(unique.size).toBeGreaterThan(1);
-    expect(frames.some(f => /[*✦★+]/.test(f))).toBe(true);
   });
 
   it('keeps the liftoff rocket in frame while the world scrolls past', () => {

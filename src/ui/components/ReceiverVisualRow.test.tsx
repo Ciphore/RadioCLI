@@ -50,7 +50,7 @@ describe('receiver output boundary', () => {
   });
 
   it.each([0, 1, 2, 3])('preserves scenery at color level %s with ASCII and transparent backgrounds', async level => {
-    for (const style of ['manhattan', 'skyline', 'golden-gate', 'alpine', 'flyover', 'planetarium', 'sumi-ocean', 'equalizer'] as const) {
+    for (const style of ['manhattan', 'skyline', 'golden-gate-fog', 'alpine', 'flyover', 'planetarium', 'sumi-ocean', 'equalizer'] as const) {
       for (const ascii of [false, true]) {
         for (const transparent of [false, true]) await compare(style, sizes[1], ascii, level, transparent);
       }
