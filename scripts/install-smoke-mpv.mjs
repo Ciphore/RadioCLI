@@ -131,10 +131,8 @@ async function install() {
       executable = join(extracted, 'mpv.app', 'Contents', 'MacOS', 'mpv');
       macos = runCommand('/usr/bin/sw_vers', ['-productVersion']).stdout.trim();
     } else {
-      // Fixed PowerShell code. Neither archive path is interpolated into code.
-      runCommand('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Expand-Archive -LiteralPath $env:RADIOCLI_MPV_ARCHIVE -DestinationPath $env:RADIOCLI_MPV_EXTRACT -Force'], {
-        env: {...process.env, RADIOCLI_MPV_ARCHIVE: archive, RADIOCLI_MPV_EXTRACT: extracted}
-      });
+      // Use Windows' archive tool so extraction errors reach the smoke test.
+      runCommand('tar.exe', ['-xf', archive, '-C', extracted]);
       executable = join(extracted, 'mpv.exe');
     }
     const binary = verifyNativeBinary(readFileSync(executable), process.platform, process.arch);
