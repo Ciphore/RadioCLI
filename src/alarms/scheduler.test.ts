@@ -98,9 +98,9 @@ describe('native alarm schedulers', () => {
     } finally { rmSync(root, {recursive: true, force: true}); }
   });
 
-  it('writes and links custom XDG systemd units into the actual user manager', async () => {
+  it('writes systemd units under the custom XDG config and links them with systemctl', async () => {
     const writes: string[] = []; const run = vi.fn(async () => ({code: 0, stdout: '', stderr: ''}));
-    const config = join(tmpdir(), 'radiocli-config-fixture');
+    const config = '/fixture/radiocli-config';
     const adapter = createSchedulerAdapter({platform: 'linux', home: '/fixture/home', env: {XDG_CONFIG_HOME: config}, nodePath: '/fixture/node', cliPath: '/fixture/cli', run, commandExists: () => true,
       writeFile: path => { writes.push(path); }, removeFile: vi.fn()});
     await adapter.install(alarm, new Date('2030-02-03T14:05:00Z'));
